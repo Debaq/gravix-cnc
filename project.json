@@ -1,0 +1,7 @@
+{
+  "title": "CNC Control Interface",
+  "description": "Interfaz web para control y gestión de máquinas CNC.",
+  "type": "project",
+  "category": "tool",
+  "favicon": "favicon.ico"
+}
