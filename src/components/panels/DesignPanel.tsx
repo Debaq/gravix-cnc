@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useAppStore } from '@/stores/useAppStore'
+import { useCanvasManager } from '@/hooks/useCanvasManager'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -29,31 +30,12 @@ import {
   Hexagon,
   Star,
 } from 'lucide-react'
-import type { CanvasElement } from '@/lib/types'
-
-function createShapeElement(
-  type: CanvasElement['type'],
-  name: string,
-  makerType?: string,
-  makerParams?: Record<string, number | string | number[]>
-): CanvasElement {
-  return {
-    id: crypto.randomUUID(),
-    type,
-    name,
-    visible: true,
-    locked: false,
-    config: null,
-    children: [],
-    makerType,
-    makerParams,
-  }
-}
 
 export function DesignPanel() {
   const { t } = useTranslation('canvas')
-  const { elements, selectedElementId, selectElement, addElement, removeElement, updateElement } = useCanvasStore()
+  const { elements, selectedElementId, selectElement } = useCanvasStore()
   const { addConsoleLine } = useAppStore()
+  const canvasManager = useCanvasManager()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleLoadSVG = () => {
@@ -64,39 +46,31 @@ export function DesignPanel() {
     const file = e.target.files?.[0]
     if (!file) return
 
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const svgData = ev.target?.result as string
-      if (!svgData) return
-
-      const el = createShapeElement('svg', file.name.replace('.svg', ''))
-      el.svgData = svgData
-      addElement(el)
-      addConsoleLine(`SVG cargado: ${file.name}`)
-    }
-    reader.readAsText(file)
+    canvasManager.loadSVG(file)
+    addConsoleLine(`SVG cargado: ${file.name}`)
 
     // Reset para permitir cargar el mismo archivo de nuevo
     e.target.value = ''
   }
 
-  const handleAddShape = (type: CanvasElement['type'], name: string, makerType?: string, makerParams?: Record<string, number | string | number[]>) => {
-    const el = createShapeElement(type, name, makerType, makerParams)
-    addElement(el)
-    selectElement(el.id)
-    addConsoleLine(`Elemento creado: ${name}`)
+  const handleAddShape = (type: string) => {
+    canvasManager.addShape(type)
+    addConsoleLine(`Elemento creado: ${type}`)
   }
 
-  const handleCopyElement = (el: CanvasElement) => {
-    const copy = createShapeElement(el.type, `${el.name} (copia)`, el.makerType, el.makerParams)
-    copy.config = el.config ? { ...el.config } : null
-    copy.svgData = el.svgData
-    copy.children = el.children.map((child) => ({
-      ...child,
-      id: crypto.randomUUID(),
-      parent: copy.id,
-    }))
-    addElement(copy)
+  const handleCopyElement = (elId: string) => {
+    // For now, copy creates a duplicate in the same position
+    const el = elements.find((e) => e.id === elId)
+    if (!el) return
+    // Re-add the same shape type to canvas
+    if (el.type === 'svg' && el.svgData) {
+      // Recreate SVG from stored data
+      const blob = new Blob([el.svgData], { type: 'image/svg+xml' })
+      const file = new File([blob], `${el.name} (copia).svg`, { type: 'image/svg+xml' })
+      canvasManager.loadSVG(file)
+    } else {
+      canvasManager.addShape(el.type)
+    }
     addConsoleLine(`Copiado: ${el.name}`)
   }
 
@@ -126,15 +100,15 @@ export function DesignPanel() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => handleAddShape('rect', t('addRect'))}>
+              <DropdownMenuItem onSelect={() => handleAddShape('rect')}>
                 <Square className="h-4 w-4 mr-2" />
                 {t('addRect')}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => handleAddShape('circle', t('addCircle'))}>
+              <DropdownMenuItem onSelect={() => handleAddShape('circle')}>
                 <Circle className="h-4 w-4 mr-2" />
                 {t('addCircle')}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => handleAddShape('line', t('addLine'))}>
+              <DropdownMenuItem onSelect={() => handleAddShape('line')}>
                 <Minus className="h-4 w-4 mr-2" />
                 {t('addLine')}
               </DropdownMenuItem>
@@ -144,42 +118,42 @@ export function DesignPanel() {
                   {t('makerModels')}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
-                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('rectangle'), 'Rectangle', { width: 50, height: 30 })}>
+                  <DropdownMenuItem onSelect={() => handleAddShape('rect')}>
                     {t('rectangle')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('square'), 'Square', { side: 40 })}>
+                  <DropdownMenuItem onSelect={() => handleAddShape('rect')}>
                     {t('square')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('roundRect'), 'RoundRectangle', { width: 50, height: 30, corner: 5 })}>
+                  <DropdownMenuItem onSelect={() => handleAddShape('rect')}>
                     {t('roundRect')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('oval'), 'Oval', { width: 50, height: 30 })}>
+                  <DropdownMenuItem onSelect={() => handleAddShape('circle')}>
                     {t('oval')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('ellipse'), 'Ellipse', { radiusX: 30, radiusY: 20 })}>
+                  <DropdownMenuItem onSelect={() => handleAddShape('circle')}>
                     {t('ellipse')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('ring'), 'Ring', { outerRadius: 30, innerRadius: 20 })}>
+                  <DropdownMenuItem onSelect={() => handleAddShape('circle')}>
                     {t('ring')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('polygon'), 'Polygon', { sides: 6, radius: 25 })}>
+                  <DropdownMenuItem onSelect={() => handleAddShape('rect')}>
                     <Hexagon className="h-3 w-3 mr-2" />
                     {t('polygon')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('star'), 'Star', { points: 5, outerRadius: 30, innerRadius: 15 })}>
+                  <DropdownMenuItem onSelect={() => handleAddShape('rect')}>
                     <Star className="h-3 w-3 mr-2" />
                     {t('star')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('slot'), 'Slot', { width: 50, height: 20 })}>
+                  <DropdownMenuItem onSelect={() => handleAddShape('rect')}>
                     {t('slot')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('dome'), 'Dome', { width: 40, height: 25 })}>
+                  <DropdownMenuItem onSelect={() => handleAddShape('circle')}>
                     {t('dome')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('boltCircle'), 'BoltCircle', { boltCount: 6, radius: 30, boltRadius: 3 })}>
+                  <DropdownMenuItem onSelect={() => handleAddShape('circle')}>
                     {t('boltCircle')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('boltRect'), 'BoltRectangle', { width: 60, height: 40, boltRadius: 3 })}>
+                  <DropdownMenuItem onSelect={() => handleAddShape('rect')}>
                     {t('boltRect')}
                   </DropdownMenuItem>
                 </DropdownMenuSubContent>
@@ -217,7 +191,7 @@ export function DesignPanel() {
                   className="h-6 w-6"
                   onClick={(e) => {
                     e.stopPropagation()
-                    updateElement(el.id, { visible: !el.visible })
+                    canvasManager.toggleVisibility(el.id)
                   }}
                 >
                   {el.visible ? (
@@ -232,7 +206,7 @@ export function DesignPanel() {
                   className="h-6 w-6"
                   onClick={(e) => {
                     e.stopPropagation()
-                    updateElement(el.id, { locked: !el.locked })
+                    canvasManager.toggleLock(el.id)
                   }}
                 >
                   {el.locked ? (
@@ -247,7 +221,7 @@ export function DesignPanel() {
                   className="h-6 w-6"
                   onClick={(e) => {
                     e.stopPropagation()
-                    handleCopyElement(el)
+                    handleCopyElement(el.id)
                   }}
                 >
                   <Copy className="h-3 w-3" />
@@ -258,7 +232,7 @@ export function DesignPanel() {
                   className="h-6 w-6 text-destructive"
                   onClick={(e) => {
                     e.stopPropagation()
-                    removeElement(el.id)
+                    canvasManager.removeObject(el.id)
                     addConsoleLine(`Eliminado: ${el.name}`)
                   }}
                 >

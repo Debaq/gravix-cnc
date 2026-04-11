@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback } from 'react'
 import {
   Canvas,
   Rect,
@@ -208,7 +208,8 @@ export function buildWorkAreaObjects(
 // Hook: useCanvasManager
 // ============================================
 export function useCanvasManager() {
-  const fabricCanvasRef = useRef<Canvas | null>(null)
+  // We use the module-level sharedCanvasRef so all hook instances share the same canvas
+  const getCanvas = useCallback((): Canvas | null => sharedCanvasRef, [])
 
   const {
     addElement,
@@ -222,7 +223,6 @@ export function useCanvasManager() {
   // Set canvas ref (called from DesignCanvas)
   // ------------------------------------------
   const setCanvas = useCallback((canvas: Canvas | null) => {
-    fabricCanvasRef.current = canvas
     setSharedCanvas(canvas)
   }, [])
 
@@ -231,7 +231,7 @@ export function useCanvasManager() {
   // ------------------------------------------
   const loadSVG = useCallback(
     async (file: File) => {
-      const canvas = fabricCanvasRef.current
+      const canvas = getCanvas()
       if (!canvas) return
 
       const text = await file.text()
@@ -301,7 +301,7 @@ export function useCanvasManager() {
   // ------------------------------------------
   const addShape = useCallback(
     (type: string) => {
-      const canvas = fabricCanvasRef.current
+      const canvas = getCanvas()
       if (!canvas) return
 
       const elementId = generateId()
@@ -377,7 +377,7 @@ export function useCanvasManager() {
   // ------------------------------------------
   const removeObject = useCallback(
     (elementId: string) => {
-      const canvas = fabricCanvasRef.current
+      const canvas = getCanvas()
       if (!canvas) return
 
       const obj = canvas
@@ -399,7 +399,7 @@ export function useCanvasManager() {
   // ------------------------------------------
   const toggleVisibility = useCallback(
     (elementId: string) => {
-      const canvas = fabricCanvasRef.current
+      const canvas = getCanvas()
       if (!canvas) return
 
       const currentElements = useCanvasStore.getState().elements
@@ -427,7 +427,7 @@ export function useCanvasManager() {
   // ------------------------------------------
   const toggleLock = useCallback(
     (elementId: string) => {
-      const canvas = fabricCanvasRef.current
+      const canvas = getCanvas()
       if (!canvas) return
 
       const currentElements = useCanvasStore.getState().elements
@@ -462,7 +462,7 @@ export function useCanvasManager() {
   // Zoom controls
   // ------------------------------------------
   const zoomIn = useCallback(() => {
-    const canvas = fabricCanvasRef.current
+    const canvas = getCanvas()
     if (!canvas) return
     const currentZoom = canvas.getZoom()
     const newZoom = Math.min(currentZoom * ZOOM_STEP, MAX_ZOOM)
@@ -472,7 +472,7 @@ export function useCanvasManager() {
   }, [])
 
   const zoomOut = useCallback(() => {
-    const canvas = fabricCanvasRef.current
+    const canvas = getCanvas()
     if (!canvas) return
     const currentZoom = canvas.getZoom()
     const newZoom = Math.max(currentZoom / ZOOM_STEP, MIN_ZOOM)
@@ -482,7 +482,7 @@ export function useCanvasManager() {
   }, [])
 
   const fitView = useCallback(() => {
-    const canvas = fabricCanvasRef.current
+    const canvas = getCanvas()
     if (!canvas) return
 
     const wa = useCanvasStore.getState().workArea
@@ -511,7 +511,7 @@ export function useCanvasManager() {
   // Flip controls
   // ------------------------------------------
   const flipH = useCallback(() => {
-    const canvas = fabricCanvasRef.current
+    const canvas = getCanvas()
     if (!canvas) return
 
     const active = canvas.getActiveObject()
@@ -522,7 +522,7 @@ export function useCanvasManager() {
   }, [])
 
   const flipV = useCallback(() => {
-    const canvas = fabricCanvasRef.current
+    const canvas = getCanvas()
     if (!canvas) return
 
     const active = canvas.getActiveObject()
@@ -536,7 +536,7 @@ export function useCanvasManager() {
   // Extract paths for G-code generation
   // ------------------------------------------
   const getPathsForGCode = useCallback((): GCodePath[] => {
-    const canvas = fabricCanvasRef.current
+    const canvas = getCanvas()
     if (!canvas) return []
 
     const wa = useCanvasStore.getState().workArea
@@ -628,7 +628,6 @@ export function useCanvasManager() {
   }, [])
 
   return {
-    fabricCanvasRef,
     setCanvas,
     loadSVG,
     addShape,
