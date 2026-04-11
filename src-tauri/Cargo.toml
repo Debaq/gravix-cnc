@@ -20,3 +20,4 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 bcrypt = "0.15"
 tokio = { version = "1", features = ["full"] }
+serialport = "4"

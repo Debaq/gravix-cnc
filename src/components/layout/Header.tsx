@@ -1,9 +1,14 @@
+import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/stores/useAppStore'
 import { useSerialStore } from '@/stores/useSerialStore'
+import { useSerial } from '@/hooks/useSerial'
+import { useProject } from '@/hooks/useProject'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,12 +30,12 @@ import {
   Languages,
   Wifi,
   WifiOff,
+  RefreshCw,
 } from 'lucide-react'
 import type { Workspace } from '@/lib/types'
 
 export function Header() {
   const { t } = useTranslation('header')
-  const { t: tc } = useTranslation('common')
   const { t: ts } = useTranslation('serial')
 
   const {
@@ -43,7 +48,39 @@ export function Header() {
     setLanguage,
   } = useAppStore()
 
-  const { connected } = useSerialStore()
+  const { connected, baudRate, setBaudRate } = useSerialStore()
+  const serial = useSerial()
+  const project = useProject()
+
+  const [ports, setPorts] = useState<{ name: string; port_type: string }[]>([])
+  const [selectedPort, setSelectedPort] = useState('')
+  const [popoverOpen, setPopoverOpen] = useState(false)
+  const [loadingPorts, setLoadingPorts] = useState(false)
+
+  const refreshPorts = useCallback(async () => {
+    setLoadingPorts(true)
+    const result = await serial.listPorts()
+    setPorts(result)
+    if (result.length > 0 && !selectedPort) {
+      setSelectedPort(result[0].name)
+    }
+    setLoadingPorts(false)
+  }, [serial, selectedPort])
+
+  useEffect(() => {
+    if (popoverOpen) {
+      refreshPorts()
+    }
+  }, [popoverOpen]) // Solo cuando se abre
+
+  const handleConnect = async () => {
+    if (connected) {
+      await serial.disconnect()
+    } else if (selectedPort) {
+      await serial.connect(selectedPort, baudRate)
+      setPopoverOpen(false)
+    }
+  }
 
   const workspaceButtons: { id: Workspace; icon: React.ReactNode; label: string }[] = [
     { id: 'design', icon: <Pencil className="h-4 w-4" />, label: t('design') },
@@ -53,7 +90,6 @@ export function Header() {
 
   const handleLanguageChange = (lang: string) => {
     setLanguage(lang)
-    // i18next will handle the language change through the store
     import('@/i18n/index').then((i18nModule) => {
       i18nModule.default.changeLanguage(lang)
     })
@@ -63,13 +99,31 @@ export function Header() {
     <header className="flex items-center justify-between h-12 px-3 bg-primary text-primary-foreground border-b">
       {/* Left: Project actions */}
       <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon" className="text-primary-foreground hover:bg-primary/80" title={t('newProject')}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-primary-foreground hover:bg-primary/80"
+          title={t('newProject')}
+          onClick={project.newProject}
+        >
           <FilePlus className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="text-primary-foreground hover:bg-primary/80" title={t('openProject')}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-primary-foreground hover:bg-primary/80"
+          title={t('openProject')}
+          onClick={project.loadProject}
+        >
           <FolderOpen className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="text-primary-foreground hover:bg-primary/80" title={t('saveProject')}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-primary-foreground hover:bg-primary/80"
+          title={t('saveProject')}
+          onClick={project.saveProject}
+        >
           <Save className="h-4 w-4" />
         </Button>
 
@@ -142,11 +196,71 @@ export function Header() {
 
         <Separator orientation="vertical" className="h-6 bg-primary-foreground/30 mx-1" />
 
-        {/* Connection status */}
-        <Badge variant={connected ? 'success' : 'destructive'} className="gap-1 cursor-pointer">
-          {connected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-          {connected ? ts('connected') : ts('disconnected')}
-        </Badge>
+        {/* Connection status with popover */}
+        <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+          <PopoverTrigger asChild>
+            <Badge variant={connected ? 'success' : 'destructive'} className="gap-1 cursor-pointer">
+              {connected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+              {connected ? ts('connected') : ts('disconnected')}
+            </Badge>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-64">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold">{ts('port')}</span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={refreshPorts}
+                  disabled={loadingPorts}
+                >
+                  <RefreshCw className={`h-3 w-3 ${loadingPorts ? 'animate-spin' : ''}`} />
+                </Button>
+              </div>
+              <Select value={selectedPort} onValueChange={setSelectedPort} disabled={connected}>
+                <SelectTrigger className="h-8">
+                  <SelectValue placeholder={ts('selectPort')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {ports.map((p) => (
+                    <SelectItem key={p.name} value={p.name}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                  {ports.length === 0 && (
+                    <SelectItem value="_none" disabled>
+                      {ts('selectPort')}
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              <div>
+                <span className="text-xs text-muted-foreground">{ts('baudRate')}</span>
+                <Select value={baudRate.toString()} onValueChange={(v) => setBaudRate(parseInt(v))} disabled={connected}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="9600">9600</SelectItem>
+                    <SelectItem value="19200">19200</SelectItem>
+                    <SelectItem value="38400">38400</SelectItem>
+                    <SelectItem value="57600">57600</SelectItem>
+                    <SelectItem value="115200">115200</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                className="w-full"
+                variant={connected ? 'destructive' : 'default'}
+                size="sm"
+                onClick={handleConnect}
+              >
+                {connected ? ts('disconnect') : ts('connect')}
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
 
         {/* Language */}
         <DropdownMenu>

@@ -1,5 +1,4 @@
 import { useEffect } from 'react'
-import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/stores/useAppStore'
 import { useLibraryStore } from '@/stores/useLibraryStore'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -11,28 +10,50 @@ import { CanvasFooter } from '@/components/canvas/CanvasFooter'
 import { GCodeViewer3D } from '@/components/viewer/GCodeViewer3D'
 import { PropertiesPanel } from '@/components/panels/PropertiesPanel'
 import { GCodePanel } from '@/components/panels/GCodePanel'
+import { ControlPanel } from '@/components/panels/ControlPanel'
 import { WorkAreaModal } from '@/components/modals/WorkAreaModal'
 import { GlobalConfigModal } from '@/components/modals/GlobalConfigModal'
 import { ToolsModal } from '@/components/modals/ToolsModal'
 import { MaterialsModal } from '@/components/modals/MaterialsModal'
 import { HelpModal } from '@/components/modals/HelpModal'
+import { isTauri, tauriInvoke } from '@/lib/tauri'
+import type { Tool, Material } from '@/lib/types'
 
-// Import data directly for now (will be loaded via Tauri commands later)
-import toolsData from '../src-tauri/data/tools.json'
-import materialsData from '../src-tauri/data/materials.json'
+async function loadInitialData(): Promise<{ tools: Tool[]; materials: Material[] }> {
+  if (isTauri()) {
+    try {
+      const [tools, materials] = await Promise.all([
+        tauriInvoke<Tool[]>('get_tools'),
+        tauriInvoke<Material[]>('get_materials'),
+      ])
+      return { tools, materials }
+    } catch {
+      // Fallback si los comandos Tauri aun no existen
+    }
+  }
+  // Fallback para dev sin Tauri
+  const [toolsRes, materialsRes] = await Promise.all([
+    fetch('/data/tools.json').then((r) => r.json()),
+    fetch('/data/materials.json').then((r) => r.json()),
+  ])
+  return { tools: toolsRes, materials: materialsRes }
+}
 
 function App() {
-  const { t } = useTranslation('serial')
   const { currentWorkspace, addConsoleLine } = useAppStore()
   const { setTools, setMaterials } = useLibraryStore()
 
   // Load initial data
   useEffect(() => {
-    setTools(toolsData as ReturnType<typeof useLibraryStore.getState>['tools'])
-    setMaterials(materialsData as ReturnType<typeof useLibraryStore.getState>['materials'])
-    addConsoleLine('GRBL Web Control Pro v5.0 iniciado')
-    addConsoleLine(`Herramientas cargadas: ${toolsData.length}`)
-    addConsoleLine(`Materiales cargados: ${materialsData.length}`)
+    loadInitialData().then(({ tools, materials }) => {
+      setTools(tools)
+      setMaterials(materials)
+      addConsoleLine('GRBL Web Control Pro v5.0 iniciado')
+      addConsoleLine(`Herramientas cargadas: ${tools.length}`)
+      addConsoleLine(`Materiales cargados: ${materials.length}`)
+    }).catch((err) => {
+      addConsoleLine(`Error cargando datos: ${err}`)
+    })
   }, [])
 
   return (
@@ -60,13 +81,8 @@ function App() {
 
           {/* Control workspace */}
           {currentWorkspace === 'control' && (
-            <div className="flex flex-col items-center justify-center h-full bg-muted/20">
-              <p className="text-lg text-muted-foreground">
-                {t('controlWorkspaceTitle')}
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                {t('controlWorkspaceSubtitle')}
-              </p>
+            <div className="h-full overflow-auto p-4 bg-muted/20">
+              <ControlPanel />
             </div>
           )}
         </WorkspaceLayout>

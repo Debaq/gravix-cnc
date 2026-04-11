@@ -2,11 +2,14 @@ import { useTranslation } from 'react-i18next'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useAppStore } from '@/stores/useAppStore'
+import { useSerialStore } from '@/stores/useSerialStore'
+import { useSerial } from '@/hooks/useSerial'
+import { useProject } from '@/hooks/useProject'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Code, Download, Send, Copy, Cog, AlertTriangle } from 'lucide-react'
-import { useSerialStore } from '@/stores/useSerialStore'
+import { Progress } from '@/components/ui/progress'
+import { Code, Download, Send, Copy, Cog, AlertTriangle, Square } from 'lucide-react'
 import { GCodeGenerator } from '@/lib/gcode-generator'
 import type { GCodePath, Point2D } from '@/lib/types'
 
@@ -390,7 +393,9 @@ export function GCodePanel() {
   const { elements, globalConfig } = useCanvasStore()
   const { addConsoleLine } = useAppStore()
   const { setGCode, setEstimates } = useGCodeStore()
-  const { connected } = useSerialStore()
+  const { connected, sending, sendProgress } = useSerialStore()
+  const serial = useSerial()
+  const project = useProject()
 
   const handleGenerate = () => {
     if (elements.length === 0) {
@@ -423,20 +428,22 @@ export function GCodePanel() {
 
   const handleDownload = () => {
     if (!gcodeGenerated) return
-    const blob = new Blob([gcode], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'output.gcode'
-    a.click()
-    URL.revokeObjectURL(url)
-    addConsoleLine('G-code descargado')
+    project.downloadGCode(gcode, 'output.gcode')
   }
 
   const handleCopy = () => {
     if (!gcodeGenerated) return
     navigator.clipboard.writeText(gcode)
     addConsoleLine('G-code copiado al portapapeles')
+  }
+
+  const handleSend = () => {
+    if (!gcodeGenerated || !connected || sending) return
+    serial.sendGCode(gcode)
+  }
+
+  const handleCancelSend = () => {
+    serial.cancelSend()
   }
 
   return (
@@ -489,16 +496,40 @@ export function GCodePanel() {
         >
           <Download className="h-3 w-3" />
         </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          className="h-8 w-8"
-          disabled={!gcodeGenerated || !connected}
-          title={t('sendToGRBL')}
-        >
-          <Send className="h-3 w-3" />
-        </Button>
+        {sending ? (
+          <Button
+            variant="destructive"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleCancelSend}
+            title={t('stop')}
+          >
+            <Square className="h-3 w-3" />
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleSend}
+            disabled={!gcodeGenerated || !connected}
+            title={t('sendToGRBL')}
+          >
+            <Send className="h-3 w-3" />
+          </Button>
+        )}
       </div>
+
+      {/* Progress bar */}
+      {sending && (
+        <div className="px-3 py-1.5 border-b">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs text-muted-foreground">{t('sendToGRBL')}...</span>
+            <span className="text-xs font-mono">{Math.round(sendProgress)}%</span>
+          </div>
+          <Progress value={sendProgress} />
+        </div>
+      )}
 
       {/* G-code preview */}
       <ScrollArea className="flex-1 max-h-[300px]">

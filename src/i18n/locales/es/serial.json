@@ -27,5 +27,11 @@
   "noSerial": "Serial API no soportada",
   "selectPort": "Seleccionar Puerto",
   "controlWorkspaceTitle": "Workspace de Control",
-  "controlWorkspaceSubtitle": "Conecta tu maquina para empezar"
+  "controlWorkspaceSubtitle": "Conecta tu maquina para empezar",
+  "resume": "Reanudar",
+  "refreshPorts": "Actualizar puertos",
+  "sending": "Enviando...",
+  "sendComplete": "Envio completado",
+  "sendCancelled": "Envio cancelado",
+  "noTauri": "Tauri no disponible"
 }
