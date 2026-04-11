@@ -17,8 +17,8 @@ import { MaterialsModal } from '@/components/modals/MaterialsModal'
 import { HelpModal } from '@/components/modals/HelpModal'
 
 // Import data directly for now (will be loaded via Tauri commands later)
-import toolsData from '../backend/data/tools.json'
-import materialsData from '../backend/data/materials.json'
+import toolsData from '../src-tauri/data/tools.json'
+import materialsData from '../src-tauri/data/materials.json'
 
 function App() {
   const { currentWorkspace, addConsoleLine } = useAppStore()
