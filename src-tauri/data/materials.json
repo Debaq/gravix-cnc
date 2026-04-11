@@ -1,0 +1,368 @@
+[
+    {
+        "id": "mat_wood_001",
+        "name": "Pino 6mm",
+        "category": "wood",
+        "thickness": 6,
+        "description": "Madera blanda, fácil de trabajar",
+        "color": "#D2B48C",
+        "cnc": {
+            "feedRate": 1200,
+            "plungeRate": 600,
+            "rpm": 12000,
+            "depthPerPass": 2,
+            "recommended": "End Mill 3-6mm"
+        },
+        "laser": {
+            "cutPower": 80,
+            "cutSpeed": 300,
+            "engravePower": 40,
+            "engraveSpeed": 1500,
+            "passes": 2
+        }
+    },
+    {
+        "id": "mat_wood_002",
+        "name": "MDF 3mm",
+        "category": "wood",
+        "thickness": 3,
+        "description": "Fibra de densidad media, corte limpio",
+        "color": "#8B7355",
+        "cnc": {
+            "feedRate": 1500,
+            "plungeRate": 700,
+            "rpm": 15000,
+            "depthPerPass": 1.5,
+            "recommended": "End Mill 3mm"
+        },
+        "laser": {
+            "cutPower": 70,
+            "cutSpeed": 400,
+            "engravePower": 30,
+            "engraveSpeed": 2000,
+            "passes": 1
+        }
+    },
+    {
+        "id": "mat_wood_003",
+        "name": "MDF 6mm",
+        "category": "wood",
+        "thickness": 6,
+        "description": "Fibra de densidad media estándar",
+        "color": "#8B7355",
+        "cnc": {
+            "feedRate": 1200,
+            "plungeRate": 600,
+            "rpm": 16000,
+            "depthPerPass": 2,
+            "recommended": "End Mill 3-6mm"
+        },
+        "laser": {
+            "cutPower": 85,
+            "cutSpeed": 200,
+            "engravePower": 35,
+            "engraveSpeed": 1800,
+            "passes": 2
+        }
+    },
+    {
+        "id": "mat_wood_004",
+        "name": "Contrachapado 3mm",
+        "category": "wood",
+        "thickness": 3,
+        "description": "Madera laminada, resistente",
+        "color": "#CD853F",
+        "cnc": {
+            "feedRate": 1000,
+            "plungeRate": 500,
+            "rpm": 14000,
+            "depthPerPass": 1.5,
+            "recommended": "End Mill 3mm"
+        },
+        "laser": {
+            "cutPower": 75,
+            "cutSpeed": 350,
+            "engravePower": 40,
+            "engraveSpeed": 1500,
+            "passes": 2
+        }
+    },
+    {
+        "id": "mat_plastic_001",
+        "name": "Acrílico 3mm Transparente",
+        "category": "plastic",
+        "thickness": 3,
+        "description": "PMMA, corte limpio con buen acabado",
+        "color": "#E0F7FA",
+        "cnc": {
+            "feedRate": 1500,
+            "plungeRate": 400,
+            "rpm": 18000,
+            "depthPerPass": 1,
+            "recommended": "End Mill 3mm o single flute"
+        },
+        "laser": {
+            "cutPower": 60,
+            "cutSpeed": 500,
+            "engravePower": 25,
+            "engraveSpeed": 2500,
+            "passes": 1
+        }
+    },
+    {
+        "id": "mat_plastic_002",
+        "name": "Acrílico 5mm",
+        "category": "plastic",
+        "thickness": 5,
+        "description": "PMMA, ideal para señalética",
+        "color": "#E0F7FA",
+        "cnc": {
+            "feedRate": 1200,
+            "plungeRate": 400,
+            "rpm": 18000,
+            "depthPerPass": 1.5,
+            "recommended": "End Mill 3-6mm single flute"
+        },
+        "laser": {
+            "cutPower": 80,
+            "cutSpeed": 300,
+            "engravePower": 30,
+            "engraveSpeed": 2000,
+            "passes": 2
+        }
+    },
+    {
+        "id": "mat_plastic_003",
+        "name": "PVC Foam 3mm",
+        "category": "plastic",
+        "thickness": 3,
+        "description": "PVC expandido, ligero",
+        "color": "#FFFFFF",
+        "cnc": {
+            "feedRate": 1800,
+            "plungeRate": 800,
+            "rpm": 16000,
+            "depthPerPass": 2,
+            "recommended": "End Mill 3mm"
+        },
+        "laser": {
+            "cutPower": 0,
+            "cutSpeed": 0,
+            "engravePower": 0,
+            "engraveSpeed": 0,
+            "passes": 0,
+            "warning": "⚠️ NO USAR LÁSER - Emite gases tóxicos"
+        }
+    },
+    {
+        "id": "mat_plastic_004",
+        "name": "Polipropileno 2mm",
+        "category": "plastic",
+        "thickness": 2,
+        "description": "PP, flexible y resistente",
+        "color": "#F5F5F5",
+        "cnc": {
+            "feedRate": 1500,
+            "plungeRate": 600,
+            "rpm": 15000,
+            "depthPerPass": 1,
+            "recommended": "End Mill 3mm"
+        },
+        "laser": {
+            "cutPower": 70,
+            "cutSpeed": 400,
+            "engravePower": 20,
+            "engraveSpeed": 2000,
+            "passes": 1
+        }
+    },
+    {
+        "id": "mat_card_001",
+        "name": "Cartulina 300g",
+        "category": "paper",
+        "thickness": 0.4,
+        "description": "Papel grueso para maquetas",
+        "color": "#FFFFFF",
+        "cnc": {
+            "feedRate": 2000,
+            "plungeRate": 1000,
+            "rpm": 10000,
+            "depthPerPass": 0.5,
+            "recommended": "Cuchilla o End Mill 1-2mm"
+        },
+        "laser": {
+            "cutPower": 30,
+            "cutSpeed": 800,
+            "engravePower": 15,
+            "engraveSpeed": 3000,
+            "passes": 1
+        },
+        "plotter": {
+            "pressure": 15,
+            "speed": 120,
+            "passes": 1,
+            "blade": "45°"
+        }
+    },
+    {
+        "id": "mat_card_002",
+        "name": "Cartón Corrugado 3mm",
+        "category": "paper",
+        "thickness": 3,
+        "description": "Cartón ondulado para prototipos",
+        "color": "#DEB887",
+        "cnc": {
+            "feedRate": 2500,
+            "plungeRate": 1200,
+            "rpm": 12000,
+            "depthPerPass": 2,
+            "recommended": "End Mill 3mm"
+        },
+        "laser": {
+            "cutPower": 60,
+            "cutSpeed": 500,
+            "engravePower": 25,
+            "engraveSpeed": 2000,
+            "passes": 1
+        },
+        "plotter": {
+            "pressure": 30,
+            "speed": 80,
+            "passes": 2,
+            "blade": "60°"
+        }
+    },
+    {
+        "id": "mat_vinyl_001",
+        "name": "Vinilo Adhesivo",
+        "category": "vinyl",
+        "thickness": 0.1,
+        "description": "Vinilo autoadhesivo para calcomanías",
+        "color": "#FFFFFF",
+        "plotter": {
+            "pressure": 12,
+            "speed": 100,
+            "passes": 1,
+            "blade": "45°",
+            "offset": 0.25
+        },
+        "laser": {
+            "cutPower": 10,
+            "cutSpeed": 1000,
+            "engravePower": 5,
+            "engraveSpeed": 4000,
+            "passes": 1
+        }
+    },
+    {
+        "id": "mat_vinyl_002",
+        "name": "Vinilo Textil",
+        "category": "vinyl",
+        "thickness": 0.15,
+        "description": "Vinilo termoadhesivo para ropa",
+        "color": "#000000",
+        "plotter": {
+            "pressure": 18,
+            "speed": 90,
+            "passes": 1,
+            "blade": "45° textil",
+            "offset": 0.25
+        }
+    },
+    {
+        "id": "mat_leather_001",
+        "name": "Cuero 2mm",
+        "category": "leather",
+        "thickness": 2,
+        "description": "Cuero natural curtido",
+        "color": "#8B4513",
+        "cnc": {
+            "feedRate": 1000,
+            "plungeRate": 400,
+            "rpm": 14000,
+            "depthPerPass": 1,
+            "recommended": "End Mill 2-3mm o cuchilla"
+        },
+        "laser": {
+            "cutPower": 65,
+            "cutSpeed": 400,
+            "engravePower": 30,
+            "engraveSpeed": 1500,
+            "passes": 1
+        }
+    },
+    {
+        "id": "mat_foam_001",
+        "name": "Goma Eva 3mm",
+        "category": "foam",
+        "thickness": 3,
+        "description": "Espuma EVA, flexible",
+        "color": "#FF69B4",
+        "cnc": {
+            "feedRate": 2000,
+            "plungeRate": 1000,
+            "rpm": 12000,
+            "depthPerPass": 2,
+            "recommended": "Cuchilla o End Mill 3mm"
+        },
+        "laser": {
+            "cutPower": 40,
+            "cutSpeed": 600,
+            "engravePower": 15,
+            "engraveSpeed": 2500,
+            "passes": 1
+        },
+        "plotter": {
+            "pressure": 25,
+            "speed": 100,
+            "passes": 1,
+            "blade": "60°"
+        }
+    },
+    {
+        "id": "mat_metal_001",
+        "name": "Aluminio 1mm",
+        "category": "metal",
+        "thickness": 1,
+        "description": "Aluminio blando, requiere lubricación",
+        "color": "#C0C0C0",
+        "cnc": {
+            "feedRate": 400,
+            "plungeRate": 100,
+            "rpm": 20000,
+            "depthPerPass": 0.2,
+            "recommended": "End Mill carburo 2-3mm, usar lubricante"
+        },
+        "laser": {
+            "cutPower": 0,
+            "cutSpeed": 0,
+            "engravePower": 90,
+            "engraveSpeed": 800,
+            "passes": 3,
+            "warning": "Solo grabado con fibra o CO2 potente"
+        }
+    },
+    {
+        "id": "mat_metal_002",
+        "name": "Latón 0.5mm",
+        "category": "metal",
+        "thickness": 0.5,
+        "description": "Latón delgado para joyería",
+        "color": "#FFD700",
+        "cnc": {
+            "feedRate": 300,
+            "plungeRate": 80,
+            "rpm": 22000,
+            "depthPerPass": 0.15,
+            "recommended": "End Mill carburo 1-2mm"
+        },
+        "laser": {
+            "cutPower": 0,
+            "cutSpeed": 0,
+            "engravePower": 85,
+            "engraveSpeed": 1000,
+            "passes": 2,
+            "warning": "Solo grabado, requiere láser de fibra o marcador"
+        }
+    }
+]
