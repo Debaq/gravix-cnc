@@ -1,0 +1,16 @@
+{
+  "newProject": "Nuevo Proyecto",
+  "openProject": "Abrir Proyecto",
+  "saveProject": "Guardar Proyecto",
+  "design": "Diseno",
+  "preview": "Preview",
+  "control": "Control",
+  "globalConfig": "Config Global",
+  "tools": "Herramientas",
+  "materials": "Materiales",
+  "workArea": "Area de Trabajo",
+  "grblSettings": "Config GRBL",
+  "help": "Ayuda",
+  "language": "Idioma",
+  "modified": "Modificado"
+}

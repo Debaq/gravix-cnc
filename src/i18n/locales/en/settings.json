@@ -1,0 +1,58 @@
+{
+  "workArea": {
+    "title": "Configure Work Area",
+    "width": "Width (mm)",
+    "height": "Height (mm)",
+    "origin": "Origin",
+    "presets": "Presets"
+  },
+  "globalConfig": {
+    "title": "Global Machining Configuration",
+    "operationType": "Operation Type",
+    "tool": "Tool",
+    "noTool": "No tool",
+    "material": "Material",
+    "noMaterial": "No material",
+    "workType": "Work Type",
+    "compensation": "Compensation",
+    "depth": "Depth (mm)",
+    "depthStep": "Depth Step (mm)",
+    "toolDiameter": "Tool Diameter (mm)",
+    "feedRate": "Feed Rate (mm/min)",
+    "plungeRate": "Plunge Rate (mm/min)",
+    "spindleRPM": "Spindle RPM",
+    "laserPower": "Laser Power (%)",
+    "passes": "Passes",
+    "speed": "Speed",
+    "pressure": "Pressure",
+    "pressureZ": "Z Pressure (mm)",
+    "applyAll": "Apply to All"
+  },
+  "operationTypes": {
+    "cnc": "CNC Milling",
+    "laser": "Laser",
+    "plotter": "Plotter Cutting",
+    "pencil": "Pencil/Marker"
+  },
+  "workTypes": {
+    "outline": "Outline (on line)",
+    "inside": "Inside (pocket)",
+    "outside": "Outside (offset)",
+    "pocket": "Pocket (clear inside)"
+  },
+  "compensation": {
+    "center": "Center",
+    "inside": "Inside",
+    "outside": "Outside"
+  },
+  "grbl": {
+    "title": "GRBL Settings",
+    "load": "Load Settings",
+    "save": "Save Changes",
+    "resetFactory": "Factory Reset",
+    "code": "Code",
+    "description": "Description",
+    "value": "Value",
+    "help": "Help"
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "workArea": {
+    "title": "Configurar Area de Trabajo",
+    "width": "Ancho (mm)",
+    "height": "Alto (mm)",
+    "origin": "Origen",
+    "presets": "Preajustes"
+  },
+  "globalConfig": {
+    "title": "Configuracion Global de Mecanizado",
+    "operationType": "Tipo de Operacion",
+    "tool": "Herramienta",
+    "noTool": "Sin herramienta",
+    "material": "Material",
+    "noMaterial": "Sin material",
+    "workType": "Tipo de Trabajo",
+    "compensation": "Compensacion",
+    "depth": "Profundidad (mm)",
+    "depthStep": "Paso por pasada (mm)",
+    "toolDiameter": "Diametro herramienta (mm)",
+    "feedRate": "Feed Rate (mm/min)",
+    "plungeRate": "Plunge Rate (mm/min)",
+    "spindleRPM": "Spindle RPM",
+    "laserPower": "Potencia laser (%)",
+    "passes": "Pasadas",
+    "speed": "Velocidad",
+    "pressure": "Presion",
+    "pressureZ": "Presion Z (mm)",
+    "applyAll": "Aplicar a Todos"
+  },
+  "operationTypes": {
+    "cnc": "CNC Fresado",
+    "laser": "Laser",
+    "plotter": "Plotter Corte",
+    "pencil": "Lapiz/Marcador"
+  },
+  "workTypes": {
+    "outline": "Contorno (sobre linea)",
+    "inside": "Interior (por dentro)",
+    "outside": "Exterior (por fuera)",
+    "pocket": "Cajeado (vaciar interior)"
+  },
+  "compensation": {
+    "center": "Centro",
+    "inside": "Interior",
+    "outside": "Exterior"
+  },
+  "grbl": {
+    "title": "Configuracion GRBL",
+    "load": "Cargar Configuracion",
+    "save": "Guardar Cambios",
+    "resetFactory": "Reset a Fabrica",
+    "code": "Codigo",
+    "description": "Descripcion",
+    "value": "Valor",
+    "help": "Ayuda"
+  }
+}
