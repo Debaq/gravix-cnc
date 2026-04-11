@@ -10,7 +10,6 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "title": "GRBL Web Control Pro",
     "windows": [
       {
         "title": "GRBL Web Control Pro v5.0",

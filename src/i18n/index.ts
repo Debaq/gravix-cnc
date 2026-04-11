@@ -11,6 +11,7 @@ import esSerial from './locales/es/serial.json'
 import esTools from './locales/es/tools.json'
 import esMaterials from './locales/es/materials.json'
 import esSettings from './locales/es/settings.json'
+import esHelp from './locales/es/help.json'
 
 // EN
 import enCommon from './locales/en/common.json'
@@ -21,6 +22,7 @@ import enSerial from './locales/en/serial.json'
 import enTools from './locales/en/tools.json'
 import enMaterials from './locales/en/materials.json'
 import enSettings from './locales/en/settings.json'
+import enHelp from './locales/en/help.json'
 
 i18n
   .use(LanguageDetector)
@@ -36,6 +38,7 @@ i18n
         tools: esTools,
         materials: esMaterials,
         settings: esSettings,
+        help: esHelp,
       },
       en: {
         common: enCommon,
@@ -46,11 +49,12 @@ i18n
         tools: enTools,
         materials: enMaterials,
         settings: enSettings,
+        help: enHelp,
       },
     },
     fallbackLng: 'es',
     defaultNS: 'common',
-    ns: ['common', 'header', 'canvas', 'gcode', 'serial', 'tools', 'materials', 'settings'],
+    ns: ['common', 'header', 'canvas', 'gcode', 'serial', 'tools', 'materials', 'settings', 'help'],
     interpolation: {
       escapeValue: false,
     },

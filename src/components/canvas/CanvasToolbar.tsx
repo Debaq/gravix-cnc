@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -13,11 +14,15 @@ import {
 export function CanvasToolbar() {
   const { t } = useTranslation('canvas')
 
+  const dispatchCanvasEvent = useCallback((eventName: string) => {
+    window.dispatchEvent(new CustomEvent(eventName))
+  }, [])
+
   return (
     <div className="absolute top-2 right-2 z-10 flex items-center gap-1 bg-background/90 backdrop-blur-sm border rounded-lg p-1 shadow-sm">
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-8 w-8">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => dispatchCanvasEvent('canvas:zoomIn')}>
             <ZoomIn className="h-4 w-4" />
           </Button>
         </TooltipTrigger>
@@ -26,7 +31,7 @@ export function CanvasToolbar() {
 
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-8 w-8">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => dispatchCanvasEvent('canvas:zoomOut')}>
             <ZoomOut className="h-4 w-4" />
           </Button>
         </TooltipTrigger>
@@ -35,7 +40,7 @@ export function CanvasToolbar() {
 
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-8 w-8">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => dispatchCanvasEvent('canvas:fitView')}>
             <Maximize className="h-4 w-4" />
           </Button>
         </TooltipTrigger>
@@ -46,7 +51,7 @@ export function CanvasToolbar() {
 
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-8 w-8">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => dispatchCanvasEvent('canvas:flipH')}>
             <FlipHorizontal2 className="h-4 w-4" />
           </Button>
         </TooltipTrigger>
@@ -55,7 +60,7 @@ export function CanvasToolbar() {
 
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-8 w-8">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => dispatchCanvasEvent('canvas:flipV')}>
             <FlipVertical2 className="h-4 w-4" />
           </Button>
         </TooltipTrigger>

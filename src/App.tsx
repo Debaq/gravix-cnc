@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/stores/useAppStore'
 import { useLibraryStore } from '@/stores/useLibraryStore'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -21,6 +22,7 @@ import toolsData from '../src-tauri/data/tools.json'
 import materialsData from '../src-tauri/data/materials.json'
 
 function App() {
+  const { t } = useTranslation('serial')
   const { currentWorkspace, addConsoleLine } = useAppStore()
   const { setTools, setMaterials } = useLibraryStore()
 
@@ -60,10 +62,10 @@ function App() {
           {currentWorkspace === 'control' && (
             <div className="flex flex-col items-center justify-center h-full bg-muted/20">
               <p className="text-lg text-muted-foreground">
-                Workspace de Control
+                {t('controlWorkspaceTitle')}
               </p>
               <p className="text-sm text-muted-foreground mt-1">
-                Conecta tu maquina para empezar
+                {t('controlWorkspaceSubtitle')}
               </p>
             </div>
           )}

@@ -12,7 +12,7 @@ import { Separator } from '@/components/ui/separator'
 import { HelpCircle, Keyboard, Mouse } from 'lucide-react'
 
 export function HelpModal() {
-  const { t } = useTranslation('common')
+  const { t } = useTranslation('help')
   const { activeModal, closeModal } = useAppStore()
 
   const isOpen = activeModal === 'help'
@@ -23,9 +23,9 @@ export function HelpModal() {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <HelpCircle className="h-5 w-5" />
-            GRBL Web Control Pro v5.0
+            {t('title')}
           </DialogTitle>
-          <DialogDescription>Tauri + React + TypeScript</DialogDescription>
+          <DialogDescription>{t('subtitle')}</DialogDescription>
         </DialogHeader>
 
         <ScrollArea className="max-h-[400px]">
@@ -33,13 +33,13 @@ export function HelpModal() {
             <div>
               <h3 className="font-semibold text-sm flex items-center gap-2">
                 <Mouse className="h-4 w-4" />
-                Canvas
+                {t('canvasTitle')}
               </h3>
               <ul className="text-sm text-muted-foreground mt-1 space-y-1">
-                <li>Scroll: Zoom in/out</li>
-                <li>Click + Drag: Seleccionar/mover</li>
-                <li>Middle click + Drag: Pan</li>
-                <li>Shift + Click + Drag: Pan</li>
+                <li>{t('scrollZoom')}</li>
+                <li>{t('clickDrag')}</li>
+                <li>{t('middleClickDrag')}</li>
+                <li>{t('shiftClickDrag')}</li>
               </ul>
             </div>
 
@@ -48,26 +48,26 @@ export function HelpModal() {
             <div>
               <h3 className="font-semibold text-sm flex items-center gap-2">
                 <Keyboard className="h-4 w-4" />
-                Workspaces
+                {t('workspacesTitle')}
               </h3>
               <ul className="text-sm text-muted-foreground mt-1 space-y-1">
-                <li><strong>Diseno:</strong> Crear/editar elementos, cargar SVG</li>
-                <li><strong>Preview:</strong> Visualizar G-code en 3D</li>
-                <li><strong>Control:</strong> Conectar y controlar la maquina</li>
+                <li><strong>{t('design')}:</strong> {t('designDesc')}</li>
+                <li><strong>{t('preview')}:</strong> {t('previewDesc')}</li>
+                <li><strong>{t('control')}:</strong> {t('controlDesc')}</li>
               </ul>
             </div>
 
             <Separator />
 
             <div>
-              <h3 className="font-semibold text-sm">Flujo de trabajo</h3>
+              <h3 className="font-semibold text-sm">{t('workflowTitle')}</h3>
               <ol className="text-sm text-muted-foreground mt-1 space-y-1 list-decimal list-inside">
-                <li>Configurar area de trabajo</li>
-                <li>Cargar SVG o crear formas</li>
-                <li>Configurar tipo de operacion y herramienta</li>
-                <li>Generar G-code</li>
-                <li>Previsualizar en 3D</li>
-                <li>Conectar maquina y enviar</li>
+                <li>{t('step1')}</li>
+                <li>{t('step2')}</li>
+                <li>{t('step3')}</li>
+                <li>{t('step4')}</li>
+                <li>{t('step5')}</li>
+                <li>{t('step6')}</li>
               </ol>
             </div>
           </div>

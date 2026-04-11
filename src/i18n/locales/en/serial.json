@@ -25,5 +25,7 @@
   "wpos": "WPos",
   "mpos": "MPos",
   "noSerial": "Serial API not supported",
-  "selectPort": "Select Port"
+  "selectPort": "Select Port",
+  "controlWorkspaceTitle": "Control Workspace",
+  "controlWorkspaceSubtitle": "Connect your machine to start"
 }

@@ -1,0 +1,23 @@
+{
+  "title": "GRBL Web Control Pro v5.0",
+  "subtitle": "Tauri + React + TypeScript",
+  "canvasTitle": "Canvas",
+  "scrollZoom": "Scroll: Zoom in/out",
+  "clickDrag": "Click + Drag: Select/move",
+  "middleClickDrag": "Middle click + Drag: Pan",
+  "shiftClickDrag": "Shift + Click + Drag: Pan",
+  "workspacesTitle": "Workspaces",
+  "designDesc": "Create/edit elements, load SVG",
+  "previewDesc": "Visualize G-code in 3D",
+  "controlDesc": "Connect and control the machine",
+  "workflowTitle": "Workflow",
+  "step1": "Configure work area",
+  "step2": "Load SVG or create shapes",
+  "step3": "Configure operation type and tool",
+  "step4": "Generate G-code",
+  "step5": "Preview in 3D",
+  "step6": "Connect machine and send",
+  "design": "Design",
+  "preview": "Preview",
+  "control": "Control"
+}

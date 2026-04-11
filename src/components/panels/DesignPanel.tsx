@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useAppStore } from '@/stores/useAppStore'
@@ -28,19 +29,93 @@ import {
   Hexagon,
   Star,
 } from 'lucide-react'
+import type { CanvasElement } from '@/lib/types'
+
+function createShapeElement(
+  type: CanvasElement['type'],
+  name: string,
+  makerType?: string,
+  makerParams?: Record<string, number | string | number[]>
+): CanvasElement {
+  return {
+    id: crypto.randomUUID(),
+    type,
+    name,
+    visible: true,
+    locked: false,
+    config: null,
+    children: [],
+    makerType,
+    makerParams,
+  }
+}
 
 export function DesignPanel() {
   const { t } = useTranslation('canvas')
-  const { elements, selectedElementId, selectElement } = useCanvasStore()
+  const { elements, selectedElementId, selectElement, addElement, removeElement, updateElement } = useCanvasStore()
   const { addConsoleLine } = useAppStore()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleLoadSVG = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const svgData = ev.target?.result as string
+      if (!svgData) return
+
+      const el = createShapeElement('svg', file.name.replace('.svg', ''))
+      el.svgData = svgData
+      addElement(el)
+      addConsoleLine(`SVG cargado: ${file.name}`)
+    }
+    reader.readAsText(file)
+
+    // Reset para permitir cargar el mismo archivo de nuevo
+    e.target.value = ''
+  }
+
+  const handleAddShape = (type: CanvasElement['type'], name: string, makerType?: string, makerParams?: Record<string, number | string | number[]>) => {
+    const el = createShapeElement(type, name, makerType, makerParams)
+    addElement(el)
+    selectElement(el.id)
+    addConsoleLine(`Elemento creado: ${name}`)
+  }
+
+  const handleCopyElement = (el: CanvasElement) => {
+    const copy = createShapeElement(el.type, `${el.name} (copia)`, el.makerType, el.makerParams)
+    copy.config = el.config ? { ...el.config } : null
+    copy.svgData = el.svgData
+    copy.children = el.children.map((child) => ({
+      ...child,
+      id: crypto.randomUUID(),
+      parent: copy.id,
+    }))
+    addElement(copy)
+    addConsoleLine(`Copiado: ${el.name}`)
+  }
 
   return (
     <div className="space-y-3">
+      {/* Hidden file input for SVG loading */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".svg"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
       {/* Add element controls */}
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">{t('elements')}</h3>
         <div className="flex gap-1">
-          <Button variant="outline" size="sm" className="gap-1">
+          <Button variant="outline" size="sm" className="gap-1" onClick={handleLoadSVG}>
             <Upload className="h-3 w-3" />
             {t('loadSVG')}
           </Button>
@@ -51,15 +126,15 @@ export function DesignPanel() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleAddShape('rect', t('addRect'))}>
                 <Square className="h-4 w-4 mr-2" />
                 {t('addRect')}
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleAddShape('circle', t('addCircle'))}>
                 <Circle className="h-4 w-4 mr-2" />
                 {t('addCircle')}
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleAddShape('line', t('addLine'))}>
                 <Minus className="h-4 w-4 mr-2" />
                 {t('addLine')}
               </DropdownMenuItem>
@@ -69,24 +144,44 @@ export function DesignPanel() {
                   {t('makerModels')}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
-                  <DropdownMenuItem>{t('rectangle')}</DropdownMenuItem>
-                  <DropdownMenuItem>{t('square')}</DropdownMenuItem>
-                  <DropdownMenuItem>{t('roundRect')}</DropdownMenuItem>
-                  <DropdownMenuItem>{t('oval')}</DropdownMenuItem>
-                  <DropdownMenuItem>{t('ellipse')}</DropdownMenuItem>
-                  <DropdownMenuItem>{t('ring')}</DropdownMenuItem>
-                  <DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('rectangle'), 'Rectangle', { width: 50, height: 30 })}>
+                    {t('rectangle')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('square'), 'Square', { side: 40 })}>
+                    {t('square')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('roundRect'), 'RoundRectangle', { width: 50, height: 30, corner: 5 })}>
+                    {t('roundRect')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('oval'), 'Oval', { width: 50, height: 30 })}>
+                    {t('oval')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('ellipse'), 'Ellipse', { radiusX: 30, radiusY: 20 })}>
+                    {t('ellipse')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('ring'), 'Ring', { outerRadius: 30, innerRadius: 20 })}>
+                    {t('ring')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('polygon'), 'Polygon', { sides: 6, radius: 25 })}>
                     <Hexagon className="h-3 w-3 mr-2" />
                     {t('polygon')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('star'), 'Star', { points: 5, outerRadius: 30, innerRadius: 15 })}>
                     <Star className="h-3 w-3 mr-2" />
                     {t('star')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem>{t('slot')}</DropdownMenuItem>
-                  <DropdownMenuItem>{t('dome')}</DropdownMenuItem>
-                  <DropdownMenuItem>{t('boltCircle')}</DropdownMenuItem>
-                  <DropdownMenuItem>{t('boltRect')}</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('slot'), 'Slot', { width: 50, height: 20 })}>
+                    {t('slot')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('dome'), 'Dome', { width: 40, height: 25 })}>
+                    {t('dome')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('boltCircle'), 'BoltCircle', { boltCount: 6, radius: 30, boltRadius: 3 })}>
+                    {t('boltCircle')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleAddShape('maker', t('boltRect'), 'BoltRectangle', { width: 60, height: 40, boltRadius: 3 })}>
+                    {t('boltRect')}
+                  </DropdownMenuItem>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
             </DropdownMenuContent>
@@ -122,7 +217,7 @@ export function DesignPanel() {
                   className="h-6 w-6"
                   onClick={(e) => {
                     e.stopPropagation()
-                    addConsoleLine(`Toggle visibility: ${el.name}`)
+                    updateElement(el.id, { visible: !el.visible })
                   }}
                 >
                   {el.visible ? (
@@ -137,7 +232,7 @@ export function DesignPanel() {
                   className="h-6 w-6"
                   onClick={(e) => {
                     e.stopPropagation()
-                    addConsoleLine(`Toggle lock: ${el.name}`)
+                    updateElement(el.id, { locked: !el.locked })
                   }}
                 >
                   {el.locked ? (
@@ -152,7 +247,7 @@ export function DesignPanel() {
                   className="h-6 w-6"
                   onClick={(e) => {
                     e.stopPropagation()
-                    addConsoleLine(`Copy: ${el.name}`)
+                    handleCopyElement(el)
                   }}
                 >
                   <Copy className="h-3 w-3" />
@@ -163,7 +258,8 @@ export function DesignPanel() {
                   className="h-6 w-6 text-destructive"
                   onClick={(e) => {
                     e.stopPropagation()
-                    addConsoleLine(`Delete: ${el.name}`)
+                    removeElement(el.id)
+                    addConsoleLine(`Eliminado: ${el.name}`)
                   }}
                 >
                   <Trash2 className="h-3 w-3" />
