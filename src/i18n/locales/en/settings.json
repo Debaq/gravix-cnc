@@ -26,7 +26,50 @@
     "speed": "Speed",
     "pressure": "Pressure",
     "pressureZ": "Z Pressure (mm)",
-    "applyAll": "Apply to All"
+    "applyAll": "Apply to All",
+    "stepover": "Stepover",
+    "laserMode": "Laser mode",
+    "laserDynamic": "Dynamic power",
+    "laserDynamicDesc": {
+      "on": "Adjusts power based on speed (curves)",
+      "off": "Constant power"
+    },
+    "overscan": "Overscan (mm)",
+    "fillSettings": "Fill settings",
+    "fillAngle": "Fill angle",
+    "fillSpacing": "Spacing (mm)",
+    "fillBidirectional": "Bidirectional scanning",
+    "tabsEnabled": "Tabs (bridges)",
+    "tabWidth": "Tab width (mm)",
+    "tabHeight": "Tab height (mm)",
+    "tabCount": "Tab count"
+  },
+  "laserModes": {
+    "cut": "Cut",
+    "engrave": "Engrave",
+    "fill": "Fill (hatch)",
+    "raster": "Raster (image)"
+  },
+  "raster": {
+    "settings": "Raster settings",
+    "importImage": "Import image",
+    "processImage": "Process image for raster",
+    "noImage": "Load an image from the design panel",
+    "processing": "Processing image...",
+    "reprocess": "Re-process with new parameters",
+    "dpi": "DPI (resolution)",
+    "dithering": "Dithering",
+    "ditheringModes": {
+      "threshold": "Simple threshold",
+      "floydSteinberg": "Floyd-Steinberg",
+      "ordered": "Ordered (Bayer)",
+      "atkinson": "Atkinson",
+      "grayscale": "Grayscale"
+    },
+    "threshold": "B/W threshold",
+    "invert": "Invert image",
+    "bidirectional": "Bidirectional scanning",
+    "wizardHint": "Image is configured when loaded. Load an image from the Load button in the design panel."
   },
   "operationTypes": {
     "cnc": "CNC Milling",

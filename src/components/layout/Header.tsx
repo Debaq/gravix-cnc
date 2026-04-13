@@ -22,16 +22,18 @@ import {
   Pencil,
   Eye,
   Gamepad2,
-  Settings,
   Wrench,
   Layers,
-  Move,
   HelpCircle,
   Languages,
   Wifi,
   WifiOff,
   RefreshCw,
+  Minus,
+  Square,
+  X,
 } from 'lucide-react'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import type { Workspace } from '@/lib/types'
 
 export function Header() {
@@ -95,8 +97,10 @@ export function Header() {
     })
   }
 
+  const appWindow = getCurrentWindow()
+
   return (
-    <header className="flex items-center justify-between h-12 px-3 bg-primary text-primary-foreground border-b">
+    <header className="flex items-center justify-between h-12 px-3 bg-primary text-primary-foreground border-b select-none" data-tauri-drag-region>
       {/* Left: Project actions */}
       <div className="flex items-center gap-1">
         <Button
@@ -161,15 +165,6 @@ export function Header() {
           variant="ghost"
           size="sm"
           className="text-primary-foreground hover:bg-primary/80"
-          onClick={() => openModal('globalConfig')}
-        >
-          <Settings className="h-4 w-4" />
-          <span className="hidden lg:inline">{t('globalConfig')}</span>
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-primary-foreground hover:bg-primary/80"
           onClick={() => openModal('tools')}
         >
           <Wrench className="h-4 w-4" />
@@ -183,15 +178,6 @@ export function Header() {
         >
           <Layers className="h-4 w-4" />
           <span className="hidden lg:inline">{t('materials')}</span>
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-primary-foreground hover:bg-primary/80"
-          onClick={() => openModal('workArea')}
-          title={t('workArea')}
-        >
-          <Move className="h-4 w-4" />
         </Button>
 
         <Separator orientation="vertical" className="h-6 bg-primary-foreground/30 mx-1" />
@@ -287,6 +273,34 @@ export function Header() {
           title={t('help')}
         >
           <HelpCircle className="h-4 w-4" />
+        </Button>
+
+        <Separator orientation="vertical" className="h-6 bg-primary-foreground/30 mx-1" />
+
+        {/* Window controls */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-primary-foreground hover:bg-primary/80"
+          onClick={() => appWindow.minimize()}
+        >
+          <Minus className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-primary-foreground hover:bg-primary/80"
+          onClick={() => appWindow.toggleMaximize()}
+        >
+          <Square className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-primary-foreground hover:bg-destructive/80"
+          onClick={() => appWindow.close()}
+        >
+          <X className="h-4 w-4" />
         </Button>
       </div>
     </header>

@@ -1,0 +1,23 @@
+{
+  "title": "Prepare image for laser",
+  "description": "Configure how your image will be processed for laser engraving",
+  "preview": "Preview",
+  "configureAndProcess": "Configure settings and press Process",
+  "errorNoPreview": "Could not generate preview",
+  "reprocess": "Re-process",
+  "settings": "Image settings",
+  "dpi": "DPI (resolution)",
+  "dithering": "Conversion mode",
+  "threshold": "Black/white threshold",
+  "invert": "Invert image",
+  "process": "Process",
+  "processing": "Processing...",
+  "accept": "Accept",
+  "modes": {
+    "threshold": "Simple threshold",
+    "floydSteinberg": "Floyd-Steinberg (recommended)",
+    "ordered": "Ordered pattern (Bayer)",
+    "atkinson": "Atkinson (high contrast)",
+    "grayscale": "Grayscale (no dithering)"
+  }
+}

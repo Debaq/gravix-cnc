@@ -14,7 +14,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -23,6 +22,7 @@ import type { Tool, ToolFormData } from '@/lib/types'
 
 const TOOL_TYPES: Record<string, string[]> = {
   cnc: ['endmill', 'vbit', 'ballnose'],
+  laser: ['diode', 'co2', 'fiber'],
   plotter: ['blade'],
   pencil: ['marker', 'pen', 'pencilType'],
 }
@@ -161,6 +161,7 @@ export function ToolsModal() {
   }
 
   const isCNC = toolsModalTab === 'cnc'
+  const isLaser = toolsModalTab === 'laser'
   const isPlotter = toolsModalTab === 'plotter'
 
   return (
@@ -171,7 +172,7 @@ export function ToolsModal() {
             <Wrench className="h-5 w-5" />
             {t('title')}
           </DialogTitle>
-          <DialogDescription>{t('cnc')} / {t('plotter')} / {t('pencil')}</DialogDescription>
+          <DialogDescription>{tools.length} herramientas</DialogDescription>
         </DialogHeader>
 
         {showForm ? (
@@ -242,6 +243,19 @@ export function ToolsModal() {
                 </>
               )}
 
+              {isLaser && (
+                <>
+                  <div>
+                    <Label className="text-xs">{t('feedRate')}</Label>
+                    <Input type="number" {...register('feedRate', { valueAsNumber: true })} className="h-8" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">{t('rpm')}</Label>
+                    <Input type="number" {...register('rpm', { valueAsNumber: true })} className="h-8" placeholder="Watts" />
+                  </div>
+                </>
+              )}
+
               {isPlotter && (
                 <>
                   <div>
@@ -283,76 +297,83 @@ export function ToolsModal() {
           </form>
         ) : (
           /* Lista de herramientas */
-          <>
-            <Tabs value={toolsModalTab} onValueChange={setToolsModalTab}>
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="cnc">{t('cnc')}</TabsTrigger>
-                <TabsTrigger value="plotter">{t('plotter')}</TabsTrigger>
-                <TabsTrigger value="pencil">{t('pencil')}</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value={toolsModalTab}>
-                <ScrollArea className="h-[400px]">
-                  {categoryTools.length === 0 ? (
-                    <p className="text-center text-muted-foreground py-8">{t('noTools')}</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {categoryTools.map((tool) => (
-                        <div
-                          key={tool.id}
-                          className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50"
-                        >
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-sm">{tool.name}</span>
-                              <Badge variant="outline" className="text-xs">
-                                {tool.type}
-                              </Badge>
-                            </div>
-                            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                              {tool.diameter && <span>{t('diameter')}: {tool.diameter}mm</span>}
-                              {tool.feedRate && <span>{t('feedRate')}: {tool.feedRate}</span>}
-                              {tool.rpm && <span>{t('rpm')}: {tool.rpm}</span>}
-                              {tool.pressure && <span>{t('pressure')}: {tool.pressure}</span>}
-                              {tool.thickness && <span>{t('thickness')}: {tool.thickness}mm</span>}
-                            </div>
-                            {tool.notes && (
-                              <p className="text-xs text-muted-foreground mt-1">{tool.notes}</p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1 ml-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => openEditForm(tool)}
-                            >
-                              <Edit className="h-3 w-3" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive"
-                              onClick={() => handleDelete(tool)}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </ScrollArea>
-              </TabsContent>
-            </Tabs>
-
-            <div className="flex justify-between">
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Select value={toolsModalTab} onValueChange={setToolsModalTab}>
+                <SelectTrigger className="w-[200px] h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(['cnc', 'laser', 'plotter', 'pencil'] as const).map((cat) => {
+                    const count = getToolsByCategory(cat).length
+                    return (
+                      <SelectItem key={cat} value={cat}>
+                        {t(cat)} ({count})
+                      </SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
+              <div className="flex-1" />
               <Button variant="outline" size="sm" onClick={openCreateForm} className="gap-1">
                 <Plus className="h-3 w-3" />
                 {t('addTool')}
               </Button>
             </div>
-          </>
+
+            <ScrollArea className="h-[420px]">
+              {categoryTools.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">{t('noTools')}</p>
+              ) : (
+                <div className="space-y-2">
+                  {categoryTools.map((tool) => (
+                    <div
+                      key={tool.id}
+                      className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm truncate">{tool.name}</span>
+                          <Badge variant="outline" className="text-xs shrink-0">
+                            {t(tool.type, tool.type)}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                          {tool.diameter != null && tool.diameter > 0 && <span>{t('diameter')}: {tool.diameter}mm</span>}
+                          {tool.angle != null && tool.angle > 0 && <span>{t('angle')}: {tool.angle}°</span>}
+                          {tool.feedRate != null && tool.feedRate > 0 && <span>{t('feedRate')}: {tool.feedRate}</span>}
+                          {tool.rpm != null && tool.rpm > 0 && <span>{t('rpm')}: {tool.rpm}</span>}
+                          {tool.pressure != null && tool.pressure > 0 && <span>{t('pressure')}: {tool.pressure}</span>}
+                          {tool.thickness != null && tool.thickness > 0 && <span>{t('thickness')}: {tool.thickness}mm</span>}
+                        </div>
+                        {tool.notes && (
+                          <p className="text-xs text-muted-foreground mt-1 truncate">{tool.notes}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 ml-2 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => openEditForm(tool)}
+                        >
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive"
+                          onClick={() => handleDelete(tool)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </div>
         )}
       </DialogContent>
     </Dialog>

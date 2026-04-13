@@ -14,9 +14,9 @@
     {
         "id": "cnc_002",
         "category": "cnc",
-        "name": "End Mill 1/4\" (6mm)",
+        "name": "End Mill 1/4\" (6.35mm)",
         "type": "endmill",
-        "diameter": 6,
+        "diameter": 6.35,
         "angle": 0,
         "feedRate": 1200,
         "plungeRate": 600,
@@ -38,7 +38,175 @@
     {
         "id": "cnc_004",
         "category": "cnc",
-        "name": "V-Bit 60°",
+        "name": "End Mill 1mm Micro",
+        "type": "endmill",
+        "diameter": 1,
+        "angle": 0,
+        "feedRate": 300,
+        "plungeRate": 150,
+        "rpm": 20000,
+        "notes": "Micro fresa para PCBs y grabado de precisión extrema"
+    },
+    {
+        "id": "cnc_005",
+        "category": "cnc",
+        "name": "End Mill 0.5mm Micro",
+        "type": "endmill",
+        "diameter": 0.5,
+        "angle": 0,
+        "feedRate": 150,
+        "plungeRate": 80,
+        "rpm": 24000,
+        "notes": "Ultra micro para aislamiento de pistas PCB y grabado joyería"
+    },
+    {
+        "id": "cnc_006",
+        "category": "cnc",
+        "name": "End Mill 4mm 2 Filos",
+        "type": "endmill",
+        "diameter": 4,
+        "angle": 0,
+        "feedRate": 900,
+        "plungeRate": 450,
+        "rpm": 14000,
+        "notes": "Fresa 2 filos, buen balance entre velocidad y acabado"
+    },
+    {
+        "id": "cnc_007",
+        "category": "cnc",
+        "name": "End Mill 6mm 1 Filo (O-flute)",
+        "type": "endmill",
+        "diameter": 6,
+        "angle": 0,
+        "feedRate": 1500,
+        "plungeRate": 700,
+        "rpm": 16000,
+        "notes": "Un solo filo, ideal para acrílico y plásticos. Evita derretir el material"
+    },
+    {
+        "id": "cnc_008",
+        "category": "cnc",
+        "name": "End Mill 3.175mm 1 Filo (O-flute)",
+        "type": "endmill",
+        "diameter": 3.175,
+        "angle": 0,
+        "feedRate": 1000,
+        "plungeRate": 500,
+        "rpm": 18000,
+        "notes": "Filo único para acrílico, HDPE y plásticos blandos"
+    },
+    {
+        "id": "cnc_009",
+        "category": "cnc",
+        "name": "End Mill 8mm",
+        "type": "endmill",
+        "diameter": 8,
+        "angle": 0,
+        "feedRate": 1500,
+        "plungeRate": 700,
+        "rpm": 10000,
+        "notes": "Fresa grande para desbaste rápido en madera"
+    },
+    {
+        "id": "cnc_010",
+        "category": "cnc",
+        "name": "End Mill 10mm",
+        "type": "endmill",
+        "diameter": 10,
+        "angle": 0,
+        "feedRate": 1800,
+        "plungeRate": 800,
+        "rpm": 8000,
+        "notes": "Fresa extra grande para remoción masiva de material"
+    },
+    {
+        "id": "cnc_011",
+        "category": "cnc",
+        "name": "End Mill 3mm Downcut",
+        "type": "endmill",
+        "diameter": 3,
+        "angle": 0,
+        "feedRate": 700,
+        "plungeRate": 350,
+        "rpm": 14000,
+        "notes": "Corte descendente, superficie superior limpia. Ideal para laminados y contrachapado"
+    },
+    {
+        "id": "cnc_012",
+        "category": "cnc",
+        "name": "End Mill 6mm Downcut",
+        "type": "endmill",
+        "diameter": 6,
+        "angle": 0,
+        "feedRate": 1100,
+        "plungeRate": 550,
+        "rpm": 12000,
+        "notes": "Corte descendente para acabado superior limpio en tableros"
+    },
+    {
+        "id": "cnc_013",
+        "category": "cnc",
+        "name": "End Mill 6mm Compresión",
+        "type": "endmill",
+        "diameter": 6,
+        "angle": 0,
+        "feedRate": 1200,
+        "plungeRate": 500,
+        "rpm": 14000,
+        "notes": "Compresión: upcut abajo + downcut arriba. Acabado limpio en ambas caras del tablero"
+    },
+    {
+        "id": "cnc_014",
+        "category": "cnc",
+        "name": "End Mill 3.175mm Carburo Tungsteno",
+        "type": "endmill",
+        "diameter": 3.175,
+        "angle": 0,
+        "feedRate": 500,
+        "plungeRate": 150,
+        "rpm": 20000,
+        "notes": "Carburo sólido para metales blandos: aluminio, latón, cobre"
+    },
+    {
+        "id": "cnc_015",
+        "category": "cnc",
+        "name": "End Mill 2mm Carburo 4 Filos",
+        "type": "endmill",
+        "diameter": 2,
+        "angle": 0,
+        "feedRate": 400,
+        "plungeRate": 100,
+        "rpm": 22000,
+        "notes": "4 filos para aluminio. Usar con lubricante. Excelente acabado superficial"
+    },
+    {
+        "id": "cnc_016",
+        "category": "cnc",
+        "name": "Surfacing Bit 25mm",
+        "type": "endmill",
+        "diameter": 25,
+        "angle": 0,
+        "feedRate": 2500,
+        "plungeRate": 500,
+        "rpm": 8000,
+        "notes": "Fresa de planeado para nivelar superficies de wasteboard o tableros grandes"
+    },
+    {
+        "id": "cnc_017",
+        "category": "cnc",
+        "name": "Surfacing Bit 50mm",
+        "type": "endmill",
+        "diameter": 50,
+        "angle": 0,
+        "feedRate": 3000,
+        "plungeRate": 300,
+        "rpm": 6000,
+        "notes": "Planeado rápido de wasteboard. Solo para pasadas superficiales (0.5mm max)"
+    },
+    {
+        "id": "cnc_018",
+        "category": "cnc",
+        "name": "V-Bit 60° (6.35mm)",
         "type": "vbit",
         "diameter": 6.35,
         "angle": 60,
@@ -48,19 +216,55 @@
         "notes": "Para grabado y biselado, letras y detalles en V"
     },
     {
-        "id": "cnc_005",
+        "id": "cnc_019",
         "category": "cnc",
-        "name": "V-Bit 90°",
+        "name": "V-Bit 90° (6.35mm)",
         "type": "vbit",
         "diameter": 6.35,
         "angle": 90,
         "feedRate": 500,
         "plungeRate": 250,
         "rpm": 18000,
-        "notes": "Grabado profundo y chaflanes"
+        "notes": "Grabado profundo y chaflanes anchos"
     },
     {
-        "id": "cnc_006",
+        "id": "cnc_020",
+        "category": "cnc",
+        "name": "V-Bit 30° (3.175mm)",
+        "type": "vbit",
+        "diameter": 3.175,
+        "angle": 30,
+        "feedRate": 400,
+        "plungeRate": 200,
+        "rpm": 20000,
+        "notes": "V ultra fina para grabado de letras pequeñas y detalles microscópicos"
+    },
+    {
+        "id": "cnc_021",
+        "category": "cnc",
+        "name": "V-Bit 120° (12mm)",
+        "type": "vbit",
+        "diameter": 12,
+        "angle": 120,
+        "feedRate": 800,
+        "plungeRate": 400,
+        "rpm": 12000,
+        "notes": "Chaflanes anchos y decorativos, bordes de señalética"
+    },
+    {
+        "id": "cnc_022",
+        "category": "cnc",
+        "name": "V-Bit 45° (6mm)",
+        "type": "vbit",
+        "diameter": 6,
+        "angle": 45,
+        "feedRate": 500,
+        "plungeRate": 250,
+        "rpm": 18000,
+        "notes": "V-carving detallado con líneas finas"
+    },
+    {
+        "id": "cnc_023",
         "category": "cnc",
         "name": "Ball Nose 6mm",
         "type": "ballnose",
@@ -72,7 +276,7 @@
         "notes": "Para superficies 3D y acabados suaves"
     },
     {
-        "id": "cnc_007",
+        "id": "cnc_024",
         "category": "cnc",
         "name": "Ball Nose 3mm",
         "type": "ballnose",
@@ -84,6 +288,237 @@
         "notes": "Detalles 3D finos"
     },
     {
+        "id": "cnc_025",
+        "category": "cnc",
+        "name": "Ball Nose 1.5mm",
+        "type": "ballnose",
+        "diameter": 1.5,
+        "angle": 0,
+        "feedRate": 400,
+        "plungeRate": 200,
+        "rpm": 18000,
+        "notes": "Micro relieve 3D, acabado ultra detallado en madera dura"
+    },
+    {
+        "id": "cnc_026",
+        "category": "cnc",
+        "name": "Ball Nose 8mm",
+        "type": "ballnose",
+        "diameter": 8,
+        "angle": 0,
+        "feedRate": 1000,
+        "plungeRate": 500,
+        "rpm": 10000,
+        "notes": "Desbaste 3D rápido, topografías y relieves grandes"
+    },
+    {
+        "id": "cnc_027",
+        "category": "cnc",
+        "name": "Ball Nose 12mm",
+        "type": "ballnose",
+        "diameter": 12,
+        "angle": 0,
+        "feedRate": 1200,
+        "plungeRate": 600,
+        "rpm": 8000,
+        "notes": "Desbaste 3D en piezas grandes, esculturas y relieves topográficos"
+    },
+    {
+        "id": "cnc_028",
+        "category": "cnc",
+        "name": "Broca PCB 0.8mm",
+        "type": "endmill",
+        "diameter": 0.8,
+        "angle": 0,
+        "feedRate": 200,
+        "plungeRate": 100,
+        "rpm": 24000,
+        "notes": "Perforación de vías y pads en circuitos impresos"
+    },
+    {
+        "id": "cnc_029",
+        "category": "cnc",
+        "name": "Broca PCB 1.0mm",
+        "type": "endmill",
+        "diameter": 1.0,
+        "angle": 0,
+        "feedRate": 250,
+        "plungeRate": 120,
+        "rpm": 22000,
+        "notes": "Perforación de componentes through-hole estándar"
+    },
+    {
+        "id": "cnc_030",
+        "category": "cnc",
+        "name": "Fresa Grabado 0.1mm 20°",
+        "type": "vbit",
+        "diameter": 3.175,
+        "angle": 20,
+        "feedRate": 200,
+        "plungeRate": 100,
+        "rpm": 24000,
+        "notes": "Punta ultra fina para aislamiento de pistas PCB y micro grabado"
+    },
+    {
+        "id": "cnc_031",
+        "category": "cnc",
+        "name": "Tapered Ball Nose 1mm R0.5",
+        "type": "ballnose",
+        "diameter": 1,
+        "angle": 0,
+        "feedRate": 300,
+        "plungeRate": 150,
+        "rpm": 22000,
+        "notes": "Cónica con punta esférica, para relieves 3D de joyería y sellos"
+    },
+    {
+        "id": "cnc_032",
+        "category": "cnc",
+        "name": "End Mill 3mm Recubierto TiN",
+        "type": "endmill",
+        "diameter": 3,
+        "angle": 0,
+        "feedRate": 600,
+        "plungeRate": 200,
+        "rpm": 18000,
+        "notes": "Recubrimiento nitruro de titanio, mayor durabilidad en materiales abrasivos"
+    },
+    {
+        "id": "laser_001",
+        "category": "laser",
+        "name": "Diodo 5W (450nm Azul)",
+        "type": "diode",
+        "feedRate": 1000,
+        "rpm": 5000,
+        "notes": "Láser diodo básico. Corta maderas delgadas (<3mm), graba madera, cuero, acrílico oscuro"
+    },
+    {
+        "id": "laser_002",
+        "category": "laser",
+        "name": "Diodo 10W (450nm Azul)",
+        "type": "diode",
+        "feedRate": 1500,
+        "rpm": 10000,
+        "notes": "Diodo potente. Corta MDF 3mm, contrachapado 3mm, graba en acero inoxidable con Cermark"
+    },
+    {
+        "id": "laser_003",
+        "category": "laser",
+        "name": "Diodo 20W (450nm Azul)",
+        "type": "diode",
+        "feedRate": 2000,
+        "rpm": 20000,
+        "notes": "Diodo alta potencia. Corta contrachapado 6mm, MDF 6mm, acrílico oscuro 3mm"
+    },
+    {
+        "id": "laser_004",
+        "category": "laser",
+        "name": "Diodo 40W (450nm Azul)",
+        "type": "diode",
+        "feedRate": 3000,
+        "rpm": 40000,
+        "notes": "Módulo diodo premium. Corta contrachapado 10mm, madera 8mm, graba metales con marcador"
+    },
+    {
+        "id": "laser_005",
+        "category": "laser",
+        "name": "CO2 40W (10600nm)",
+        "type": "co2",
+        "feedRate": 3000,
+        "rpm": 40000,
+        "notes": "Tubo CO2 básico. Corta acrílico transparente, madera 6mm, cuero, tela. Estándar para grabado"
+    },
+    {
+        "id": "laser_006",
+        "category": "laser",
+        "name": "CO2 60W (10600nm)",
+        "type": "co2",
+        "feedRate": 5000,
+        "rpm": 60000,
+        "notes": "CO2 intermedio. Corta acrílico 10mm, MDF 10mm, contrachapado 8mm. Velocidad de producción"
+    },
+    {
+        "id": "laser_007",
+        "category": "laser",
+        "name": "CO2 80W (10600nm)",
+        "type": "co2",
+        "feedRate": 6000,
+        "rpm": 80000,
+        "notes": "CO2 potente. Corta acrílico 15mm, maderas gruesas. Producción industrial ligera"
+    },
+    {
+        "id": "laser_008",
+        "category": "laser",
+        "name": "CO2 100W (10600nm)",
+        "type": "co2",
+        "feedRate": 8000,
+        "rpm": 100000,
+        "notes": "CO2 alta potencia. Corta acrílico 20mm, MDF 15mm. Producción en serie"
+    },
+    {
+        "id": "laser_009",
+        "category": "laser",
+        "name": "CO2 130W (10600nm)",
+        "type": "co2",
+        "feedRate": 10000,
+        "rpm": 130000,
+        "notes": "CO2 industrial. Corta materiales gruesos con facilidad, alto volumen de producción"
+    },
+    {
+        "id": "laser_010",
+        "category": "laser",
+        "name": "Fibra 20W (1064nm)",
+        "type": "fiber",
+        "feedRate": 2000,
+        "rpm": 20000,
+        "notes": "Láser de fibra para marcado y grabado de metales: acero, aluminio, titanio, oro, plata"
+    },
+    {
+        "id": "laser_011",
+        "category": "laser",
+        "name": "Fibra 30W (1064nm)",
+        "type": "fiber",
+        "feedRate": 3000,
+        "rpm": 30000,
+        "notes": "Fibra media potencia. Grabado profundo en metales, marcado negro en acero inoxidable"
+    },
+    {
+        "id": "laser_012",
+        "category": "laser",
+        "name": "Fibra 50W (1064nm)",
+        "type": "fiber",
+        "feedRate": 5000,
+        "rpm": 50000,
+        "notes": "Fibra alta potencia. Corte de metales delgados, grabado profundo, marcado de alta velocidad"
+    },
+    {
+        "id": "laser_013",
+        "category": "laser",
+        "name": "Diodo IR 2W (808nm)",
+        "type": "diode",
+        "feedRate": 500,
+        "rpm": 2000,
+        "notes": "Infrarrojo para grabado en materiales transparentes y acrílico claro"
+    },
+    {
+        "id": "laser_014",
+        "category": "laser",
+        "name": "Diodo 1.6W (405nm Violeta)",
+        "type": "diode",
+        "feedRate": 300,
+        "rpm": 1600,
+        "notes": "Baja potencia para grabado ligero en madera y cuero. Ideal para iniciarse"
+    },
+    {
+        "id": "laser_015",
+        "category": "laser",
+        "name": "CO2 150W con Autofocus",
+        "type": "co2",
+        "feedRate": 12000,
+        "rpm": 150000,
+        "notes": "CO2 profesional con autofocus y cama motorizada. Producción industrial"
+    },
+    {
         "id": "plotter_001",
         "category": "plotter",
         "name": "Cuchilla 45° Estándar",
@@ -92,7 +527,7 @@
         "pressure": 15,
         "speed": 100,
         "offset": 0.25,
-        "notes": "Para vinilo adhesivo estándar y papel"
+        "notes": "Para vinilo adhesivo estándar y papel. Uso general"
     },
     {
         "id": "plotter_002",
@@ -103,7 +538,7 @@
         "pressure": 25,
         "speed": 80,
         "offset": 0.25,
-        "notes": "Para materiales gruesos como cartón y goma eva"
+        "notes": "Para materiales gruesos como cartón, goma eva, vinilo reflectante"
     },
     {
         "id": "plotter_003",
@@ -125,7 +560,95 @@
         "pressure": 20,
         "speed": 90,
         "offset": 0.25,
-        "notes": "Específica para telas termoadhesivas"
+        "notes": "Específica para vinilo textil termoadhesivo (HTV)"
+    },
+    {
+        "id": "plotter_005",
+        "category": "plotter",
+        "name": "Cuchilla 60° Gruesa Premium",
+        "type": "blade",
+        "angle": 60,
+        "pressure": 30,
+        "speed": 60,
+        "offset": 0.3,
+        "notes": "Para cartón grueso, fieltro, goma eva 2mm+, materiales resistentes"
+    },
+    {
+        "id": "plotter_006",
+        "category": "plotter",
+        "name": "Cuchilla 45° Reflectante",
+        "type": "blade",
+        "angle": 45,
+        "pressure": 22,
+        "speed": 70,
+        "offset": 0.25,
+        "notes": "Para vinilo reflectante y vinilo tipo 3M de seguridad"
+    },
+    {
+        "id": "plotter_007",
+        "category": "plotter",
+        "name": "Cuchilla 30° Stencil",
+        "type": "blade",
+        "angle": 30,
+        "pressure": 8,
+        "speed": 140,
+        "offset": 0.2,
+        "notes": "Corte fino para stencils de mylar y plantillas de serigrafía"
+    },
+    {
+        "id": "plotter_008",
+        "category": "plotter",
+        "name": "Cuchilla Rotativa 45°",
+        "type": "blade",
+        "angle": 45,
+        "pressure": 18,
+        "speed": 50,
+        "offset": 0.5,
+        "notes": "Cuchilla rotativa para telas, fieltro y materiales textiles sin arrugas"
+    },
+    {
+        "id": "plotter_009",
+        "category": "plotter",
+        "name": "Cuchilla 45° Larga Vida",
+        "type": "blade",
+        "angle": 45,
+        "pressure": 16,
+        "speed": 100,
+        "offset": 0.25,
+        "notes": "Cuchilla de carburo con vida útil 3x mayor. Para producción en volumen"
+    },
+    {
+        "id": "plotter_010",
+        "category": "plotter",
+        "name": "Cuchilla 60° Kraft",
+        "type": "blade",
+        "angle": 60,
+        "pressure": 28,
+        "speed": 65,
+        "offset": 0.3,
+        "notes": "Corte de papel kraft grueso, cartulina pesada, material de empaque"
+    },
+    {
+        "id": "plotter_011",
+        "category": "plotter",
+        "name": "Cuchilla 45° Magnética",
+        "type": "blade",
+        "angle": 45,
+        "pressure": 24,
+        "speed": 75,
+        "offset": 0.25,
+        "notes": "Para lámina magnética flexible, imanes de refrigerador"
+    },
+    {
+        "id": "plotter_012",
+        "category": "plotter",
+        "name": "Punta de Grabado (Embossing)",
+        "type": "blade",
+        "angle": 0,
+        "pressure": 20,
+        "speed": 40,
+        "offset": 0,
+        "notes": "Punta roma para grabado en relieve sobre cartulina, aluminio delgado y cobre"
     },
     {
         "id": "pencil_001",
@@ -136,54 +659,98 @@
         "speed": 1500,
         "pressure": 2,
         "color": "#000000",
-        "notes": "Lápiz fino para dibujo técnico"
+        "notes": "Lápiz fino para dibujo técnico y bocetos precisos"
     },
     {
         "id": "pencil_002",
         "category": "pencil",
-        "name": "Marcador 0.8mm Negro",
+        "name": "Lápiz 0.3mm",
+        "type": "pencil",
+        "thickness": 0.3,
+        "speed": 1200,
+        "pressure": 1.5,
+        "color": "#333333",
+        "notes": "Lápiz ultra fino para detalles microscópicos y planos técnicos"
+    },
+    {
+        "id": "pencil_003",
+        "category": "pencil",
+        "name": "Lápiz 0.7mm",
+        "type": "pencil",
+        "thickness": 0.7,
+        "speed": 1500,
+        "pressure": 2.5,
+        "color": "#000000",
+        "notes": "Lápiz grueso para bocetos rápidos y líneas visibles"
+    },
+    {
+        "id": "pencil_004",
+        "category": "pencil",
+        "name": "Lápiz 2mm (portaminas)",
+        "type": "pencil",
+        "thickness": 2,
+        "speed": 1000,
+        "pressure": 3,
+        "color": "#333333",
+        "notes": "Portaminas grueso para bocetos artísticos y sombreado"
+    },
+    {
+        "id": "pencil_005",
+        "category": "pencil",
+        "name": "Marcador Permanente 0.8mm Negro",
         "type": "marker",
         "thickness": 0.8,
         "speed": 1200,
         "pressure": 1.5,
         "color": "#000000",
-        "notes": "Marcador permanente estándar"
+        "notes": "Marcador permanente estándar, punta fina"
     },
     {
-        "id": "pencil_003",
+        "id": "pencil_006",
         "category": "pencil",
-        "name": "Marcador 1.5mm Negro",
+        "name": "Marcador Permanente 1.5mm Negro",
         "type": "marker",
         "thickness": 1.5,
         "speed": 1000,
         "pressure": 1.5,
         "color": "#000000",
-        "notes": "Marcador grueso para líneas visibles"
+        "notes": "Marcador grueso para líneas visibles a distancia"
     },
     {
-        "id": "pencil_004",
+        "id": "pencil_007",
         "category": "pencil",
-        "name": "Pluma Gel 0.7mm Azul",
-        "type": "pen",
-        "thickness": 0.7,
-        "speed": 1300,
-        "pressure": 2,
-        "color": "#0000FF",
-        "notes": "Pluma de gel para dibujo suave"
-    },
-    {
-        "id": "pencil_005",
-        "category": "pencil",
-        "name": "Pluma Gel 0.7mm Roja",
-        "type": "pen",
-        "thickness": 0.7,
-        "speed": 1300,
-        "pressure": 2,
+        "name": "Marcador 0.5mm Rojo",
+        "type": "marker",
+        "thickness": 0.5,
+        "speed": 1200,
+        "pressure": 1.5,
         "color": "#FF0000",
-        "notes": "Pluma de gel roja"
+        "notes": "Marcador fino rojo para marcas de referencia y anotaciones"
     },
     {
-        "id": "pencil_006",
+        "id": "pencil_008",
+        "category": "pencil",
+        "name": "Marcador 0.5mm Azul",
+        "type": "marker",
+        "thickness": 0.5,
+        "speed": 1200,
+        "pressure": 1.5,
+        "color": "#0000FF",
+        "notes": "Marcador fino azul para planos y esquemas"
+    },
+    {
+        "id": "pencil_009",
+        "category": "pencil",
+        "name": "Marcador 0.5mm Verde",
+        "type": "marker",
+        "thickness": 0.5,
+        "speed": 1200,
+        "pressure": 1.5,
+        "color": "#00AA00",
+        "notes": "Marcador fino verde para capas de referencia"
+    },
+    {
+        "id": "pencil_010",
         "category": "pencil",
         "name": "Rotulador 3mm Negro",
         "type": "marker",
@@ -191,6 +758,182 @@
         "speed": 800,
         "pressure": 1,
         "color": "#000000",
-        "notes": "Rotulador grueso para títulos y resaltado"
+        "notes": "Rotulador grueso para títulos y resaltado en carteles"
+    },
+    {
+        "id": "pencil_011",
+        "category": "pencil",
+        "name": "Rotulador 5mm Negro",
+        "type": "marker",
+        "thickness": 5,
+        "speed": 600,
+        "pressure": 1,
+        "color": "#000000",
+        "notes": "Rotulador extra grueso para pósters y letreros"
+    },
+    {
+        "id": "pencil_012",
+        "category": "pencil",
+        "name": "Pluma Gel 0.7mm Azul",
+        "type": "pen",
+        "thickness": 0.7,
+        "speed": 1300,
+        "pressure": 2,
+        "color": "#0000FF",
+        "notes": "Pluma de gel para dibujo suave y fluido"
+    },
+    {
+        "id": "pencil_013",
+        "category": "pencil",
+        "name": "Pluma Gel 0.7mm Roja",
+        "type": "pen",
+        "thickness": 0.7,
+        "speed": 1300,
+        "pressure": 2,
+        "color": "#FF0000",
+        "notes": "Pluma de gel roja para correcciones y marcas"
+    },
+    {
+        "id": "pencil_014",
+        "category": "pencil",
+        "name": "Pluma Gel 0.7mm Negra",
+        "type": "pen",
+        "thickness": 0.7,
+        "speed": 1300,
+        "pressure": 2,
+        "color": "#000000",
+        "notes": "Pluma de gel negra para dibujo artístico limpio"
+    },
+    {
+        "id": "pencil_015",
+        "category": "pencil",
+        "name": "Pluma Gel 0.38mm Negra",
+        "type": "pen",
+        "thickness": 0.38,
+        "speed": 1100,
+        "pressure": 1.8,
+        "color": "#000000",
+        "notes": "Pluma ultra fina para detalles precisos y caligrafía pequeña"
+    },
+    {
+        "id": "pencil_016",
+        "category": "pencil",
+        "name": "Pluma Gel 1.0mm Negra",
+        "type": "pen",
+        "thickness": 1.0,
+        "speed": 1200,
+        "pressure": 2,
+        "color": "#000000",
+        "notes": "Pluma gel gruesa para firmas y trazos audaces"
+    },
+    {
+        "id": "pencil_017",
+        "category": "pencil",
+        "name": "Estilógrafo 0.1mm",
+        "type": "pen",
+        "thickness": 0.1,
+        "speed": 800,
+        "pressure": 1,
+        "color": "#000000",
+        "notes": "Rapidógrafo técnico para dibujo de precisión y planos arquitectónicos"
+    },
+    {
+        "id": "pencil_018",
+        "category": "pencil",
+        "name": "Estilógrafo 0.3mm",
+        "type": "pen",
+        "thickness": 0.3,
+        "speed": 1000,
+        "pressure": 1,
+        "color": "#000000",
+        "notes": "Rapidógrafo intermedio para dibujo técnico y delineado"
+    },
+    {
+        "id": "pencil_019",
+        "category": "pencil",
+        "name": "Estilógrafo 0.5mm",
+        "type": "pen",
+        "thickness": 0.5,
+        "speed": 1100,
+        "pressure": 1,
+        "color": "#000000",
+        "notes": "Rapidógrafo estándar para bordes y contornos"
+    },
+    {
+        "id": "pencil_020",
+        "category": "pencil",
+        "name": "Brush Pen Punta Pincel",
+        "type": "marker",
+        "thickness": 2,
+        "speed": 700,
+        "pressure": 1.5,
+        "color": "#000000",
+        "notes": "Rotulador con punta de pincel flexible para caligrafía y lettering"
+    },
+    {
+        "id": "pencil_021",
+        "category": "pencil",
+        "name": "Marcador Metalizado Dorado",
+        "type": "marker",
+        "thickness": 1,
+        "speed": 900,
+        "pressure": 2,
+        "color": "#FFD700",
+        "notes": "Tinta metálica dorada para detalles decorativos sobre papel oscuro"
+    },
+    {
+        "id": "pencil_022",
+        "category": "pencil",
+        "name": "Marcador Metalizado Plateado",
+        "type": "marker",
+        "thickness": 1,
+        "speed": 900,
+        "pressure": 2,
+        "color": "#C0C0C0",
+        "notes": "Tinta metálica plateada para invitaciones y decoración"
+    },
+    {
+        "id": "pencil_023",
+        "category": "pencil",
+        "name": "Marcador Blanco Opaco",
+        "type": "marker",
+        "thickness": 1,
+        "speed": 900,
+        "pressure": 2,
+        "color": "#FFFFFF",
+        "notes": "Tinta blanca opaca para dibujo sobre superficies oscuras y vidrio"
+    },
+    {
+        "id": "pencil_024",
+        "category": "pencil",
+        "name": "Pluma Caligráfica 1.5mm",
+        "type": "pen",
+        "thickness": 1.5,
+        "speed": 600,
+        "pressure": 2,
+        "color": "#000000",
+        "notes": "Pluma de punta plana para caligrafía itálica y lettering clásico"
+    },
+    {
+        "id": "pencil_025",
+        "category": "pencil",
+        "name": "Pluma Caligráfica 2.5mm",
+        "type": "pen",
+        "thickness": 2.5,
+        "speed": 500,
+        "pressure": 2,
+        "color": "#000000",
+        "notes": "Pluma ancha para caligrafía gótica y letras decorativas grandes"
+    },
+    {
+        "id": "pencil_026",
+        "category": "pencil",
+        "name": "Marcador UV Invisible",
+        "type": "marker",
+        "thickness": 0.8,
+        "speed": 1000,
+        "pressure": 1.5,
+        "color": "#E0E0FF",
+        "notes": "Tinta UV visible solo con luz ultravioleta. Para marcado de seguridad"
     }
 ]

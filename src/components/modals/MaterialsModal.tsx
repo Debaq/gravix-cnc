@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
 import { useLibraryStore } from '@/stores/useLibraryStore'
@@ -14,11 +14,11 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { Layers, Edit, Trash2, Plus, X } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Layers, Edit, Trash2, Plus, X, AlertTriangle } from 'lucide-react'
 import type { Material, MaterialFormData } from '@/lib/types'
 
 function generateId(): string {
@@ -43,6 +43,18 @@ export function MaterialsModal() {
 
   const isOpen = activeModal === 'materials'
   const categoryMaterials = getMaterialsByCategory(materialsModalTab)
+
+  // Derivar categorias desde los datos cargados
+  const categories = useMemo(() => {
+    const cats = [...new Set(materials.map((m) => m.category))]
+    // Orden preferido
+    const order = ['wood', 'plastic', 'metal', 'paper', 'vinyl', 'leather', 'foam', 'fabric', 'rubber', 'composite', 'stone', 'glass', 'food']
+    return cats.sort((a, b) => {
+      const ia = order.indexOf(a)
+      const ib = order.indexOf(b)
+      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib)
+    })
+  }, [materials])
 
   const { register, handleSubmit, reset } = useForm<MaterialFormData>({
     defaultValues: {
@@ -163,7 +175,7 @@ export function MaterialsModal() {
             <Layers className="h-5 w-5" />
             {t('title')}
           </DialogTitle>
-          <DialogDescription>{t('wood')} / {t('plastic')} / {t('metal')}</DialogDescription>
+          <DialogDescription>{materials.length} materiales en {categories.length} categorias</DialogDescription>
         </DialogHeader>
 
         {showForm ? (
@@ -262,81 +274,99 @@ export function MaterialsModal() {
           </form>
         ) : (
           /* Lista de materiales */
-          <>
-            <Tabs value={materialsModalTab} onValueChange={setMaterialsModalTab}>
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="wood">{t('wood')}</TabsTrigger>
-                <TabsTrigger value="plastic">{t('plastic')}</TabsTrigger>
-                <TabsTrigger value="metal">{t('metal')}</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value={materialsModalTab}>
-                <ScrollArea className="h-[400px]">
-                  {categoryMaterials.length === 0 ? (
-                    <p className="text-center text-muted-foreground py-8">{t('noMaterials')}</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {categoryMaterials.map((mat) => (
-                        <div
-                          key={mat.id}
-                          className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50"
-                        >
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <div
-                                className="w-4 h-4 rounded-full border"
-                                style={{ backgroundColor: mat.color }}
-                              />
-                              <span className="font-medium text-sm">{mat.name}</span>
-                              <Badge variant="outline" className="text-xs">
-                                {mat.thickness}mm
-                              </Badge>
-                            </div>
-                            {mat.description && (
-                              <p className="text-xs text-muted-foreground mt-1">{mat.description}</p>
-                            )}
-                            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                              {mat.cnc && (
-                                <span>CNC: F{mat.cnc.feedRate} RPM{mat.cnc.rpm}</span>
-                              )}
-                              {mat.laser && (
-                                <span>Laser: {mat.laser.cutPower}%</span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1 ml-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => openEditForm(mat)}
-                            >
-                              <Edit className="h-3 w-3" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive"
-                              onClick={() => handleDelete(mat)}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </ScrollArea>
-              </TabsContent>
-            </Tabs>
-
-            <div className="flex justify-between">
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Select value={materialsModalTab} onValueChange={setMaterialsModalTab}>
+                <SelectTrigger className="w-[200px] h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((cat) => {
+                    const count = getMaterialsByCategory(cat).length
+                    return (
+                      <SelectItem key={cat} value={cat}>
+                        {t(cat, cat)} ({count})
+                      </SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
+              <div className="flex-1" />
               <Button variant="outline" size="sm" onClick={openCreateForm} className="gap-1">
                 <Plus className="h-3 w-3" />
                 {t('addMaterial')}
               </Button>
             </div>
-          </>
+
+            <ScrollArea className="h-[420px]">
+              {categoryMaterials.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">{t('noMaterials')}</p>
+              ) : (
+                <div className="space-y-2">
+                  {categoryMaterials.map((mat) => (
+                    <div
+                      key={mat.id}
+                      className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-4 h-4 rounded-full border shrink-0"
+                            style={{ backgroundColor: mat.color }}
+                          />
+                          <span className="font-medium text-sm truncate">{mat.name}</span>
+                          <Badge variant="outline" className="text-xs shrink-0">
+                            {mat.thickness}mm
+                          </Badge>
+                        </div>
+                        {mat.description && (
+                          <p className="text-xs text-muted-foreground mt-1 truncate">{mat.description}</p>
+                        )}
+                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
+                          {mat.cnc && mat.cnc.feedRate > 0 && (
+                            <span>CNC: F{mat.cnc.feedRate} RPM{mat.cnc.rpm}</span>
+                          )}
+                          {mat.laser && mat.laser.cutPower > 0 && (
+                            <span>Laser: {mat.laser.cutPower}%</span>
+                          )}
+                          {mat.laser && mat.laser.engravePower > 0 && !mat.laser.cutPower && (
+                            <span>Laser grabado: {mat.laser.engravePower}%</span>
+                          )}
+                          {mat.plotter && mat.plotter.pressure > 0 && (
+                            <span>Plotter: P{mat.plotter.pressure} S{mat.plotter.speed}</span>
+                          )}
+                        </div>
+                        {mat.laser?.warning && (
+                          <div className="flex items-center gap-1 mt-1 text-xs text-orange-500">
+                            <AlertTriangle className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{mat.laser.warning}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 ml-2 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => openEditForm(mat)}
+                        >
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive"
+                          onClick={() => handleDelete(mat)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </div>
         )}
       </DialogContent>
     </Dialog>

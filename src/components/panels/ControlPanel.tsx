@@ -6,9 +6,12 @@ import { useSerial } from '@/hooks/useSerial'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable'
+import { MacrosWorkflowPanel } from '@/components/panels/control/MacrosWorkflowPanel'
+import { GCodePreviewPanel } from '@/components/panels/control/GCodePreviewPanel'
 import {
   Home,
   Unlock,
@@ -20,13 +23,24 @@ import {
   ArrowRight,
   ChevronUp,
   ChevronDown,
-  Wifi,
-  WifiOff,
   Target,
   Play,
-  RefreshCw,
   Send,
+  Wifi,
+  WifiOff,
+  RefreshCw,
 } from 'lucide-react'
+
+const STATE_COLORS: Record<string, string> = {
+  Idle: 'bg-emerald-500',
+  Run: 'bg-blue-500 animate-pulse',
+  Hold: 'bg-yellow-500',
+  Alarm: 'bg-red-500 animate-pulse',
+  Check: 'bg-purple-500',
+  Home: 'bg-cyan-500 animate-pulse',
+  Sleep: 'bg-gray-500',
+  Jog: 'bg-indigo-500',
+}
 
 export function ControlPanel() {
   const { t } = useTranslation('serial')
@@ -38,10 +52,10 @@ export function ControlPanel() {
     position,
     posMode,
     baudRate,
-    jogDistance,
-    jogSpeed,
     feedOverride,
     spindleOverride,
+    jogDistance,
+    jogSpeed,
     togglePosMode,
     setJogDistance,
     setJogSpeed,
@@ -67,7 +81,7 @@ export function ControlPanel() {
 
   useEffect(() => {
     refreshPorts()
-  }, []) // Solo al montar
+  }, [])
 
   const handleConnect = async () => {
     if (connected) {
@@ -86,367 +100,281 @@ export function ControlPanel() {
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSendCommand()
-    }
+    if (e.key === 'Enter') handleSendCommand()
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-4xl mx-auto">
-      {/* Columna izquierda: Conexion + Estado + Controles */}
-      <div className="space-y-4">
-        {/* Connection */}
-        <div className="bg-background border rounded-lg p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <Badge variant={connected ? 'success' : 'destructive'} className="gap-1">
-              {connected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-              {connected ? t('connected') : t('disconnected')}
-            </Badge>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={refreshPorts}
-              disabled={loadingPorts}
-              title={t('selectPort')}
-            >
-              <RefreshCw className={`h-3 w-3 ${loadingPorts ? 'animate-spin' : ''}`} />
-            </Button>
-          </div>
+    <ResizablePanelGroup direction="horizontal" className="h-full">
+      {/* ═══ COL 1: Macros + Workflow ═══ */}
+      <ResizablePanel defaultSize={15} minSize={10} maxSize={25}>
+        <MacrosWorkflowPanel />
+      </ResizablePanel>
 
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-xs text-muted-foreground">{t('port')}</label>
-              <Select value={selectedPort} onValueChange={setSelectedPort} disabled={connected}>
-                <SelectTrigger className="h-8">
-                  <SelectValue placeholder={t('selectPort')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {ports.map((p) => (
-                    <SelectItem key={p.name} value={p.name}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                  {ports.length === 0 && (
-                    <SelectItem value="_none" disabled>
-                      {t('selectPort')}
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground">{t('baudRate')}</label>
-              <Select value={baudRate.toString()} onValueChange={(v) => setBaudRate(parseInt(v))} disabled={connected}>
-                <SelectTrigger className="h-8">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="9600">9600</SelectItem>
-                  <SelectItem value="19200">19200</SelectItem>
-                  <SelectItem value="38400">38400</SelectItem>
-                  <SelectItem value="57600">57600</SelectItem>
-                  <SelectItem value="115200">115200</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+      <ResizableHandle withHandle />
 
-          <Button
-            className="w-full"
-            variant={connected ? 'destructive' : 'default'}
-            size="sm"
-            onClick={handleConnect}
-          >
-            {connected ? t('disconnect') : t('connect')}
-          </Button>
-        </div>
-
-        {/* Machine state & Position */}
-        <div className="bg-background border rounded-lg p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">{t('machineState')}</span>
-            <Badge variant="outline">{machineState}</Badge>
-          </div>
-          <div className="bg-muted rounded-md p-3">
-            <div className="flex items-center justify-between mb-2">
-              <span
-                className="text-xs font-medium cursor-pointer hover:underline"
-                onClick={togglePosMode}
-              >
-                {posMode}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 text-xs"
-                onClick={() => serial.setZero()}
-                disabled={!connected}
-              >
-                <Target className="h-3 w-3 mr-1" />
-                {t('setZero')}
-              </Button>
-            </div>
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <div>
-                <span className="text-xs text-red-500 font-bold">X</span>
-                <p className="text-sm font-mono">{position.x}</p>
+      {/* ═══ COL 2: Conexion + Estado + Controles + Jog ═══ */}
+      <ResizablePanel defaultSize={30} minSize={20} maxSize={40}>
+        <div className="flex flex-col h-full min-h-0 pl-2">
+          <ScrollArea className="flex-1">
+            <div className="space-y-3 pr-2">
+              {/* Conexion */}
+              <div className="bg-background border rounded-lg p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <Badge variant={connected ? 'success' : 'destructive'} className="gap-1">
+                    {connected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+                    {connected ? t('connected') : t('disconnected')}
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={refreshPorts}
+                    disabled={loadingPorts}
+                  >
+                    <RefreshCw className={`h-3 w-3 ${loadingPorts ? 'animate-spin' : ''}`} />
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-muted-foreground">{t('port')}</label>
+                    <Select value={selectedPort} onValueChange={setSelectedPort} disabled={connected}>
+                      <SelectTrigger className="h-7 text-xs">
+                        <SelectValue placeholder={t('selectPort')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ports.map((p) => (
+                          <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>
+                        ))}
+                        {ports.length === 0 && (
+                          <SelectItem value="_none" disabled>{t('selectPort')}</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground">{t('baudRate')}</label>
+                    <Select value={baudRate.toString()} onValueChange={(v) => setBaudRate(parseInt(v))} disabled={connected}>
+                      <SelectTrigger className="h-7 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[9600, 19200, 38400, 57600, 115200].map((b) => (
+                          <SelectItem key={b} value={b.toString()}>{b}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
                 <Button
-                  variant="ghost"
+                  className="w-full"
+                  variant={connected ? 'destructive' : 'default'}
                   size="sm"
-                  className="h-5 text-[10px] w-full"
-                  onClick={() => serial.setZero('x')}
-                  disabled={!connected}
+                  onClick={handleConnect}
                 >
-                  X=0
+                  {connected ? t('disconnect') : t('connect')}
                 </Button>
               </div>
-              <div>
-                <span className="text-xs text-green-500 font-bold">Y</span>
-                <p className="text-sm font-mono">{position.y}</p>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-5 text-[10px] w-full"
-                  onClick={() => serial.setZero('y')}
-                  disabled={!connected}
-                >
-                  Y=0
+
+              {/* ── Estado de Máquina ── */}
+              <div className="bg-background border rounded-lg p-3 space-y-3">
+                {/* Estado */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${STATE_COLORS[machineState] || 'bg-gray-400'}`} />
+                    <span className="text-sm font-semibold">{machineState}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      className="text-[10px] text-muted-foreground hover:text-foreground font-mono cursor-pointer px-1.5 py-0.5 rounded hover:bg-muted"
+                      onClick={togglePosMode}
+                    >
+                      {posMode}
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-[10px]"
+                      onClick={() => serial.setZero()}
+                      disabled={!connected}
+                    >
+                      <Target className="h-3 w-3 mr-1" />
+                      {t('setZero')}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Ejes */}
+                {[
+                  { axis: 'X', value: position.x, color: 'text-red-500', bg: 'bg-red-500/10', key: 'x' as const },
+                  { axis: 'Y', value: position.y, color: 'text-green-500', bg: 'bg-green-500/10', key: 'y' as const },
+                  { axis: 'Z', value: position.z, color: 'text-blue-500', bg: 'bg-blue-500/10', key: 'z' as const },
+                ].map(({ axis, value, color, bg, key }) => (
+                  <div key={axis} className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 ${bg}`}>
+                    <span className={`text-xs font-bold w-3 ${color}`}>{axis}</span>
+                    <span className="flex-1 text-right font-mono text-base font-semibold tabular-nums">
+                      {value}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-9 text-[10px] text-muted-foreground"
+                      onClick={() => serial.setZero(key)}
+                      disabled={!connected}
+                    >
+                      =0
+                    </Button>
+                  </div>
+                ))}
+
+                {/* Overrides */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-muted rounded-md px-2 py-1.5 text-center">
+                    <span className="text-[10px] text-muted-foreground block">Feed</span>
+                    <span className="text-sm font-semibold font-mono">{feedOverride}%</span>
+                  </div>
+                  <div className="bg-muted rounded-md px-2 py-1.5 text-center">
+                    <span className="text-[10px] text-muted-foreground block">Spindle</span>
+                    <span className="text-sm font-semibold font-mono">{spindleOverride}%</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Controles rápidos ── */}
+              <div className="bg-background border rounded-lg p-3 space-y-2">
+                <div className="grid grid-cols-4 gap-1">
+                  <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={serial.home} disabled={!connected} title={t('home')}>
+                    <Home className="h-3 w-3 shrink-0" /> <span className="truncate">{t('home')}</span>
+                  </Button>
+                  <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={serial.unlock} disabled={!connected} title={t('unlock')}>
+                    <Unlock className="h-3 w-3 shrink-0" /> <span className="truncate">{t('unlock')}</span>
+                  </Button>
+                  <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={serial.reset} disabled={!connected} title={t('reset')}>
+                    <RotateCcw className="h-3 w-3 shrink-0" /> <span className="truncate">{t('reset')}</span>
+                  </Button>
+                  <Button variant="destructive" size="sm" className="text-xs gap-1 overflow-hidden" onClick={serial.stop} disabled={!connected} title={t('stop')}>
+                    <OctagonX className="h-3 w-3 shrink-0" /> <span className="truncate">{t('stop')}</span>
+                  </Button>
+                </div>
+                <Button variant="outline" size="sm" className="w-full text-xs gap-1 overflow-hidden" onClick={serial.resume} disabled={!connected}>
+                  <Play className="h-3 w-3 shrink-0" /> <span className="truncate">{t('resume')}</span>
                 </Button>
               </div>
-              <div>
-                <span className="text-xs text-blue-500 font-bold">Z</span>
-                <p className="text-sm font-mono">{position.z}</p>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-5 text-[10px] w-full"
-                  onClick={() => serial.setZero('z')}
-                  disabled={!connected}
-                >
-                  Z=0
-                </Button>
+
+              {/* ── Jog ── */}
+              <div className="bg-background border rounded-lg p-3 space-y-2">
+                <h3 className="text-xs font-semibold">{t('jog')}</h3>
+                <div className="grid grid-cols-3 gap-1 max-w-[140px] mx-auto">
+                  <div />
+                  <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => serial.jogXY(0, jogDistance, jogSpeed)} disabled={!connected}>
+                    <ArrowUp className="h-4 w-4" />
+                  </Button>
+                  <div />
+                  <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => serial.jogXY(-jogDistance, 0, jogSpeed)} disabled={!connected}>
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+                  <Button variant="outline" size="icon" className="h-9 w-9" onClick={serial.home} disabled={!connected}>
+                    <Home className="h-3 w-3" />
+                  </Button>
+                  <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => serial.jogXY(jogDistance, 0, jogSpeed)} disabled={!connected}>
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                  <div />
+                  <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => serial.jogXY(0, -jogDistance, jogSpeed)} disabled={!connected}>
+                    <ArrowDown className="h-4 w-4" />
+                  </Button>
+                  <div />
+                </div>
+
+                <div className="flex items-center justify-center gap-2">
+                  <span className="text-xs text-blue-500 font-bold">Z</span>
+                  <Button variant="outline" size="sm" className="h-7" onClick={() => serial.jogZ(jogDistance, jogSpeed)} disabled={!connected}>
+                    <ChevronUp className="h-3 w-3" />
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7" onClick={() => serial.jogZ(-jogDistance, jogSpeed)} disabled={!connected}>
+                    <ChevronDown className="h-3 w-3" />
+                  </Button>
+                </div>
+
+                <Separator />
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-muted-foreground">{t('jogDistance')} (mm)</label>
+                    <Select value={jogDistance.toString()} onValueChange={(v) => setJogDistance(parseFloat(v))}>
+                      <SelectTrigger className="h-7 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[0.1, 0.5, 1, 5, 10, 50].map((d) => (
+                          <SelectItem key={d} value={d.toString()}>{d}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground">{t('jogSpeed')}</label>
+                    <Input
+                      type="number"
+                      value={jogSpeed}
+                      onChange={(e) => setJogSpeed(parseInt(e.target.value) || 1000)}
+                      className="h-7 text-xs"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-
-          {/* Overrides */}
-          <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-            <span>{t('feedOverride')}: {feedOverride}%</span>
-            <span>{t('spindleOverride')}: {spindleOverride}%</span>
-          </div>
+          </ScrollArea>
         </div>
+      </ResizablePanel>
 
-        {/* Quick controls */}
-        <div className="bg-background border rounded-lg p-4 space-y-3">
-          <div className="grid grid-cols-4 gap-1">
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs gap-1"
-              onClick={serial.home}
-              disabled={!connected}
-              title={t('home')}
-            >
-              <Home className="h-3 w-3" />
-              {t('home')}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs gap-1"
-              onClick={serial.unlock}
-              disabled={!connected}
-              title={t('unlock')}
-            >
-              <Unlock className="h-3 w-3" />
-              {t('unlock')}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs gap-1"
-              onClick={serial.reset}
-              disabled={!connected}
-              title={t('reset')}
-            >
-              <RotateCcw className="h-3 w-3" />
-              {t('reset')}
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              className="text-xs gap-1"
-              onClick={serial.stop}
-              disabled={!connected}
-              title={t('emergencyStop')}
-            >
-              <OctagonX className="h-3 w-3" />
-              {t('stop')}
+      <ResizableHandle withHandle />
+
+      {/* ═══ COL 3: Consola ═══ */}
+      <ResizablePanel defaultSize={20} minSize={12} maxSize={35}>
+        <div className="bg-background border rounded-lg flex flex-col h-full min-h-0 mx-2">
+          <div className="flex items-center justify-between px-3 py-2 border-b">
+            <span className="text-sm font-semibold">{t('console')}</span>
+            <Button variant="ghost" size="sm" className="text-xs" onClick={() => useAppStore.getState().clearConsole()}>
+              {t('clearConsole')}
             </Button>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full text-xs gap-1"
-            onClick={serial.resume}
-            disabled={!connected}
-          >
-            <Play className="h-3 w-3" />
-            {t('resume')}
-          </Button>
-        </div>
-
-        {/* Jog controls */}
-        <div className="bg-background border rounded-lg p-4 space-y-3">
-          <h3 className="text-sm font-semibold">{t('jog')}</h3>
-          <div className="grid grid-cols-3 gap-1 max-w-[160px] mx-auto">
-            <div />
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-10 w-10"
-              onClick={() => serial.jogXY(0, jogDistance, jogSpeed)}
-              disabled={!connected}
-            >
-              <ArrowUp className="h-4 w-4" />
-            </Button>
-            <div />
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-10 w-10"
-              onClick={() => serial.jogXY(-jogDistance, 0, jogSpeed)}
-              disabled={!connected}
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-10 w-10"
-              onClick={serial.home}
-              disabled={!connected}
-            >
-              <Home className="h-3 w-3" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-10 w-10"
-              onClick={() => serial.jogXY(jogDistance, 0, jogSpeed)}
-              disabled={!connected}
-            >
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-            <div />
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-10 w-10"
-              onClick={() => serial.jogXY(0, -jogDistance, jogSpeed)}
-              disabled={!connected}
-            >
-              <ArrowDown className="h-4 w-4" />
-            </Button>
-            <div />
-          </div>
-          {/* Z axis */}
-          <div className="flex items-center justify-center gap-2">
-            <span className="text-xs text-blue-500 font-bold">Z</span>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8"
-              onClick={() => serial.jogZ(jogDistance, jogSpeed)}
-              disabled={!connected}
-            >
-              <ChevronUp className="h-3 w-3" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8"
-              onClick={() => serial.jogZ(-jogDistance, jogSpeed)}
-              disabled={!connected}
-            >
-              <ChevronDown className="h-3 w-3" />
-            </Button>
-          </div>
-
-          {/* Distance & Speed */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-xs text-muted-foreground">{t('jogDistance')} (mm)</label>
-              <Select value={jogDistance.toString()} onValueChange={(v) => setJogDistance(parseFloat(v))}>
-                <SelectTrigger className="h-8">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="0.1">0.1</SelectItem>
-                  <SelectItem value="0.5">0.5</SelectItem>
-                  <SelectItem value="1">1</SelectItem>
-                  <SelectItem value="5">5</SelectItem>
-                  <SelectItem value="10">10</SelectItem>
-                  <SelectItem value="50">50</SelectItem>
-                </SelectContent>
-              </Select>
+          <ScrollArea className="flex-1 min-h-0 p-2">
+            <div className="space-y-0.5">
+              {consoleLines.map((line, i) => (
+                <p key={i} className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{line}</p>
+              ))}
             </div>
-            <div>
-              <label className="text-xs text-muted-foreground">{t('jogSpeed')}</label>
-              <Input
-                type="number"
-                value={jogSpeed}
-                onChange={(e) => setJogSpeed(parseInt(e.target.value) || 1000)}
-                className="h-8"
-              />
-            </div>
+          </ScrollArea>
+          <div className="flex items-center gap-1 p-2 border-t">
+            <Input
+              placeholder={t('command')}
+              value={commandInput}
+              onChange={(e) => setCommandInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              className="h-7 text-xs font-mono"
+              disabled={!connected}
+            />
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={handleSendCommand}
+              disabled={!connected || !commandInput.trim()}
+            >
+              <Send className="h-3 w-3" />
+            </Button>
           </div>
         </div>
-      </div>
+      </ResizablePanel>
 
-      {/* Columna derecha: Consola */}
-      <div className="bg-background border rounded-lg flex flex-col h-[calc(100vh-8rem)]">
-        <div className="flex items-center justify-between px-4 py-2 border-b">
-          <span className="text-sm font-semibold">{t('console')}</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-xs"
-            onClick={() => useAppStore.getState().clearConsole()}
-          >
-            {t('clearConsole')}
-          </Button>
+      <ResizableHandle withHandle />
+
+      {/* ═══ COL 4: GCode activo + Preview + Timeline ═══ */}
+      <ResizablePanel defaultSize={35} minSize={18} maxSize={45}>
+        <div className="pl-2 h-full">
+          <GCodePreviewPanel />
         </div>
-        <ScrollArea className="flex-1 p-2">
-          <div className="space-y-0.5">
-            {consoleLines.map((line, i) => (
-              <p key={i} className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">
-                {line}
-              </p>
-            ))}
-          </div>
-        </ScrollArea>
-        <div className="flex items-center gap-1 p-2 border-t">
-          <Input
-            placeholder={t('command')}
-            value={commandInput}
-            onChange={(e) => setCommandInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            className="h-8 text-xs font-mono"
-            disabled={!connected}
-          />
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={handleSendCommand}
-            disabled={!connected || !commandInput.trim()}
-          >
-            <Send className="h-3 w-3" />
-          </Button>
-        </div>
-      </div>
-    </div>
+      </ResizablePanel>
+    </ResizablePanelGroup>
   )
 }

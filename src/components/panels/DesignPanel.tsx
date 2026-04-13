@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useCanvasStore } from '@/stores/useCanvasStore'
+import { useLibraryStore } from '@/stores/useLibraryStore'
 import { useAppStore } from '@/stores/useAppStore'
 import { useCanvasManager } from '@/hooks/useCanvasManager'
 import { Button } from '@/components/ui/button'
@@ -23,34 +24,55 @@ import {
   Unlock,
   Trash2,
   Copy,
-  ChevronRight,
   Square,
   Circle,
-  Minus,
   Hexagon,
   Star,
+  Settings2,
+  Pencil,
+  Grid3X3,
+  Minus,
+  Spline,
+  Undo2,
+  Type,
+  RectangleHorizontal,
+  CircleDot,
+  Pill,
+  Cone,
+  CircleDashed,
+  SquareDashed,
+  BoxSelect,
 } from 'lucide-react'
 
 export function DesignPanel() {
   const { t } = useTranslation('canvas')
-  const { elements, selectedElementId, selectElement } = useCanvasStore()
-  const { addConsoleLine } = useAppStore()
+  const { t: ts } = useTranslation('settings')
+  const { elements, selectedElementId, selectElement, globalConfig, workArea, setDrawingMode } = useCanvasStore()
+  const { tools, materials } = useLibraryStore()
+  const { addConsoleLine, openModal } = useAppStore()
+  const handleTextToPath = () => openModal('textToPath')
+  const handleBoxGenerator = () => openModal('boxGenerator')
   const canvasManager = useCanvasManager()
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const svgInputRef = useRef<HTMLInputElement>(null)
+
+  // Resolve display names
+  const toolName = tools.find((t) => t.id === globalConfig.tool)?.name
+  const materialName = materials.find((m) => m.id === globalConfig.material)?.name
 
   const handleLoadSVG = () => {
-    fileInputRef.current?.click()
+    svgInputRef.current?.click()
   }
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSVGChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-
     canvasManager.loadSVG(file)
     addConsoleLine(`SVG cargado: ${file.name}`)
-
-    // Reset para permitir cargar el mismo archivo de nuevo
     e.target.value = ''
+  }
+
+  const handleLoadImage = () => {
+    canvasManager.loadImage()
   }
 
   const handleAddShape = (type: string) => {
@@ -59,12 +81,9 @@ export function DesignPanel() {
   }
 
   const handleCopyElement = (elId: string) => {
-    // For now, copy creates a duplicate in the same position
     const el = elements.find((e) => e.id === elId)
     if (!el) return
-    // Re-add the same shape type to canvas
     if (el.type === 'svg' && el.svgData) {
-      // Recreate SVG from stored data
       const blob = new Blob([el.svgData], { type: 'image/svg+xml' })
       const file = new File([blob], `${el.name} (copia).svg`, { type: 'image/svg+xml' })
       canvasManager.loadSVG(file)
@@ -76,23 +95,92 @@ export function DesignPanel() {
 
   return (
     <div className="space-y-3">
-      {/* Hidden file input for SVG loading */}
       <input
-        ref={fileInputRef}
+        ref={svgInputRef}
         type="file"
         accept=".svg"
         className="hidden"
-        onChange={handleFileChange}
+        onChange={handleSVGChange}
       />
+
+      {/* Work Area Summary */}
+      <button
+        className="w-full text-left rounded-md border bg-muted/30 px-3 py-2 hover:bg-muted/60 transition-colors"
+        onClick={() => openModal('workArea')}
+      >
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+            <Grid3X3 className="h-3 w-3" />
+            {ts('workArea.title')}
+          </span>
+          <Pencil className="h-3 w-3 text-muted-foreground" />
+        </div>
+        <div className="flex items-center gap-3 text-xs">
+          <span>{workArea.width} x {workArea.height} mm</span>
+          <span className="text-muted-foreground">
+            {ts(`workArea.origin`)}: {workArea.origin}
+          </span>
+        </div>
+      </button>
+
+      {/* Global Config Summary */}
+      <button
+        className="w-full text-left rounded-md border bg-muted/30 px-3 py-2 hover:bg-muted/60 transition-colors"
+        onClick={() => openModal('globalConfig')}
+      >
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+            <Settings2 className="h-3 w-3" />
+            {ts('globalConfig.title')}
+          </span>
+          <Pencil className="h-3 w-3 text-muted-foreground" />
+        </div>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+          <span>
+            <span className="text-muted-foreground">{ts('globalConfig.operationType')}: </span>
+            {ts(`operationTypes.${globalConfig.operationType}`)}
+          </span>
+          <span>
+            <span className="text-muted-foreground">{ts('globalConfig.workType')}: </span>
+            {globalConfig.operationType === 'cnc'
+              ? ts(`workTypes.${globalConfig.workType}`)
+              : globalConfig.operationType === 'laser'
+                ? ts(`laserModes.${globalConfig.laserMode}`)
+                : '-'}
+          </span>
+          <span className="truncate">
+            <span className="text-muted-foreground">{ts('globalConfig.tool')}: </span>
+            {toolName || <span className="text-amber-500">{ts('globalConfig.noTool')}</span>}
+          </span>
+          <span className="truncate">
+            <span className="text-muted-foreground">{ts('globalConfig.material')}: </span>
+            {materialName || <span className="text-muted-foreground">{ts('globalConfig.noMaterial')}</span>}
+          </span>
+        </div>
+      </button>
+
+      <Separator />
 
       {/* Add element controls */}
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">{t('elements')}</h3>
         <div className="flex gap-1">
-          <Button variant="outline" size="sm" className="gap-1" onClick={handleLoadSVG}>
-            <Upload className="h-3 w-3" />
-            {t('loadSVG')}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1">
+                <Upload className="h-3 w-3" />
+                {t('load')}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={handleLoadSVG}>
+                {t('loadSVG')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleLoadImage}>
+                {t('loadImage')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="icon" className="h-8 w-8">
@@ -108,9 +196,25 @@ export function DesignPanel() {
                 <Circle className="h-4 w-4 mr-2" />
                 {t('addCircle')}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => handleAddShape('line')}>
+              <DropdownMenuItem onSelect={() => setDrawingMode('line')}>
                 <Minus className="h-4 w-4 mr-2" />
-                {t('addLine')}
+                {t('drawLine')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setDrawingMode('arc')}>
+                <Undo2 className="h-4 w-4 mr-2" />
+                {t('drawArc')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setDrawingMode('bezier')}>
+                <Spline className="h-4 w-4 mr-2" />
+                {t('drawCurve')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleTextToPath}>
+                <Type className="h-4 w-4 mr-2" />
+                {t('textToPath')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleBoxGenerator}>
+                <BoxSelect className="h-4 w-4 mr-2" />
+                {t('boxGenerator')}
               </DropdownMenuItem>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
@@ -118,43 +222,32 @@ export function DesignPanel() {
                   {t('makerModels')}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
-                  <DropdownMenuItem onSelect={() => handleAddShape('rect')}>
-                    {t('rectangle')}
+                  <DropdownMenuItem onSelect={() => handleAddShape('roundRect')}>
+                    <RectangleHorizontal className="h-3 w-3 mr-2" />{t('roundRect')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('rect')}>
-                    {t('square')}
+                  <DropdownMenuItem onSelect={() => handleAddShape('ellipse')}>
+                    <Circle className="h-3 w-3 mr-2" />{t('ellipse')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('rect')}>
-                    {t('roundRect')}
+                  <DropdownMenuItem onSelect={() => handleAddShape('ring')}>
+                    <CircleDot className="h-3 w-3 mr-2" />{t('ring')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('circle')}>
-                    {t('oval')}
+                  <DropdownMenuItem onSelect={() => handleAddShape('polygon')}>
+                    <Hexagon className="h-3 w-3 mr-2" />{t('polygon')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('circle')}>
-                    {t('ellipse')}
+                  <DropdownMenuItem onSelect={() => handleAddShape('star')}>
+                    <Star className="h-3 w-3 mr-2" />{t('star')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('circle')}>
-                    {t('ring')}
+                  <DropdownMenuItem onSelect={() => handleAddShape('slot')}>
+                    <Pill className="h-3 w-3 mr-2" />{t('slot')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('rect')}>
-                    <Hexagon className="h-3 w-3 mr-2" />
-                    {t('polygon')}
+                  <DropdownMenuItem onSelect={() => handleAddShape('dome')}>
+                    <Cone className="h-3 w-3 mr-2" />{t('dome')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('rect')}>
-                    <Star className="h-3 w-3 mr-2" />
-                    {t('star')}
+                  <DropdownMenuItem onSelect={() => handleAddShape('boltCircle')}>
+                    <CircleDashed className="h-3 w-3 mr-2" />{t('boltCircle')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('rect')}>
-                    {t('slot')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('circle')}>
-                    {t('dome')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('circle')}>
-                    {t('boltCircle')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAddShape('rect')}>
-                    {t('boltRect')}
+                  <DropdownMenuItem onSelect={() => handleAddShape('boltRect')}>
+                    <SquareDashed className="h-3 w-3 mr-2" />{t('boltRect')}
                   </DropdownMenuItem>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
@@ -167,81 +260,43 @@ export function DesignPanel() {
 
       {/* Elements list */}
       <div className="space-y-1">
-        {elements.length === 0 ? (
+        {elements.length === 0 && (
           <p className="text-xs text-muted-foreground text-center py-4">
             {t('loadSVG')}
           </p>
-        ) : (
-          elements.map((el) => (
-            <div
-              key={el.id}
-              className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm transition-colors ${
-                selectedElementId === el.id
-                  ? 'bg-primary/10 text-primary'
-                  : 'hover:bg-muted'
-              }`}
-              onClick={() => selectElement(el.id)}
-            >
-              <ChevronRight className="h-3 w-3 text-muted-foreground" />
-              <span className="flex-1 truncate">{el.name}</span>
-              <div className="flex items-center gap-0.5">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    canvasManager.toggleVisibility(el.id)
-                  }}
-                >
-                  {el.visible ? (
-                    <Eye className="h-3 w-3" />
-                  ) : (
-                    <EyeOff className="h-3 w-3 text-muted-foreground" />
-                  )}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    canvasManager.toggleLock(el.id)
-                  }}
-                >
-                  {el.locked ? (
-                    <Lock className="h-3 w-3 text-muted-foreground" />
-                  ) : (
-                    <Unlock className="h-3 w-3" />
-                  )}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleCopyElement(el.id)
-                  }}
-                >
-                  <Copy className="h-3 w-3" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 text-destructive"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    canvasManager.removeObject(el.id)
-                    addConsoleLine(`Eliminado: ${el.name}`)
-                  }}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          ))
         )}
+        {elements.map((el) => (
+          <div
+            key={el.id}
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-md cursor-pointer text-sm transition-colors ${
+              selectedElementId === el.id
+                ? 'bg-primary/10 text-primary'
+                : 'hover:bg-muted'
+            }`}
+            onClick={() => selectElement(el.id)}
+          >
+            <span className="flex-1 truncate text-xs">{el.name}</span>
+
+            {el.config !== null && (
+              <Settings2 className="h-3 w-3 text-orange-400 shrink-0" />
+            )}
+
+            <div className="flex items-center shrink-0">
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); canvasManager.toggleVisibility(el.id) }}>
+                {el.visible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3 text-muted-foreground" />}
+              </Button>
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); canvasManager.toggleLock(el.id) }}>
+                {el.locked ? <Lock className="h-3 w-3 text-muted-foreground" /> : <Unlock className="h-3 w-3" />}
+              </Button>
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); handleCopyElement(el.id) }}>
+                <Copy className="h-3 w-3" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={(e) => { e.stopPropagation(); canvasManager.removeObject(el.id); addConsoleLine(`Eliminado: ${el.name}`) }}>
+                <Trash2 className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )

@@ -1,6 +1,7 @@
 {
   "title": "Biblioteca de Herramientas",
   "cnc": "CNC",
+  "laser": "Laser",
   "plotter": "Plotter",
   "pencil": "Lapiz",
   "addTool": "Nueva Herramienta",
@@ -25,5 +26,8 @@
   "blade": "Cuchilla",
   "marker": "Marcador",
   "pen": "Pluma",
-  "pencilType": "Lapiz"
+  "pencilType": "Lapiz",
+  "diode": "Laser diodo",
+  "co2": "Laser CO2",
+  "fiber": "Laser fibra"
 }

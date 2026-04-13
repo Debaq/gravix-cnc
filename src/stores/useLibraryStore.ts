@@ -78,6 +78,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   getFilteredTools: (operationType) => {
     const categoryMap: Record<string, string> = {
       cnc: 'cnc',
+      laser: 'laser',
       plotter: 'plotter',
       pencil: 'pencil',
     }

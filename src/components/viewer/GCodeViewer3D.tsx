@@ -1,59 +1,109 @@
 import { useRef, useMemo, useEffect } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
-import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Line } from '@react-three/drei'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { OrbitControls, Grid, Line, GizmoHelper, GizmoViewcube } from '@react-three/drei'
 import { useGCodeStore } from '@/stores/useGCodeStore'
+import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useTranslation } from 'react-i18next'
-import { Box } from 'lucide-react'
+import { Box, AlertTriangle } from 'lucide-react'
 import { parseGCode, formatTime } from '@/lib/gcode-parser'
 import type { GCodeSegment } from '@/lib/gcode-parser'
 import * as THREE from 'three'
 
 /**
- * Map G-code coordinates to Three.js coordinates:
- * G-code X -> Three.js X
- * G-code Y -> Three.js Z
- * G-code Z -> Three.js Y
+ * G-code X -> Three.js X (derecha)
+ * G-code Y -> Three.js -Z (al fondo de pantalla = arriba visto desde arriba)
+ * G-code Z -> Three.js Y (arriba)
  */
 function gcodeToThree(x: number, y: number, z: number): [number, number, number] {
-  return [x, z, y]
+  return [x, z, -y]
 }
 
-function WorkArea() {
+/**
+ * Calcula los limites del area de trabajo en coordenadas G-code
+ * segun el origen configurado.
+ */
+function getWorkAreaBounds(width: number, height: number, origin: string) {
+  switch (origin) {
+    case 'top-left':      return { minX: 0, minY: -height, maxX: width, maxY: 0 }
+    case 'top-center':    return { minX: -width / 2, minY: -height, maxX: width / 2, maxY: 0 }
+    case 'top-right':     return { minX: -width, minY: -height, maxX: 0, maxY: 0 }
+    case 'center-left':   return { minX: 0, minY: -height / 2, maxX: width, maxY: height / 2 }
+    case 'center':        return { minX: -width / 2, minY: -height / 2, maxX: width / 2, maxY: height / 2 }
+    case 'center-right':  return { minX: -width, minY: -height / 2, maxX: 0, maxY: height / 2 }
+    case 'bottom-left':
+    default:              return { minX: 0, minY: 0, maxX: width, maxY: height }
+    case 'bottom-center': return { minX: -width / 2, minY: 0, maxX: width / 2, maxY: height }
+    case 'bottom-right':  return { minX: -width, minY: 0, maxX: 0, maxY: height }
+  }
+}
+
+function WorkArea({ bounds, width, height }: {
+  bounds: { minX: number; minY: number; maxX: number; maxY: number }
+  width: number
+  height: number
+}) {
   const { show3DGrid, show3DAxes } = useGCodeStore()
+
+  // Convertir bounds G-code a Three.js (Y gcode -> -Z three)
+  const centerX = (bounds.minX + bounds.maxX) / 2
+  const centerZ = -(bounds.minY + bounds.maxY) / 2
+  const axisLen = Math.min(width, height) * 0.1
 
   return (
     <group>
+      {/* Borde del area de trabajo */}
+      <Line
+        points={[
+          [bounds.minX, 0, -bounds.minY],
+          [bounds.maxX, 0, -bounds.minY],
+          [bounds.maxX, 0, -bounds.maxY],
+          [bounds.minX, 0, -bounds.maxY],
+          [bounds.minX, 0, -bounds.minY],
+        ]}
+        color="#5B4B9F"
+        lineWidth={2}
+      />
+
       {show3DGrid && (
         <Grid
-          args={[400, 400]}
+          args={[width, height]}
           cellSize={20}
           cellThickness={0.5}
           cellColor="#B5A8D6"
           sectionSize={100}
           sectionThickness={1}
           sectionColor="#5B4B9F"
-          fadeDistance={500}
+          fadeDistance={Math.max(width, height) * 1.5}
           fadeStrength={1}
           followCamera={false}
-          position={[200, 0, 200]}
+          position={[centerX, 0, centerZ]}
         />
       )}
+
       {show3DAxes && (
         <group>
-          {/* X axis - red */}
-          <mesh position={[15, 0.1, 0]}>
-            <boxGeometry args={[30, 0.5, 0.5]} />
-            <meshBasicMaterial color="#FF0000" />
-          </mesh>
-          {/* Y axis - green (G-code Y = Three.js Z) */}
-          <mesh position={[0, 0.1, 15]}>
-            <boxGeometry args={[0.5, 0.5, 30]} />
-            <meshBasicMaterial color="#00FF00" />
-          </mesh>
-          {/* Z axis - blue (G-code Z = Three.js Y) */}
-          <mesh position={[0, 15, 0]}>
-            <boxGeometry args={[0.5, 30, 0.5]} />
-            <meshBasicMaterial color="#0066FF" />
+          {/* X axis - rojo */}
+          <Line
+            points={[[0, 0.2, 0], [axisLen, 0.2, 0]]}
+            color="#FF0000"
+            lineWidth={3}
+          />
+          {/* Y axis (G-code) - verde - Three.js -Z */}
+          <Line
+            points={[[0, 0.2, 0], [0, 0.2, -axisLen]]}
+            color="#00FF00"
+            lineWidth={3}
+          />
+          {/* Z axis (G-code) - azul - Three.js Y */}
+          <Line
+            points={[[0, 0, 0], [0, axisLen, 0]]}
+            color="#0066FF"
+            lineWidth={3}
+          />
+          {/* Punto de origen */}
+          <mesh position={[0, 0.3, 0]}>
+            <sphereGeometry args={[2, 12, 12]} />
+            <meshBasicMaterial color="#FFD700" />
           </mesh>
         </group>
       )}
@@ -65,14 +115,9 @@ interface ToolpathProps {
   segments: GCodeSegment[]
 }
 
-/**
- * Renders all G-code toolpath segments using Three.js LineSegments
- * for maximum performance with large G-code files.
- */
 function Toolpath({ segments }: ToolpathProps) {
   const { animationProgress, viewer3DPlaying } = useGCodeStore()
 
-  // Separate segments by type for different rendering
   const { rapidPoints, rapidColors, cutPoints, cutColors, totalSegments } = useMemo(() => {
     const rp: number[] = []
     const rc: number[] = []
@@ -86,12 +131,10 @@ function Toolpath({ segments }: ToolpathProps) {
 
       if (seg.type === 'rapid') {
         rp.push(fx, fy, fz, tx, ty, tz)
-        // Blue with some transparency effect via lighter shade
         rc.push(0.2, 0.5, 1.0, 0.2, 0.5, 1.0)
       } else {
         cp.push(fx, fy, fz, tx, ty, tz)
-        // Red - intensity varies by Z depth for visual depth cue
-        const depth = Math.min(Math.abs(fy), 10) / 10 // fy = Three.js Y = G-code Z
+        const depth = Math.min(Math.abs(fy), 10) / 10
         const r = 1.0
         const g = 0.15 + (1 - depth) * 0.2
         const b = 0.1 + (1 - depth) * 0.15
@@ -108,11 +151,9 @@ function Toolpath({ segments }: ToolpathProps) {
     }
   }, [segments])
 
-  // For animation: control draw range
   const rapidRef = useRef<THREE.LineSegments>(null)
   const cutRef = useRef<THREE.LineSegments>(null)
 
-  // Count segments of each type for animation
   const rapidSegCount = rapidPoints.length / 6
   const cutSegCount = cutPoints.length / 6
 
@@ -122,8 +163,6 @@ function Toolpath({ segments }: ToolpathProps) {
     const progress = animationProgress / 100
     const visibleSegments = Math.floor(progress * totalSegments)
 
-    // Determine how many rapid and cut segments to show
-    // We need to figure out the order - iterate original segments
     let rapidsShown = 0
     let cutsShown = 0
     for (let i = 0; i < Math.min(visibleSegments, segments.length); i++) {
@@ -132,16 +171,13 @@ function Toolpath({ segments }: ToolpathProps) {
     }
 
     if (rapidRef.current) {
-      const geom = rapidRef.current.geometry
-      geom.setDrawRange(0, rapidsShown * 2) // 2 vertices per segment
+      rapidRef.current.geometry.setDrawRange(0, rapidsShown * 2)
     }
     if (cutRef.current) {
-      const geom = cutRef.current.geometry
-      geom.setDrawRange(0, cutsShown * 2)
+      cutRef.current.geometry.setDrawRange(0, cutsShown * 2)
     }
   })
 
-  // When not animating (progress = 100), show everything
   useEffect(() => {
     if (animationProgress >= 100 && !viewer3DPlaying) {
       if (rapidRef.current) {
@@ -157,54 +193,28 @@ function Toolpath({ segments }: ToolpathProps) {
 
   return (
     <group>
-      {/* Rapid movements - dashed blue lines */}
       {rapidSegCount > 0 && (
         <lineSegments ref={rapidRef}>
           <bufferGeometry>
-            <bufferAttribute
-              attach="attributes-position"
-              args={[rapidPoints, 3]}
-            />
-            <bufferAttribute
-              attach="attributes-color"
-              args={[rapidColors, 3]}
-            />
+            <bufferAttribute attach="attributes-position" args={[rapidPoints, 3]} />
+            <bufferAttribute attach="attributes-color" args={[rapidColors, 3]} />
           </bufferGeometry>
-          <lineBasicMaterial
-            vertexColors
-            transparent
-            opacity={0.35}
-          />
+          <lineBasicMaterial vertexColors transparent opacity={0.35} />
         </lineSegments>
       )}
-
-      {/* Cut movements - solid red/orange lines */}
       {cutSegCount > 0 && (
         <lineSegments ref={cutRef}>
           <bufferGeometry>
-            <bufferAttribute
-              attach="attributes-position"
-              args={[cutPoints, 3]}
-            />
-            <bufferAttribute
-              attach="attributes-color"
-              args={[cutColors, 3]}
-            />
+            <bufferAttribute attach="attributes-position" args={[cutPoints, 3]} />
+            <bufferAttribute attach="attributes-color" args={[cutColors, 3]} />
           </bufferGeometry>
-          <lineBasicMaterial
-            vertexColors
-            linewidth={1}
-          />
+          <lineBasicMaterial vertexColors linewidth={1} />
         </lineSegments>
       )}
     </group>
   )
 }
 
-/**
- * Tool position indicator - shows a small sphere at the current
- * tool position during animation.
- */
 function ToolIndicator({ segments }: { segments: GCodeSegment[] }) {
   const meshRef = useRef<THREE.Mesh>(null)
   const { animationProgress, viewer3DPlaying } = useGCodeStore()
@@ -218,10 +228,8 @@ function ToolIndicator({ segments }: { segments: GCodeSegment[] }) {
       segments.length - 1
     )
 
-    // Interpolation within current segment
     const segProgress = (progress * segments.length) - segIndex
     const seg = segments[segIndex]
-
     if (!seg) return
 
     const x = seg.from.x + (seg.to.x - seg.from.x) * Math.min(segProgress, 1)
@@ -230,8 +238,6 @@ function ToolIndicator({ segments }: { segments: GCodeSegment[] }) {
 
     const [tx, ty, tz] = gcodeToThree(x, y, z)
     meshRef.current.position.set(tx, ty, tz)
-
-    // Show only during animation
     meshRef.current.visible = viewer3DPlaying || animationProgress < 100
   })
 
@@ -245,15 +251,10 @@ function ToolIndicator({ segments }: { segments: GCodeSegment[] }) {
   )
 }
 
-/**
- * Thick cut lines using drei's Line component for better visibility.
- * This is a secondary rendering pass for the cut path with wider lines.
- */
 function ThickCutLines({ segments }: { segments: GCodeSegment[] }) {
   const { animationProgress, viewer3DPlaying } = useGCodeStore()
 
   const cutLinePoints = useMemo(() => {
-    // Build continuous polylines from consecutive cut segments
     const polylines: [number, number, number][][] = []
     let current: [number, number, number][] = []
 
@@ -264,50 +265,69 @@ function ThickCutLines({ segments }: { segments: GCodeSegment[] }) {
         }
         current.push(gcodeToThree(seg.to.x, seg.to.y, seg.to.z))
       } else {
-        if (current.length >= 2) {
-          polylines.push(current)
-        }
+        if (current.length >= 2) polylines.push(current)
         current = []
       }
     }
-    if (current.length >= 2) {
-      polylines.push(current)
-    }
-
+    if (current.length >= 2) polylines.push(current)
     return polylines
   }, [segments])
 
   if (cutLinePoints.length === 0) return null
-
-  // During animation, only show if fully progressed
   if (viewer3DPlaying && animationProgress < 100) return null
 
   return (
     <group>
       {cutLinePoints.map((points, i) => (
-        <Line
-          key={i}
-          points={points}
-          color="#FF3333"
-          lineWidth={2}
-          opacity={0.9}
-          transparent
-        />
+        <Line key={i} points={points} color="#FF3333" lineWidth={2} opacity={0.9} transparent />
       ))}
     </group>
   )
 }
 
-function Scene() {
-  const { gcode, setViewerStats, setAnimationProgress, viewer3DPlaying, animationSpeed } = useGCodeStore()
+/**
+ * Ajusta la camara para encuadrar el area de trabajo al montar la escena.
+ */
+function CameraSetup({ bounds }: {
+  bounds: { minX: number; minY: number; maxX: number; maxY: number }
+}) {
+  const { camera } = useThree()
+  const hasSetup = useRef(false)
 
-  // Parse G-code into segments
+  useEffect(() => {
+    if (hasSetup.current) return
+    hasSetup.current = true
+
+    const centerX = (bounds.minX + bounds.maxX) / 2
+    const centerZ = -(bounds.minY + bounds.maxY) / 2
+    const extent = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY)
+    const dist = extent / (2 * Math.tan((50 / 2) * Math.PI / 180)) * 1.1
+
+    camera.position.set(centerX, dist, centerZ)
+    camera.lookAt(centerX, 0, centerZ)
+    camera.updateProjectionMatrix()
+  }, [bounds, camera])
+
+  return null
+}
+
+function Scene() {
+  const { gcode, setViewerStats, setAnimationProgress, setCurrentGCodeLine, viewer3DPlaying, animationSpeed } = useGCodeStore()
+  const { workArea } = useCanvasStore()
+
+  const bounds = useMemo(
+    () => getWorkAreaBounds(workArea.width, workArea.height, workArea.origin),
+    [workArea.width, workArea.height, workArea.origin],
+  )
+
+  const centerX = (bounds.minX + bounds.maxX) / 2
+  const centerZ = -(bounds.minY + bounds.maxY) / 2
+
   const parseResult = useMemo(() => {
     if (!gcode || gcode.trim().length === 0) return null
     return parseGCode(gcode)
   }, [gcode])
 
-  // Update stats in store when parse result changes
   useEffect(() => {
     if (parseResult) {
       const { stats } = parseResult
@@ -319,18 +339,33 @@ function Scene() {
     }
   }, [parseResult, setViewerStats])
 
-  // Animation progress auto-advance
   useFrame((_, delta) => {
-    if (!viewer3DPlaying || !parseResult) return
+    if (!parseResult) return
 
-    const current = useGCodeStore.getState().animationProgress
+    const state = useGCodeStore.getState()
+    const current = state.animationProgress
+    const segs = parseResult.segments
+
+    // Actualizar linea actual de G-code segun progreso
+    if (segs.length > 0) {
+      const segIndex = Math.min(
+        Math.floor((current / 100) * segs.length),
+        segs.length - 1,
+      )
+      const seg = segs[segIndex]
+      if (seg && seg.lineNumber !== state.currentGCodeLine) {
+        setCurrentGCodeLine(seg.lineNumber)
+      }
+    }
+
+    if (!viewer3DPlaying) return
+
     if (current >= 100) {
-      useGCodeStore.getState().setViewer3DPlaying(false)
+      state.setViewer3DPlaying(false)
       return
     }
 
-    // Speed: at speed=1, full animation takes ~10 seconds
-    const increment = (delta * animationSpeed * 10)
+    const increment = delta * animationSpeed * 10
     const next = Math.min(current + increment, 100)
     setAnimationProgress(next)
   })
@@ -340,8 +375,9 @@ function Scene() {
   return (
     <>
       <ambientLight intensity={0.6} />
-      <directionalLight position={[200, 400, 200]} intensity={0.8} />
-      <WorkArea />
+      <directionalLight position={[centerX, 400, centerZ]} intensity={0.8} />
+      <CameraSetup bounds={bounds} />
+      <WorkArea bounds={bounds} width={workArea.width} height={workArea.height} />
       {segments.length > 0 && (
         <>
           <Toolpath segments={segments} />
@@ -353,10 +389,19 @@ function Scene() {
         makeDefault
         enableDamping
         dampingFactor={0.1}
-        target={[200, 0, 200]}
+        target={[centerX, 0, centerZ]}
+        maxPolarAngle={Math.PI}
+        minDistance={50}
+        maxDistance={Math.max(workArea.width, workArea.height) * 5}
       />
-      <GizmoHelper alignment="bottom-right" margin={[60, 60]}>
-        <GizmoViewport labelColor="white" axisHeadScale={0.8} />
+      <GizmoHelper alignment="top-right" margin={[80, 80]}>
+        <GizmoViewcube
+          color="#5B4B9F"
+          textColor="#ffffff"
+          strokeColor="#3d2e7c"
+          hoverColor="#7c6bc4"
+          opacity={1}
+        />
       </GizmoHelper>
     </>
   )
@@ -365,7 +410,7 @@ function Scene() {
 export function GCodeViewer3D() {
   const { t } = useTranslation('gcode')
   const containerRef = useRef<HTMLDivElement>(null)
-  const { gcodeGenerated } = useGCodeStore()
+  const { gcodeGenerated, gcodeNeedsRegeneration } = useGCodeStore()
 
   if (!gcodeGenerated) {
     return (
@@ -378,10 +423,15 @@ export function GCodeViewer3D() {
   }
 
   return (
-    <div ref={containerRef} className="viewer-3d-container w-full h-full">
+    <div ref={containerRef} className="viewer-3d-container w-full h-full relative">
+      {gcodeNeedsRegeneration && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-amber-500 text-white px-4 py-2 rounded-md shadow-lg backdrop-blur-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span className="text-sm font-medium">{t('designChanged')}</span>
+        </div>
+      )}
       <Canvas
         camera={{
-          position: [300, 300, 300],
           fov: 50,
           near: 0.1,
           far: 10000,

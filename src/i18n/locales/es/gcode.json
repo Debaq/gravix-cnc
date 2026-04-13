@@ -22,5 +22,12 @@
   "sideView": "Vista lateral",
   "perspectiveView": "Perspectiva",
   "showGrid": "Mostrar grilla",
-  "showAxes": "Mostrar ejes"
+  "showAxes": "Mostrar ejes",
+  "gcodeCode": "Codigo G-code",
+  "line": "Linea",
+  "currentLine": "Linea actual",
+  "elements": "elementos",
+  "tools": "herramientas",
+  "toolChange": "Cambio de herramienta",
+  "designChanged": "El diseno cambio, regenera el G-code"
 }

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useAppStore } from '@/stores/useAppStore'
 import { useLibraryStore } from '@/stores/useLibraryStore'
+import { useCanvasStore } from '@/stores/useCanvasStore'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Header } from '@/components/layout/Header'
 import { WorkspaceLayout } from '@/components/layout/WorkspaceLayout'
@@ -9,15 +10,26 @@ import { CanvasToolbar } from '@/components/canvas/CanvasToolbar'
 import { CanvasFooter } from '@/components/canvas/CanvasFooter'
 import { GCodeViewer3D } from '@/components/viewer/GCodeViewer3D'
 import { PropertiesPanel } from '@/components/panels/PropertiesPanel'
-import { GCodePanel } from '@/components/panels/GCodePanel'
+import { PreviewToolbar } from '@/components/viewer/PreviewToolbar'
 import { ControlPanel } from '@/components/panels/ControlPanel'
 import { WorkAreaModal } from '@/components/modals/WorkAreaModal'
 import { GlobalConfigModal } from '@/components/modals/GlobalConfigModal'
 import { ToolsModal } from '@/components/modals/ToolsModal'
 import { MaterialsModal } from '@/components/modals/MaterialsModal'
 import { HelpModal } from '@/components/modals/HelpModal'
+import { ImageWizardModal } from '@/components/modals/ImageWizardModal'
+import { TextToPathModal } from '@/components/modals/TextToPathModal'
+import { BoxGeneratorModal } from '@/components/modals/BoxGeneratorModal'
 import { isTauri, tauriInvoke } from '@/lib/tauri'
 import type { Tool, Material } from '@/lib/types'
+
+async function loadFromStatic(): Promise<{ tools: Tool[]; materials: Material[] }> {
+  const [tools, materials] = await Promise.all([
+    fetch('/data/tools.json').then((r) => r.json()),
+    fetch('/data/materials.json').then((r) => r.json()),
+  ])
+  return { tools, materials }
+}
 
 async function loadInitialData(): Promise<{ tools: Tool[]; materials: Material[] }> {
   if (isTauri()) {
@@ -26,33 +38,37 @@ async function loadInitialData(): Promise<{ tools: Tool[]; materials: Material[]
         tauriInvoke<Tool[]>('get_tools'),
         tauriInvoke<Material[]>('get_materials'),
       ])
-      return { tools, materials }
+      // Si Tauri devuelve datos vacios, sembrar desde los JSON estaticos
+      if (tools.length > 0 || materials.length > 0) {
+        return { tools, materials }
+      }
+      const defaults = await loadFromStatic()
+      // Persistir en Tauri para futuras cargas
+      for (const tool of defaults.tools) {
+        tauriInvoke('save_tool', { tool }).catch(() => {})
+      }
+      for (const material of defaults.materials) {
+        tauriInvoke('save_material', { material }).catch(() => {})
+      }
+      return defaults
     } catch {
       // Fallback si los comandos Tauri aun no existen
     }
   }
-  // Fallback para dev sin Tauri
-  const [toolsRes, materialsRes] = await Promise.all([
-    fetch('/data/tools.json').then((r) => r.json()),
-    fetch('/data/materials.json').then((r) => r.json()),
-  ])
-  return { tools: toolsRes, materials: materialsRes }
+  return loadFromStatic()
 }
 
 function App() {
-  const { currentWorkspace, addConsoleLine } = useAppStore()
+  const { currentWorkspace } = useAppStore()
   const { setTools, setMaterials } = useLibraryStore()
+  const { applyInitialDefaults } = useCanvasStore()
 
   // Load initial data
   useEffect(() => {
     loadInitialData().then(({ tools, materials }) => {
       setTools(tools)
       setMaterials(materials)
-      addConsoleLine('GRBL Web Control Pro v5.0 iniciado')
-      addConsoleLine(`Herramientas cargadas: ${tools.length}`)
-      addConsoleLine(`Materiales cargados: ${materials.length}`)
-    }).catch((err) => {
-      addConsoleLine(`Error cargando datos: ${err}`)
+      applyInitialDefaults(tools, materials)
     })
   }, [])
 
@@ -61,21 +77,22 @@ function App() {
       <div className="flex flex-col h-screen overflow-hidden">
         <Header />
         <WorkspaceLayout>
-          {/* Design workspace */}
-          {currentWorkspace === 'design' && (
-            <div className="relative w-full h-full">
-              <DesignCanvas />
-              <CanvasToolbar />
-              <CanvasFooter />
-              <PropertiesPanel />
-              <GCodePanel />
-            </div>
-          )}
+          {/* Design workspace - siempre montado para preservar el canvas Fabric.js */}
+          <div
+            className="relative w-full h-full"
+            style={{ display: currentWorkspace === 'design' ? 'block' : 'none' }}
+          >
+            <DesignCanvas />
+            <CanvasToolbar />
+            <CanvasFooter />
+            <PropertiesPanel />
+          </div>
 
           {/* Preview workspace */}
           {currentWorkspace === 'preview' && (
             <div className="relative w-full h-full">
               <GCodeViewer3D />
+              <PreviewToolbar />
             </div>
           )}
 
@@ -93,6 +110,9 @@ function App() {
         <ToolsModal />
         <MaterialsModal />
         <HelpModal />
+        <ImageWizardModal />
+        <TextToPathModal />
+        <BoxGeneratorModal />
       </div>
     </TooltipProvider>
   )

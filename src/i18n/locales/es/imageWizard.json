@@ -1,0 +1,23 @@
+{
+  "title": "Preparar imagen para laser",
+  "description": "Configura como se procesara tu imagen para el grabado laser",
+  "preview": "Vista previa",
+  "configureAndProcess": "Configura los ajustes y presiona Procesar",
+  "errorNoPreview": "No se pudo generar la vista previa",
+  "reprocess": "Re-procesar",
+  "settings": "Ajustes de imagen",
+  "dpi": "DPI (resolucion)",
+  "dithering": "Modo de conversion",
+  "threshold": "Umbral blanco/negro",
+  "invert": "Invertir imagen",
+  "process": "Procesar",
+  "processing": "Procesando...",
+  "accept": "Aceptar",
+  "modes": {
+    "threshold": "Umbral simple",
+    "floydSteinberg": "Floyd-Steinberg (recomendado)",
+    "ordered": "Patron ordenado (Bayer)",
+    "atkinson": "Atkinson (alto contraste)",
+    "grayscale": "Escala de grises (sin dithering)"
+  }
+}

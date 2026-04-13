@@ -14,6 +14,7 @@ export interface GCodeSegment {
   from: GCodePoint
   to: GCodePoint
   type: SegmentType
+  lineNumber: number
 }
 
 export interface GCodeParseResult {
@@ -122,7 +123,7 @@ export function parseGCode(gcodeStr: string): GCodeParseResult {
         segType = 'cut'
       }
 
-      segments.push({ from, to, type: segType })
+      segments.push({ from, to, type: segType, lineNumber: i + 1 })
 
       const dist = distance3D(from, to)
       totalDistance += dist

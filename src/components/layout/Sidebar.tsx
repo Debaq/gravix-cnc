@@ -5,11 +5,13 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { PanelLeftClose, PanelLeft } from 'lucide-react'
 import { DesignPanel } from '@/components/panels/DesignPanel'
 import { PreviewPanel } from '@/components/panels/PreviewPanel'
-import { ControlPanel } from '@/components/panels/ControlPanel'
 
 export function Sidebar() {
   const { t } = useTranslation('header')
   const { currentWorkspace, leftPanelCollapsed, toggleLeftPanel } = useAppStore()
+
+  // El workspace de control usa todo el espacio principal, no necesita sidebar
+  if (currentWorkspace === 'control') return null
 
   if (leftPanelCollapsed) {
     return (
@@ -28,7 +30,6 @@ export function Sidebar() {
         <span className="text-sm font-semibold">
           {currentWorkspace === 'design' && t('design')}
           {currentWorkspace === 'preview' && t('preview')}
-          {currentWorkspace === 'control' && t('control')}
         </span>
         <Button variant="ghost" size="icon" onClick={toggleLeftPanel}>
           <PanelLeftClose className="h-4 w-4" />
@@ -40,7 +41,6 @@ export function Sidebar() {
         <div className="p-3">
           {currentWorkspace === 'design' && <DesignPanel />}
           {currentWorkspace === 'preview' && <PreviewPanel />}
-          {currentWorkspace === 'control' && <ControlPanel />}
         </div>
       </ScrollArea>
     </div>

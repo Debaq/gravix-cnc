@@ -1,6 +1,7 @@
 {
   "title": "Tools Library",
   "cnc": "CNC",
+  "laser": "Laser",
   "plotter": "Plotter",
   "pencil": "Pencil",
   "addTool": "New Tool",
@@ -25,5 +26,8 @@
   "blade": "Blade",
   "marker": "Marker",
   "pen": "Pen",
-  "pencilType": "Pencil"
+  "pencilType": "Pencil",
+  "diode": "Diode laser",
+  "co2": "CO2 laser",
+  "fiber": "Fiber laser"
 }

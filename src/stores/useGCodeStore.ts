@@ -21,6 +21,7 @@ interface GCodeState {
   show3DAxes: boolean
   viewer3DPlaying: boolean
   viewer3DCurrentPass: number
+  currentGCodeLine: number
 
   // Actions
   setGCode: (gcode: string) => void
@@ -33,6 +34,7 @@ interface GCodeState {
   toggle3DAxes: () => void
   setViewer3DPlaying: (playing: boolean) => void
   setViewer3DCurrentPass: (pass: number) => void
+  setCurrentGCodeLine: (line: number) => void
   setViewerStats: (stats: { time?: string | null; distance?: string | null; depth?: string | null }) => void
   clearGCode: () => void
 }
@@ -57,6 +59,7 @@ export const useGCodeStore = create<GCodeState>((set) => ({
   show3DAxes: true,
   viewer3DPlaying: false,
   viewer3DCurrentPass: 0,
+  currentGCodeLine: 0,
 
   // Actions
   setGCode: (gcode) =>
@@ -84,6 +87,8 @@ export const useGCodeStore = create<GCodeState>((set) => ({
   setViewer3DPlaying: (playing) => set({ viewer3DPlaying: playing }),
 
   setViewer3DCurrentPass: (pass) => set({ viewer3DCurrentPass: pass }),
+
+  setCurrentGCodeLine: (line) => set({ currentGCodeLine: line }),
 
   setViewerStats: (stats) =>
     set((state) => ({

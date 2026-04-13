@@ -11,8 +11,26 @@ export type OperationType = 'cnc' | 'laser' | 'plotter' | 'pencil'
 // Tipos de trabajo CNC
 export type WorkType = 'outline' | 'inside' | 'outside' | 'pocket'
 
+// Modos de operación láser
+export type LaserMode = 'cut' | 'engrave' | 'fill' | 'raster'
+
+// Modos de dithering para grabado ráster
+export type DitheringMode = 'threshold' | 'floydSteinberg' | 'ordered' | 'atkinson' | 'grayscale'
+
+// Datos de imagen ráster procesada
+export interface RasterData {
+  width: number
+  height: number
+  pixel_size_mm: number
+  preview_base64: string
+  pixels_path: string  // path al archivo temporal con pixeles crudos
+}
+
 // Compensación de herramienta
 export type ToolCompensation = 'center' | 'inside' | 'outside'
+
+// Estrategia de cajeado (pocket)
+export type PocketStrategy = 'contour-parallel' | 'zigzag'
 
 // Posiciones de origen
 export type OriginPosition =
@@ -48,9 +66,29 @@ export interface GlobalConfig {
   depthStep: number
   toolDiameter: number
   compensation: ToolCompensation
+  stepover: number
+  pocketStrategy: PocketStrategy
   pressure: number
   speed: number
   pressureZ: number
+  // Configuración láser avanzada
+  laserMode: LaserMode
+  laserDynamic: boolean      // true = M4 (potencia dinámica), false = M3 (potencia constante)
+  fillAngle: number          // Ángulo de las líneas de relleno (0-360°)
+  fillSpacing: number        // Espaciado entre líneas de relleno (mm)
+  fillBidirectional: boolean // Escaneo bidireccional en relleno
+  overscan: number           // Margen extra en mm para aceleración/desaceleración
+  // Configuración ráster
+  rasterDpi: number          // Resolución en puntos por pulgada
+  rasterDithering: DitheringMode
+  rasterThreshold: number    // Umbral de blanco/negro (0-255)
+  rasterInvert: boolean      // Invertir imagen (para materiales oscuros)
+  rasterBidirectional: boolean // Escaneo bidireccional en ráster
+  // Tabs/soportes para corte CNC
+  tabsEnabled: boolean       // Activar tabs en cortes
+  tabWidth: number           // Ancho de cada tab (mm)
+  tabHeight: number          // Altura del tab (mm, material que queda sin cortar)
+  tabCount: number           // Cantidad de tabs alrededor del contorno
 }
 
 // Posición de máquina
@@ -63,13 +101,14 @@ export interface MachinePosition {
 // Elemento del canvas
 export interface CanvasElement {
   id: string
-  type: 'svg' | 'rect' | 'circle' | 'line' | 'maker'
+  type: 'svg' | 'rect' | 'circle' | 'line' | 'maker' | 'group'
   name: string
   visible: boolean
   locked: boolean
   expanded?: boolean
   showConfig?: boolean
   config: GlobalConfig | null
+  operations?: GlobalConfig[]  // Múltiples operaciones (cajeado + corte, etc.)
   children: CanvasElement[]
   parent?: string
   // Datos de maker.js
@@ -84,7 +123,7 @@ export interface CanvasElement {
 // Herramienta
 export interface Tool {
   id: string
-  category: 'cnc' | 'plotter' | 'pencil'
+  category: 'cnc' | 'laser' | 'plotter' | 'pencil'
   name: string
   type: string
   diameter?: number
@@ -153,6 +192,14 @@ export interface GCodePath {
   closed: boolean
 }
 
+// Job de G-code: un elemento con su config resuelta y paths extraidos
+export interface GCodeJob {
+  elementId: string
+  elementName: string
+  config: GlobalConfig
+  paths: GCodePath[]
+}
+
 // Estimaciones de mecanizado
 export interface MachiningEstimates {
   time: string
@@ -189,6 +236,7 @@ export interface SerializedElement {
   visible: boolean
   locked: boolean
   config: GlobalConfig | null
+  operations?: GlobalConfig[]
   makerType?: string
   makerParams?: Record<string, number | string | number[]>
   transform?: {
@@ -204,6 +252,35 @@ export interface SerializedElement {
   } | null
   svgData?: string | null
   children: SerializedElement[]
+}
+
+// Macro guardada
+export interface SavedMacro {
+  id: string
+  name: string
+  gcode: string
+  icon?: string
+}
+
+// Posición guardada
+export interface SavedPosition {
+  id: string
+  name: string
+  x: number
+  y: number
+  z: number
+}
+
+// Paso del workflow
+export type WorkflowStepType = 'gcode' | 'macro' | 'pause' | 'goto'
+
+export interface WorkflowStep {
+  id: string
+  type: WorkflowStepType
+  name: string
+  // gcode: contenido gcode, macro: id de macro, goto: id de posición, pause: mensaje
+  data: string
+  status: 'pending' | 'running' | 'done' | 'error'
 }
 
 // Form de herramienta

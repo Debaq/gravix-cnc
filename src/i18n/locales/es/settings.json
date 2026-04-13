@@ -26,7 +26,50 @@
     "speed": "Velocidad",
     "pressure": "Presion",
     "pressureZ": "Presion Z (mm)",
-    "applyAll": "Aplicar a Todos"
+    "applyAll": "Aplicar a Todos",
+    "stepover": "Solapamiento",
+    "laserMode": "Modo laser",
+    "laserDynamic": "Potencia dinamica",
+    "laserDynamicDesc": {
+      "on": "Ajusta potencia segun velocidad (curvas)",
+      "off": "Potencia constante"
+    },
+    "overscan": "Overscan (mm)",
+    "fillSettings": "Configuracion de relleno",
+    "fillAngle": "Angulo de relleno",
+    "fillSpacing": "Espaciado (mm)",
+    "fillBidirectional": "Escaneo bidireccional",
+    "tabsEnabled": "Soportes (tabs)",
+    "tabWidth": "Ancho tab (mm)",
+    "tabHeight": "Alto tab (mm)",
+    "tabCount": "Cantidad tabs"
+  },
+  "laserModes": {
+    "cut": "Corte",
+    "engrave": "Grabado",
+    "fill": "Relleno (hatch)",
+    "raster": "Raster (imagen)"
+  },
+  "raster": {
+    "settings": "Configuracion raster",
+    "importImage": "Importar imagen",
+    "processImage": "Procesar imagen para raster",
+    "noImage": "Carga una imagen desde el panel de diseno",
+    "processing": "Procesando imagen...",
+    "reprocess": "Re-procesar con nuevos parametros",
+    "dpi": "DPI (resolucion)",
+    "dithering": "Dithering",
+    "ditheringModes": {
+      "threshold": "Umbral simple",
+      "floydSteinberg": "Floyd-Steinberg",
+      "ordered": "Ordenado (Bayer)",
+      "atkinson": "Atkinson",
+      "grayscale": "Escala de grises"
+    },
+    "threshold": "Umbral B/N",
+    "invert": "Invertir imagen",
+    "bidirectional": "Escaneo bidireccional",
+    "wizardHint": "La imagen se configura al cargarla. Carga una imagen desde el boton Cargar del panel de diseno."
   },
   "operationTypes": {
     "cnc": "CNC Fresado",

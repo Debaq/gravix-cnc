@@ -22,5 +22,12 @@
   "sideView": "Side view",
   "perspectiveView": "Perspective",
   "showGrid": "Show grid",
-  "showAxes": "Show axes"
+  "showAxes": "Show axes",
+  "gcodeCode": "G-code",
+  "line": "Line",
+  "currentLine": "Current line",
+  "elements": "elements",
+  "tools": "tools",
+  "toolChange": "Tool change",
+  "designChanged": "Design changed, regenerate G-code"
 }
