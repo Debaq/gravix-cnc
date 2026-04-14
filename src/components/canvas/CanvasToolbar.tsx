@@ -12,6 +12,11 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize,
+  Ruler,
+  ArrowLeftRight,
+  Scissors,
+  FlipHorizontal,
+  FlipVertical,
   FlipHorizontal2,
   FlipVertical2,
   Undo2,
@@ -31,8 +36,17 @@ import {
   AlignVerticalSpaceAround,
   Magnet,
   Grid3x3,
+  LayoutGrid,
+  Scaling,
+  Combine,
+  MinusSquare,
+  Intersect,
+  SquareAsterisk,
+  PlusSquare,
+  SquareSlash,
   Group,
   Ungroup,
+  ArrowRightToLine,
 } from 'lucide-react'
 
 function ToolbarButton({
@@ -110,6 +124,14 @@ export function CanvasToolbar() {
     snapToObjects,
     toggleSnapToGrid,
     toggleSnapToObjects,
+    drawingMode,
+    setDrawingMode,
+    measuringMode,
+    setMeasuringMode,
+    trimMode,
+    setTrimMode,
+    extendMode,
+    setExtendMode,
   } = useCanvasStore()
   const { setGCode, setEstimates } = useGCodeStore()
   const { addConsoleLine, setWorkspace } = useAppStore()
@@ -143,7 +165,7 @@ export function CanvasToolbar() {
   }
 
   return (
-    <div className="absolute top-2 left-2 z-10 flex flex-col items-center gap-1 bg-background/90 backdrop-blur-sm border rounded-lg p-1 shadow-sm">
+    <div className="absolute top-2 left-2 z-10 flex flex-col items-center gap-1 bg-background/90 backdrop-blur-sm border rounded-lg p-1 shadow-sm max-h-[calc(100%-3rem)] overflow-y-auto">
       {/* Undo / Redo */}
       <ToolbarButton icon={Undo2} label={t('undo')} onClick={cm.undo} shortcut="Ctrl+Z" />
       <ToolbarButton icon={Redo2} label={t('redo')} onClick={cm.redo} shortcut="Ctrl+Shift+Z" />
@@ -157,9 +179,52 @@ export function CanvasToolbar() {
 
       <Separator className="w-5" />
 
+      {/* Measurement Tools */}
+      <ToolbarButton
+        icon={Ruler}
+        label={t('measure')}
+        onClick={() => setMeasuringMode(measuringMode === 'distance' ? false : 'distance')}
+        active={measuringMode === 'distance'}
+      />
+      <ToolbarButton
+        icon={Scaling}
+        label={t('measureAngle')}
+        onClick={() => setMeasuringMode(measuringMode === 'angle' ? false : 'angle')}
+        active={measuringMode === 'angle'}
+      />
+
+      <ToolbarButton 
+        icon={ArrowLeftRight} 
+        label={t('addCota') || 'Agregar Cota'} 
+        onClick={() => setDrawingMode(drawingMode === 'cota' ? null : 'cota')} 
+        active={drawingMode === 'cota'}
+      />
+
+      <ToolbarButton
+        icon={Scissors}
+        label={t('trim') || 'Recortar (Trim)'}
+        onClick={() => setTrimMode(!trimMode)}
+        active={trimMode}
+      />
+
+      <ToolbarButton
+        icon={ArrowRightToLine}
+        label={t('extend') || 'Extender hasta interseccion'}
+        onClick={() => setExtendMode(!extendMode)}
+        active={extendMode}
+      />
+
+      <Separator className="w-5" />
+
       {/* Transform */}
       <ToolbarButton icon={FlipHorizontal2} label={t('flipH')} onClick={cm.flipH} disabled={!hasSelection} />
       <ToolbarButton icon={FlipVertical2} label={t('flipV')} onClick={cm.flipV} disabled={!hasSelection} />
+      
+      <Separator className="w-5" />
+
+      {/* Mirror with copy */}
+      <ToolbarButton icon={FlipHorizontal} label={t('mirrorH')} onClick={() => cm.mirrorSelected('h')} disabled={!hasSelection} />
+      <ToolbarButton icon={FlipVertical} label={t('mirrorV')} onClick={() => cm.mirrorSelected('v')} disabled={!hasSelection} />
 
       <Separator className="w-5" />
 
@@ -235,6 +300,70 @@ export function CanvasToolbar() {
       {/* Group / Ungroup */}
       <ToolbarButton icon={Group} label={t('group')} onClick={cm.groupSelected} disabled={!hasMultipleSelection} shortcut="Ctrl+G" />
       <ToolbarButton icon={Ungroup} label={t('ungroup')} onClick={cm.ungroupSelected} disabled={!hasSelection} shortcut="Ctrl+Shift+G" />
+
+      <Separator className="w-5" />
+
+      {/* Boolean Operations */}
+      <ToolbarButton icon={PlusSquare} label={t('boolUnion')} onClick={() => cm.booleanOperationSelected('union')} disabled={!hasMultipleSelection} />
+      <ToolbarButton icon={MinusSquare} label={t('boolDifference')} onClick={() => cm.booleanOperationSelected('difference')} disabled={!hasMultipleSelection} />
+      <ToolbarButton icon={SquareSlash} label={t('boolIntersection')} onClick={() => cm.booleanOperationSelected('intersection')} disabled={!hasMultipleSelection} />
+      <ToolbarButton icon={SquareAsterisk} label={t('boolXor')} onClick={() => cm.booleanOperationSelected('xor')} disabled={!hasMultipleSelection} />
+
+      <Separator className="w-5" />
+
+      {/* Offset */}
+      <Popover>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!hasSelection}>
+                <Scaling className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="right">{t('offset')}</TooltipContent>
+        </Tooltip>
+        <PopoverContent className="w-48 p-3" side="right" align="start">
+          <div className="space-y-2">
+            <label className="text-xs font-medium">{t('offset')} (mm)</label>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                step="0.1"
+                className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                defaultValue="2.0"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const val = parseFloat((e.target as HTMLInputElement).value)
+                    if (!isNaN(val)) cm.offsetSelected(val)
+                  }
+                }}
+              />
+              <Button size="sm" className="h-8 px-2" onClick={(e) => {
+                const input = e.currentTarget.previousElementSibling as HTMLInputElement
+                const val = parseFloat(input.value)
+                if (!isNaN(val)) cm.offsetSelected(val)
+              }}>
+                OK
+              </Button>
+            </div>
+            <p className="text-[10px] text-muted-foreground italic">
+              {t('offsetHint')}
+            </p>
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      <Separator className="w-5" />
+
+      {/* Pattern / Array */}
+      <ToolbarButton 
+        icon={LayoutGrid} 
+        label={t('array.title') || 'Patrón (Array)'} 
+        onClick={() => useAppStore.getState().openModal('array')} 
+        disabled={!hasSelection} 
+      />
 
       <Separator className="w-5" />
 

@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
-import { Canvas, Point, FabricObject, ActiveSelection, Group, Rect, Circle, Path, Ellipse, util } from 'fabric'
+import { Canvas, Point, FabricObject, ActiveSelection, Group, Rect, Circle, Path, Ellipse, Polygon as FabricPolygon, util } from 'fabric'
 import { useTranslation } from 'react-i18next'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
@@ -19,6 +19,41 @@ import {
 } from '@/hooks/useCanvasManager'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { arcFrom3Points, sampleCatmullRom } from '@/lib/geometry'
+import {
+  extractNodes,
+  moveNode,
+  addNodeOnSegment,
+  deleteNode,
+  hitTestNode,
+  hitTestSegment,
+  toggleNodeSmooth,
+  splitPathAtNode,
+  togglePathClosed,
+  filletNode,
+  chamferNode,
+  type NodeEditData,
+} from '@/lib/node-editor'
+import {
+  trimPathAtClick,
+  extendPathToIntersection,
+} from '@/lib/trim-extend'
+
+// ============================================
+// Node editing — module-level state
+// ============================================
+let nodeEditData: NodeEditData | null = null
+let nodeEditObject: FabricObject | null = null
+let nodeDragging = false
+let nodeDragIndex = -1
+let nodeDragStartPos: { x: number; y: number } | null = null
+let nodeHoverIndex = -1
+let segmentHoverAnchorIdx = -1
+
+// Measuring mode state
+let measureStart: Point | null = null
+let measureEnd: Point | null = null
+let measureMid: Point | null = null  // vertex for angle measurement
+let measureAnglePoints: Point[] = [] // 0=start, 1=vertex, 2=end
 
 // ============================================
 // Snap system — lightweight, no Fabric objects for guides
@@ -358,6 +393,24 @@ function computeCotas(canvas: Canvas): CotaData[] {
   return cotas
 }
 
+// Exit node editing mode and restore object interactivity
+function exitNodeEditing(canvas: Canvas): void {
+  if (nodeEditObject) {
+    nodeEditObject.selectable = true
+    nodeEditObject.evented = true
+  }
+  nodeEditData = null
+  nodeEditObject = null
+  nodeDragging = false
+  nodeDragIndex = -1
+  nodeHoverIndex = -1
+  segmentHoverAnchorIdx = -1
+  canvas.selection = true
+  canvas.upperCanvasEl.style.cursor = ''
+  useCanvasStore.getState().setNodeEditing(null)
+  canvas.requestRenderAll()
+}
+
 interface ContextMenuState {
   visible: boolean
   x: number
@@ -365,6 +418,7 @@ interface ContextMenuState {
   hasSelection: boolean
   hasMultiSelection: boolean
   isGroup: boolean
+  isPathOrPoly: boolean
 }
 
 export function DesignCanvas() {
@@ -374,15 +428,27 @@ export function DesignCanvas() {
   const isPanning = useRef(false)
   const lastPanPoint = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
-    visible: false, x: 0, y: 0, hasSelection: false, hasMultiSelection: false, isGroup: false,
+    visible: false, x: 0, y: 0, hasSelection: false, hasMultiSelection: false, isGroup: false, isPathOrPoly: false,
   })
 
   const { t } = useTranslation('canvas')
-  const { workArea, showGrid, selectElement, setSelectedElements, setIsGroupSelection } = useCanvasStore()
+  const { 
+    workArea, 
+    showGrid, 
+    selectElement, 
+    setSelectedElements, 
+    setIsGroupSelection,
+    drawingMode,
+    setDrawingMode,
+    measuringMode,
+    setMeasuringMode,
+    trimMode,
+    setTrimMode,
+    extendMode,
+    setExtendMode
+  } = useCanvasStore()
   const cm = useCanvasManager()
   const { setCanvas, updateSelectedObjectProps } = cm
-  const drawingMode = useCanvasStore((s) => s.drawingMode)
-  const setDrawingMode = useCanvasStore((s) => s.setDrawingMode)
   const [distanceOverlay, setDistanceOverlay] = useState<{
     screenX: number; screenY: number; valueMm: string
   } | null>(null)
@@ -535,6 +601,9 @@ export function DesignCanvas() {
       if (!container) return
       const rect = container.getBoundingClientRect()
 
+      const isPathOrPoly = hasSelection && !hasMultiSelection &&
+        (active instanceof Path || active instanceof FabricPolygon)
+
       setContextMenu({
         visible: true,
         x: evt.clientX - rect.left,
@@ -542,6 +611,7 @@ export function DesignCanvas() {
         hasSelection,
         hasMultiSelection,
         isGroup: isGroupObj,
+        isPathOrPoly,
       })
     })
 
@@ -884,6 +954,243 @@ export function DesignCanvas() {
         }
       }
 
+      // ---- Node editing overlay ----
+      if (nodeEditData && nodeEditObject) {
+        const nodeR = 5 / z
+        const handleR = 4 / z
+        const lineW = 1 / z
+
+        // Draw segments between anchors (highlight)
+        const anchors = nodeEditData.nodes.filter(n => n.type === 'anchor')
+        ctx.strokeStyle = '#0EA5E9'
+        ctx.lineWidth = 1.5 / z
+        ctx.setLineDash([])
+        if (anchors.length >= 2) {
+          ctx.beginPath()
+          ctx.moveTo(anchors[0].x, anchors[0].y)
+          for (let i = 1; i < anchors.length; i++) {
+            ctx.lineTo(anchors[i].x, anchors[i].y)
+          }
+          if (nodeEditData.isClosed) {
+            ctx.closePath()
+          }
+          ctx.stroke()
+        }
+
+        // Draw bezier handle lines
+        ctx.strokeStyle = 'rgba(14,165,233,0.5)'
+        ctx.lineWidth = lineW
+        ctx.setLineDash([3 / z, 3 / z])
+        for (const [anchorIdx, handle] of nodeEditData.handles) {
+          const anchor = anchors[anchorIdx]
+          if (!anchor) continue
+          if (handle.cp1) {
+            const cpNode = nodeEditData.nodes[handle.cp1.nodeIndex]
+            if (cpNode) {
+              ctx.beginPath()
+              ctx.moveTo(anchor.x, anchor.y)
+              ctx.lineTo(cpNode.x, cpNode.y)
+              ctx.stroke()
+            }
+          }
+          if (handle.cp2) {
+            const cpNode = nodeEditData.nodes[handle.cp2.nodeIndex]
+            if (cpNode) {
+              ctx.beginPath()
+              ctx.moveTo(anchor.x, anchor.y)
+              ctx.lineTo(cpNode.x, cpNode.y)
+              ctx.stroke()
+            }
+          }
+        }
+        ctx.setLineDash([])
+
+        // Draw segment hover indicator
+        if (segmentHoverAnchorIdx >= 0 && segmentHoverAnchorIdx < anchors.length) {
+          const a = anchors[segmentHoverAnchorIdx]
+          const b = segmentHoverAnchorIdx < anchors.length - 1
+            ? anchors[segmentHoverAnchorIdx + 1]
+            : nodeEditData.isClosed ? anchors[0] : null
+          if (a && b) {
+            ctx.strokeStyle = '#F59E0B'
+            ctx.lineWidth = 2.5 / z
+            ctx.beginPath()
+            ctx.moveTo(a.x, a.y)
+            ctx.lineTo(b.x, b.y)
+            ctx.stroke()
+          }
+        }
+
+        // Draw control points (diamonds)
+        const selectedNode = useCanvasStore.getState().nodeEditSelectedNode
+        for (let i = 0; i < nodeEditData.nodes.length; i++) {
+          const node = nodeEditData.nodes[i]
+          if (node.type !== 'controlPoint') continue
+          const isSelected = i === selectedNode
+          const isHover = i === nodeHoverIndex
+
+          ctx.save()
+          ctx.translate(node.x, node.y)
+          ctx.rotate(Math.PI / 4)
+          const s = handleR * 1.2
+          ctx.fillStyle = isSelected ? '#F59E0B' : isHover ? '#FCD34D' : '#93C5FD'
+          ctx.strokeStyle = isSelected ? '#D97706' : '#3B82F6'
+          ctx.lineWidth = lineW
+          ctx.fillRect(-s, -s, s * 2, s * 2)
+          ctx.strokeRect(-s, -s, s * 2, s * 2)
+          ctx.restore()
+        }
+
+        // Draw anchor nodes (circles)
+        for (let i = 0; i < nodeEditData.nodes.length; i++) {
+          const node = nodeEditData.nodes[i]
+          if (node.type !== 'anchor') continue
+          const isSelected = i === selectedNode
+          const isHover = i === nodeHoverIndex
+
+          ctx.beginPath()
+          ctx.arc(node.x, node.y, isSelected || isHover ? nodeR * 1.2 : nodeR, 0, Math.PI * 2)
+          ctx.fillStyle = isSelected ? '#0EA5E9' : isHover ? '#60A5FA' : '#FFFFFF'
+          ctx.fill()
+          ctx.strokeStyle = isSelected ? '#0369A1' : '#3B82F6'
+          ctx.lineWidth = isSelected ? 2 / z : lineW
+          ctx.stroke()
+
+          // First node indicator
+          if (node.isFirst) {
+            ctx.beginPath()
+            ctx.arc(node.x, node.y, nodeR * 0.4, 0, Math.PI * 2)
+            ctx.fillStyle = isSelected ? '#0369A1' : '#3B82F6'
+            ctx.fill()
+          }
+        }
+
+        // Draw constraint indicators (H/V badges)
+        const consts = useCanvasStore.getState().nodeConstraints
+        for (const c of consts) {
+          const cNode = nodeEditData.nodes[c.nodeIndex]
+          if (!cNode) continue
+          const badgeSize = 6 / z
+          const badgeX = cNode.x + nodeR * 1.5
+          const badgeY = cNode.y - nodeR * 1.5
+          ctx.fillStyle = c.type === 'horizontal' ? '#F59E0B' : c.type === 'vertical' ? '#10B981' : '#EF4444'
+          ctx.fillRect(badgeX - badgeSize, badgeY - badgeSize, badgeSize * 2, badgeSize * 2)
+          ctx.fillStyle = '#FFF'
+          ctx.font = `bold ${8 / z}px sans-serif`
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          const label = c.type === 'horizontal' ? 'H' : c.type === 'vertical' ? 'V' : 'F'
+          ctx.fillText(label, badgeX, badgeY)
+        }
+      }
+
+      // ---- Draw Measurement: distance ----
+      if (measureStart && measureEnd && measureAnglePoints.length === 0) {
+        const dist = Math.sqrt((measureEnd.x - measureStart.x) ** 2 + (measureEnd.y - measureStart.y) ** 2) / PIXELS_PER_MM
+
+        ctx.save()
+        ctx.setLineDash([5 / z, 5 / z])
+        ctx.strokeStyle = '#EF4444'
+        ctx.lineWidth = 1.5 / z
+
+        ctx.beginPath()
+        ctx.moveTo(measureStart.x, measureStart.y)
+        ctx.lineTo(measureEnd.x, measureEnd.y)
+        ctx.stroke()
+
+        const midX = (measureStart.x + measureEnd.x) / 2
+        const midY = (measureStart.y + measureEnd.y) / 2
+
+        ctx.setLineDash([])
+        ctx.font = `bold ${12 / z}px Inter, sans-serif`
+        const text = `${dist.toFixed(2)} mm`
+        const metrics = ctx.measureText(text)
+        const pad = 4 / z
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.9)'
+        ctx.fillRect(midX - metrics.width / 2 - pad, midY - 10 / z, metrics.width + pad * 2, 20 / z)
+        ctx.fillStyle = '#FFFFFF'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(text, midX, midY)
+
+        // Dots at endpoints
+        ctx.fillStyle = '#EF4444'
+        for (const p of [measureStart, measureEnd]) {
+          ctx.beginPath()
+          ctx.arc(p.x, p.y, 4 / z, 0, Math.PI * 2)
+          ctx.fill()
+        }
+        ctx.restore()
+      }
+
+      // ---- Draw Measurement: angle ----
+      if (measureAnglePoints.length >= 2) {
+        ctx.save()
+        ctx.strokeStyle = '#8B5CF6'
+        ctx.lineWidth = 1.5 / z
+        ctx.setLineDash([5 / z, 5 / z])
+
+        const pts = measureAnglePoints
+        // Draw lines from vertex (pts[1]) to pts[0] and pts[2] or mousePos
+        const vertex = pts[1]
+        ctx.beginPath()
+        ctx.moveTo(pts[0].x, pts[0].y)
+        ctx.lineTo(vertex.x, vertex.y)
+        ctx.stroke()
+
+        const endPt = pts.length >= 3 ? pts[2] : measureEnd
+        if (endPt) {
+          ctx.beginPath()
+          ctx.moveTo(vertex.x, vertex.y)
+          ctx.lineTo(endPt.x, endPt.y)
+          ctx.stroke()
+
+          // Calculate angle
+          const a1 = Math.atan2(pts[0].y - vertex.y, pts[0].x - vertex.x)
+          const a2 = Math.atan2(endPt.y - vertex.y, endPt.x - vertex.x)
+          let angleDeg = (a2 - a1) * (180 / Math.PI)
+          if (angleDeg < 0) angleDeg += 360
+          if (angleDeg > 180) angleDeg = 360 - angleDeg
+
+          // Draw arc indicator
+          const arcR = 25 / z
+          ctx.setLineDash([])
+          ctx.strokeStyle = '#8B5CF6'
+          ctx.lineWidth = 2 / z
+          const startAngle = Math.min(a1, a2)
+          const endAngle = Math.max(a1, a2)
+          ctx.beginPath()
+          ctx.arc(vertex.x, vertex.y, arcR, startAngle, endAngle)
+          ctx.stroke()
+
+          // Label
+          const labelAngle = (a1 + a2) / 2
+          const labelX = vertex.x + arcR * 1.8 * Math.cos(labelAngle)
+          const labelY = vertex.y + arcR * 1.8 * Math.sin(labelAngle)
+
+          ctx.font = `bold ${12 / z}px Inter, sans-serif`
+          const text = `${angleDeg.toFixed(1)}°`
+          const metrics = ctx.measureText(text)
+          const pad = 4 / z
+          ctx.fillStyle = 'rgba(139, 92, 246, 0.9)'
+          ctx.fillRect(labelX - metrics.width / 2 - pad, labelY - 10 / z, metrics.width + pad * 2, 20 / z)
+          ctx.fillStyle = '#FFFFFF'
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.fillText(text, labelX, labelY)
+        }
+
+        // Dots at points
+        ctx.setLineDash([])
+        ctx.fillStyle = '#8B5CF6'
+        for (const p of pts) {
+          ctx.beginPath()
+          ctx.arc(p.x, p.y, 4 / z, 0, Math.PI * 2)
+          ctx.fill()
+        }
+        ctx.restore()
+      }
+
       ctx.restore()
     })
 
@@ -1008,15 +1315,57 @@ export function DesignCanvas() {
     })
 
     canvas.on('mouse:dblclick', (opt) => {
-      if (useCanvasStore.getState().drawingMode) return
-      const cotasToCheck = activeCotas.length > 0 ? activeCotas : savedCotasForDblClick
-      if (cotasToCheck.length === 0) return
+      const storeState = useCanvasStore.getState()
+      if (storeState.drawingMode) return
 
       const evt = opt.e as MouseEvent
       const vpt = canvas.viewportTransform!
       const zoom = canvas.getZoom()
       const canvasX = (evt.offsetX - vpt[4]) / zoom
       const canvasY = (evt.offsetY - vpt[5]) / zoom
+
+      // ---- Double-click on Path/Polygon → enter node editing ----
+      if (!storeState.nodeEditingElementId) {
+        const target = canvas.findTarget(opt.e as MouseEvent)
+        if (target && (target instanceof Path || target instanceof FabricPolygon)) {
+          const elId = getCustomProp(target, ELEMENT_ID_KEY)
+          if (typeof elId === 'string') {
+            const data = extractNodes(target)
+            if (data && data.nodes.length > 0) {
+              nodeEditData = data
+              nodeEditObject = target
+              // Make object non-selectable/movable while editing nodes
+              target.selectable = false
+              target.evented = false
+              canvas.discardActiveObject()
+              canvas.selection = false
+              storeState.setNodeEditing(elId)
+              canvas.requestRenderAll()
+              savedCotasForDblClick = []
+              return
+            }
+          }
+        }
+      }
+
+      // ---- Double-click on node in editing mode → toggle smooth/corner ----
+      if (storeState.nodeEditingElementId && nodeEditData && nodeEditObject) {
+        const hitIdx = hitTestNode(nodeEditData, canvasX, canvasY, 12 / zoom, true)
+        if (hitIdx >= 0) {
+          const newData = toggleNodeSmooth(nodeEditObject, nodeEditData, hitIdx)
+          if (newData) {
+            nodeEditData = newData
+            canvas.requestRenderAll()
+            pushToHistory()
+          }
+          savedCotasForDblClick = []
+          return
+        }
+      }
+
+      // ---- Double-click on dimension annotation (cota) → inline edit ----
+      const cotasToCheck = activeCotas.length > 0 ? activeCotas : savedCotasForDblClick
+      if (cotasToCheck.length === 0) return
 
       const hitRadius = 20 / zoom
       let closest: CotaData | null = null
@@ -1054,6 +1403,242 @@ export function DesignCanvas() {
       savedCotasForDblClick = []
     })
 
+    // ---- Node editing: mouse handlers ----
+    canvas.on('mouse:down', (opt) => {
+      const state = useCanvasStore.getState()
+      if (!state.nodeEditingElementId || !nodeEditData || !nodeEditObject) return
+      const evt = opt.e as MouseEvent
+      if (evt.button !== 0) return // solo click izquierdo
+
+      const vpt = canvas.viewportTransform!
+      const zoom = canvas.getZoom()
+      const cx = (evt.offsetX - vpt[4]) / zoom
+      const cy = (evt.offsetY - vpt[5]) / zoom
+      const threshold = 10 / zoom
+
+      // Hit test nodos
+      const hitIdx = hitTestNode(nodeEditData, cx, cy, threshold)
+      if (hitIdx >= 0) {
+        state.setNodeEditSelectedNode(hitIdx)
+        nodeDragging = true
+        nodeDragIndex = hitIdx
+        const node = nodeEditData.nodes[hitIdx]
+        nodeDragStartPos = { x: node.x, y: node.y }
+        canvas.requestRenderAll()
+        evt.preventDefault()
+        evt.stopPropagation()
+        return
+      }
+
+      // Hit test segmentos (para agregar nodo)
+      const segHit = hitTestSegment(nodeEditData, cx, cy, threshold)
+      if (segHit) {
+        const newData = addNodeOnSegment(nodeEditObject, nodeEditData, segHit.anchorIndex, segHit.t)
+        if (newData) {
+          nodeEditData = newData
+          canvas.requestRenderAll()
+          pushToHistory()
+        }
+        evt.preventDefault()
+        evt.stopPropagation()
+        return
+      }
+
+      // Click fuera de nodos/segmentos → salir del modo edición
+      exitNodeEditing(canvas)
+    })
+
+    canvas.on('mouse:move', (opt) => {
+      const state = useCanvasStore.getState()
+      if (!state.nodeEditingElementId || !nodeEditData || !nodeEditObject) return
+
+      const evt = opt.e as MouseEvent
+      const vpt = canvas.viewportTransform!
+      const zoom = canvas.getZoom()
+      const cx = (evt.offsetX - vpt[4]) / zoom
+      const cy = (evt.offsetY - vpt[5]) / zoom
+      const threshold = 10 / zoom
+
+      if (nodeDragging && nodeDragIndex >= 0) {
+        let targetX = cx
+        let targetY = cy
+
+        // Shift key constraint (Horizontal/Vertical lock)
+        if (evt.shiftKey && nodeDragStartPos) {
+          const dx = Math.abs(cx - nodeDragStartPos.x)
+          const dy = Math.abs(cy - nodeDragStartPos.y)
+          if (dx > dy) {
+            targetY = nodeDragStartPos.y
+          } else {
+            targetX = nodeDragStartPos.x
+          }
+        } else if (state.snapToGrid) {
+          const gridPx = GRID_SPACING_MM * PIXELS_PER_MM
+          targetX = Math.round(cx / gridPx) * gridPx
+          targetY = Math.round(cy / gridPx) * gridPx
+        }
+
+        // Apply persistent constraints
+        const nodeConsts = state.nodeConstraints.filter(c => c.nodeIndex === nodeDragIndex)
+        for (const nc of nodeConsts) {
+          const origNode = nodeEditData.nodes[nodeDragIndex]
+          if (!origNode) break
+          if (nc.type === 'horizontal') targetY = origNode.y
+          else if (nc.type === 'vertical') targetX = origNode.x
+          else if (nc.type === 'fixed') { targetX = origNode.x; targetY = origNode.y }
+        }
+
+        moveNode(nodeEditObject, nodeEditData, nodeDragIndex, targetX, targetY)
+        canvas.requestRenderAll()
+        return
+      }
+
+      // Hover detection
+      const hitIdx = hitTestNode(nodeEditData, cx, cy, threshold)
+      const segHit = hitIdx < 0 ? hitTestSegment(nodeEditData, cx, cy, threshold) : null
+
+      let needRender = false
+      if (hitIdx !== nodeHoverIndex) {
+        nodeHoverIndex = hitIdx
+        needRender = true
+      }
+      const newSegHover = segHit ? segHit.anchorIndex : -1
+      if (newSegHover !== segmentHoverAnchorIdx) {
+        segmentHoverAnchorIdx = newSegHover
+        needRender = true
+      }
+
+      // Cursor
+      if (hitIdx >= 0) {
+        canvas.upperCanvasEl.style.cursor = 'pointer'
+      } else if (segHit) {
+        canvas.upperCanvasEl.style.cursor = 'cell'  // add node cursor
+      } else {
+        canvas.upperCanvasEl.style.cursor = ''
+      }
+
+      if (needRender) canvas.requestRenderAll()
+    })
+
+    canvas.on('mouse:up', () => {
+      if (nodeDragging) {
+        nodeDragging = false
+        nodeDragIndex = -1
+        // Refresh node positions after drag
+        if (nodeEditObject && nodeEditData) {
+          nodeEditData = extractNodes(nodeEditObject)
+        }
+        pushToHistory()
+        const gcState = useGCodeStore.getState()
+        if (gcState.gcodeGenerated) {
+          gcState.setGCodeNeedsRegeneration(true)
+        }
+      }
+    })
+
+    // ---- Node editing: keyboard events via custom events ----
+    const handleNodeExit = () => {
+      if (useCanvasStore.getState().nodeEditingElementId) {
+        exitNodeEditing(canvas)
+      }
+    }
+    const handleNodeDelete = () => {
+      const state = useCanvasStore.getState()
+      if (!state.nodeEditingElementId || !nodeEditData || !nodeEditObject) return
+      if (state.nodeEditSelectedNode < 0) return
+      const newData = deleteNode(nodeEditObject, nodeEditData, state.nodeEditSelectedNode)
+      if (newData) {
+        nodeEditData = newData
+        state.setNodeEditSelectedNode(-1)
+        canvas.requestRenderAll()
+        pushToHistory()
+      }
+    }
+    const handleNodeToggleSmooth = () => {
+      const state = useCanvasStore.getState()
+      if (!state.nodeEditingElementId || !nodeEditData || !nodeEditObject) return
+      if (state.nodeEditSelectedNode < 0) return
+      const newData = toggleNodeSmooth(nodeEditObject, nodeEditData, state.nodeEditSelectedNode)
+      if (newData) {
+        nodeEditData = newData
+        canvas.requestRenderAll()
+        pushToHistory()
+      }
+    }
+    const handleNodeSplit = () => {
+      const state = useCanvasStore.getState()
+      if (!state.nodeEditingElementId || !nodeEditData || !nodeEditObject) return
+      if (state.nodeEditSelectedNode < 0) return
+      const result = splitPathAtNode(nodeEditObject, nodeEditData, state.nodeEditSelectedNode)
+      if (result) {
+        // Replace current path with path1, add path2 as new object
+        const pathObj = nodeEditObject as Path
+        pathObj.path = result.path1 as Path['path']
+        ;(pathObj as unknown as { _setPositionDimensions(o: Record<string, unknown>): void })
+          ._setPositionDimensions({})
+        pathObj.setCoords()
+
+        // Create path2 as new Path object
+        const path2Str = result.path2.map(c => c.join(' ')).join(' ')
+        const newPath = new Path(path2Str, {
+          fill: 'transparent',
+          stroke: pathObj.stroke,
+          strokeWidth: pathObj.strokeWidth,
+        })
+        canvas.add(newPath)
+
+        // Register in store via canvas manager
+        cm.addSplitPath(newPath)
+
+        // Re-extract and refresh
+        nodeEditData = extractNodes(nodeEditObject)
+        canvas.requestRenderAll()
+        pushToHistory()
+      }
+    }
+    const handleNodeToggleClosed = () => {
+      const state = useCanvasStore.getState()
+      if (!state.nodeEditingElementId || !nodeEditData || !nodeEditObject) return
+      const newData = togglePathClosed(nodeEditObject, nodeEditData)
+      if (newData) {
+        nodeEditData = newData
+        canvas.requestRenderAll()
+        pushToHistory()
+      }
+    }
+    const handleNodeFillet = (e: any) => {
+      const state = useCanvasStore.getState()
+      if (!state.nodeEditingElementId || !nodeEditData || !nodeEditObject) return
+      if (state.nodeEditSelectedNode < 0) return
+      const radiusPx = (e.detail.radius || 0) * PIXELS_PER_MM
+      const newData = filletNode(nodeEditObject, nodeEditData, state.nodeEditSelectedNode, radiusPx)
+      if (newData) {
+        nodeEditData = newData
+        canvas.requestRenderAll()
+        pushToHistory()
+      }
+    }
+    const handleNodeChamfer = (e: any) => {
+      const state = useCanvasStore.getState()
+      if (!state.nodeEditingElementId || !nodeEditData || !nodeEditObject) return
+      if (state.nodeEditSelectedNode < 0) return
+      const distPx = (e.detail.distance || 0) * PIXELS_PER_MM
+      const newData = chamferNode(nodeEditObject, nodeEditData, state.nodeEditSelectedNode, distPx)
+      if (newData) {
+        nodeEditData = newData
+        canvas.requestRenderAll()
+        pushToHistory()
+      }
+    }
+
+    window.addEventListener('node-edit:exit', handleNodeExit)
+    window.addEventListener('node-edit:delete', handleNodeDelete)
+    window.addEventListener('node-edit:toggle-smooth', handleNodeToggleSmooth)
+    window.addEventListener('node-edit:split', handleNodeSplit)
+    window.addEventListener('node-edit:toggle-closed', handleNodeToggleClosed)
+    window.addEventListener('node-edit:fillet', handleNodeFillet)
+    window.addEventListener('node-edit:chamfer', handleNodeChamfer)
+
     // Save initial state to history
     pushToHistory()
 
@@ -1071,6 +1656,13 @@ export function DesignCanvas() {
 
     // Cleanup
     return () => {
+      window.removeEventListener('node-edit:exit', handleNodeExit)
+      window.removeEventListener('node-edit:delete', handleNodeDelete)
+      window.removeEventListener('node-edit:toggle-smooth', handleNodeToggleSmooth)
+      window.removeEventListener('node-edit:split', handleNodeSplit)
+      window.removeEventListener('node-edit:toggle-closed', handleNodeToggleClosed)
+      window.removeEventListener('node-edit:fillet', handleNodeFillet)
+      window.removeEventListener('node-edit:chamfer', handleNodeChamfer)
       observer.disconnect()
       canvas.dispose()
       fabricRef.current = null
@@ -1096,12 +1688,15 @@ export function DesignCanvas() {
     const canvas = fabricRef.current
     if (!canvas) return
 
-    if (!drawingMode) {
+    if (!drawingMode && !measuringMode && !trimMode && !extendMode) {
       // Clean up drawing state when exiting
-      if (drawingPoints.length > 0 || arcPoints.length > 0) {
+      if (drawingPoints.length > 0 || arcPoints.length > 0 || measureStart || measureAnglePoints.length > 0) {
         drawingPoints = []
         arcPoints = []
         drawingMousePos = null
+        measureStart = null
+        measureEnd = null
+        measureAnglePoints = []
         canvas.requestRenderAll()
       }
       canvas.selection = true
@@ -1272,6 +1867,221 @@ export function DesignCanvas() {
         if (e.key === 'Escape') { e.preventDefault(); cancelAll() }
         else if (e.key === 'Enter') { e.preventDefault(); finishBezier() }
       }
+    } else if (drawingMode === 'cota') {
+      // ===== COTA DRAWING MODE =====
+      handleMouseDown = (opt) => {
+        const evt = opt.e as MouseEvent
+        if (evt.button !== 0 || evt.altKey) return
+        const pt = getCanvasCoords(evt)
+        drawingPoints.push(pt)
+        if (drawingPoints.length === 2) {
+          cm.addCota(drawingPoints[0], drawingPoints[1])
+          drawingPoints = []
+          setDrawingMode(null)
+        }
+        canvas.requestRenderAll()
+      }
+
+      handleMouseMove = (opt) => {
+        if (drawingPoints.length === 0) return
+        drawingMousePos = getCanvasCoords(opt.e as MouseEvent)
+        canvas.requestRenderAll()
+      }
+
+      handleKeyDown = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); cancelAll() }
+      }
+    } else if (measuringMode === 'distance') {
+      // ===== DISTANCE MEASURING =====
+      handleMouseDown = (opt) => {
+        const evt = opt.e as MouseEvent
+        if (evt.button !== 0 || evt.altKey) return
+        const pt = getCanvasCoords(evt)
+        if (!measureStart) {
+          measureStart = new Point(pt.x, pt.y)
+        } else {
+          measureStart = null
+          measureEnd = null
+          setMeasuringMode(false)
+        }
+        canvas.requestRenderAll()
+      }
+
+      handleMouseMove = (opt) => {
+        if (!measureStart) return
+        const pt = getCanvasCoords(opt.e as MouseEvent)
+        measureEnd = new Point(pt.x, pt.y)
+        canvas.requestRenderAll()
+      }
+
+      handleKeyDown = (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          measureStart = null; measureEnd = null
+          setMeasuringMode(false)
+          canvas.requestRenderAll()
+        }
+      }
+    } else if (measuringMode === 'angle') {
+      // ===== ANGLE MEASURING (3 clicks: point, vertex, point) =====
+      handleMouseDown = (opt) => {
+        const evt = opt.e as MouseEvent
+        if (evt.button !== 0 || evt.altKey) return
+        const pt = getCanvasCoords(evt)
+        measureAnglePoints.push(new Point(pt.x, pt.y))
+
+        if (measureAnglePoints.length === 3) {
+          // Keep showing result until next click or Escape
+        } else if (measureAnglePoints.length > 3) {
+          measureAnglePoints = []
+          measureEnd = null
+          setMeasuringMode(false)
+        }
+        canvas.requestRenderAll()
+      }
+
+      handleMouseMove = (opt) => {
+        if (measureAnglePoints.length < 2 || measureAnglePoints.length >= 3) return
+        const pt = getCanvasCoords(opt.e as MouseEvent)
+        measureEnd = new Point(pt.x, pt.y)
+        canvas.requestRenderAll()
+      }
+
+      handleKeyDown = (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          measureAnglePoints = []
+          measureStart = null; measureEnd = null
+          setMeasuringMode(false)
+          canvas.requestRenderAll()
+        }
+      }
+    } else if (trimMode) {
+      // ===== TRIM MODE — recortar path en intersecciones =====
+      canvas.skipTargetFind = false  // necesitamos encontrar el target bajo el click
+      canvas.hoverCursor = 'crosshair'
+
+      handleMouseDown = (opt) => {
+        const evt = opt.e as MouseEvent
+        if (evt.button !== 0 || evt.altKey) return
+
+        const target = canvas.findTarget(opt.e as MouseEvent)
+        if (!target || !(target instanceof Path || target instanceof FabricPolygon)) return
+
+        const clickCanvas = getCanvasCoords(evt)
+
+        // Obtener todos los otros objetos del canvas (no non-interactive, no el target)
+        const otherObjects = canvas.getObjects()
+          .filter(o => o !== target && getCustomProp(o, NON_INTERACTIVE_KEY) !== true)
+
+        if (target instanceof Path) {
+          const newPathData = trimPathAtClick(target, clickCanvas, otherObjects)
+          if (newPathData) {
+            // Crear un nuevo Path con las coords absolutas (canvas)
+            const newPath = new Path(newPathData as unknown as string, {
+              fill: 'transparent',
+              stroke: target.stroke,
+              strokeWidth: target.strokeWidth,
+              strokeLineCap: target.strokeLineCap,
+              strokeLineJoin: target.strokeLineJoin,
+              strokeDashArray: target.strokeDashArray,
+              selectable: target.selectable,
+              evented: target.evented,
+            })
+
+            // Copiar propiedades custom
+            const elId = getCustomProp(target, ELEMENT_ID_KEY)
+            if (typeof elId === 'string') {
+              (newPath as unknown as Record<string, unknown>)[ELEMENT_ID_KEY] = elId
+            }
+
+            // Reemplazar en el canvas
+            const idx = canvas.getObjects().indexOf(target)
+            canvas.remove(target)
+            canvas.insertAt(idx, newPath)
+            newPath.setCoords()
+
+            pushToHistory()
+            useGCodeStore.getState().setGCodeNeedsRegeneration(true)
+            canvas.requestRenderAll()
+          }
+        }
+      }
+      handleMouseMove = () => { }
+      handleKeyDown = (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          setTrimMode(false)
+        }
+      }
+    } else if (extendMode) {
+      // ===== EXTEND MODE — extender path hasta intersección =====
+      canvas.skipTargetFind = false
+      canvas.hoverCursor = 'crosshair'
+
+      handleMouseDown = (opt) => {
+        const evt = opt.e as MouseEvent
+        if (evt.button !== 0 || evt.altKey) return
+
+        const target = canvas.findTarget(opt.e as MouseEvent)
+        if (!target || !(target instanceof Path)) return
+
+        const clickCanvas = getCanvasCoords(evt)
+
+        // Determinar si el click está más cerca del inicio o del final del path
+        const pathData = target.path as unknown[][]
+        if (!pathData || !Array.isArray(pathData) || pathData.length < 2) return
+
+        // Obtener los puntos transformados del path
+        const matrix = target.calcTransformMatrix()
+        const pOff = target.pathOffset ?? new Point(0, 0)
+        const txPt = (px: number, py: number) => {
+          const tp = util.transformPoint(new Point(px - pOff.x, py - pOff.y), matrix)
+          return { x: tp.x, y: tp.y }
+        }
+
+        // Primer y último punto del path
+        const firstCmd = pathData[0]
+        const firstPt = firstCmd[0] === 'M' ? txPt(firstCmd[1] as number, firstCmd[2] as number) : null
+
+        // Encontrar último comando geométrico
+        let lastPt: { x: number; y: number } | null = null
+        for (let i = pathData.length - 1; i >= 0; i--) {
+          const cmd = pathData[i]
+          if (cmd[0] === 'L') { lastPt = txPt(cmd[1] as number, cmd[2] as number); break }
+          if (cmd[0] === 'C') { lastPt = txPt(cmd[5] as number, cmd[6] as number); break }
+          if (cmd[0] === 'Q') { lastPt = txPt(cmd[3] as number, cmd[4] as number); break }
+          if (cmd[0] === 'M' && i === pathData.length - 1) { lastPt = txPt(cmd[1] as number, cmd[2] as number); break }
+        }
+
+        if (!firstPt || !lastPt) return
+
+        const distToFirst = Math.hypot(clickCanvas.x - firstPt.x, clickCanvas.y - firstPt.y)
+        const distToLast = Math.hypot(clickCanvas.x - lastPt.x, clickCanvas.y - lastPt.y)
+        const endpointIndex: 0 | -1 = distToFirst < distToLast ? 0 : -1
+
+        // Obtener todos los otros objetos del canvas
+        const otherObjects = canvas.getObjects()
+          .filter(o => o !== target && getCustomProp(o, NON_INTERACTIVE_KEY) !== true)
+
+        const newPathData = extendPathToIntersection(target, endpointIndex, otherObjects)
+        if (newPathData) {
+          target.path = newPathData as unknown as Path['path']
+          ;(target as unknown as { _setPositionDimensions(o: object): void })._setPositionDimensions({})
+          target.setCoords()
+
+          pushToHistory()
+          useGCodeStore.getState().setGCodeNeedsRegeneration(true)
+          canvas.requestRenderAll()
+        }
+      }
+      handleMouseMove = () => { }
+      handleKeyDown = (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          setExtendMode(false)
+        }
+      }
     } else {
       handleMouseDown = () => {}
       handleMouseMove = () => {}
@@ -1290,8 +2100,7 @@ export function DesignCanvas() {
       window.removeEventListener('keydown', handleKeyDown)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawingMode])
-
+    }, [drawingMode, measuringMode, trimMode, extendMode])
   // ------------------------------------------
   // Handle distance input change — adjust last point in real time
   // ------------------------------------------
@@ -1516,8 +2325,18 @@ export function DesignCanvas() {
                 <div className="h-px bg-border my-1" />
               )}
 
-              {/* Z-Order */}
-              <ContextMenuItem label={`${t('bringToFront')}  Ctrl+Shift+]`} onClick={() => handleContextAction(cm.bringToFront)} />
+              {/* Boolean Operations */}
+              {contextMenu.hasMultiSelection && (
+                <>
+                  <ContextMenuItem label={t('boolUnion')} onClick={() => handleContextAction(() => cm.booleanOperationSelected('union'))} />
+                  <ContextMenuItem label={t('boolDifference')} onClick={() => handleContextAction(() => cm.booleanOperationSelected('difference'))} />
+                  <ContextMenuItem label={t('boolIntersection')} onClick={() => handleContextAction(() => cm.booleanOperationSelected('intersection'))} />
+                  <ContextMenuItem label={t('boolXor')} onClick={() => handleContextAction(() => cm.booleanOperationSelected('xor'))} />
+                  <div className="h-px bg-border my-1" />
+                </>
+              )}
+
+              {/* Z-Order */}              <ContextMenuItem label={`${t('bringToFront')}  Ctrl+Shift+]`} onClick={() => handleContextAction(cm.bringToFront)} />
               <ContextMenuItem label={`${t('bringForward')}  Ctrl+]`} onClick={() => handleContextAction(cm.bringForward)} />
               <ContextMenuItem label={`${t('sendBackward')}  Ctrl+[`} onClick={() => handleContextAction(cm.sendBackward)} />
               <ContextMenuItem label={`${t('sendToBack')}  Ctrl+Shift+[`} onClick={() => handleContextAction(cm.sendToBack)} />
@@ -1527,6 +2346,34 @@ export function DesignCanvas() {
               {/* Transform */}
               <ContextMenuItem label={t('flipH')} onClick={() => handleContextAction(cm.flipH)} />
               <ContextMenuItem label={t('flipV')} onClick={() => handleContextAction(cm.flipV)} />
+
+              {/* Node editing */}
+              {contextMenu.isPathOrPoly && (
+                <>
+                  <div className="h-px bg-border my-1" />
+                  <ContextMenuItem
+                    label={`${t('editNodes')}  Dbl-click`}
+                    onClick={() => handleContextAction(() => {
+                      const canvas = fabricRef.current
+                      if (!canvas) return
+                      const active = canvas.getActiveObject()
+                      if (!active || !(active instanceof Path || active instanceof FabricPolygon)) return
+                      const elId = getCustomProp(active, ELEMENT_ID_KEY)
+                      if (typeof elId !== 'string') return
+                      const data = extractNodes(active)
+                      if (!data || data.nodes.length === 0) return
+                      nodeEditData = data
+                      nodeEditObject = active
+                      active.selectable = false
+                      active.evented = false
+                      canvas.discardActiveObject()
+                      canvas.selection = false
+                      useCanvasStore.getState().setNodeEditing(elId)
+                      canvas.requestRenderAll()
+                    })}
+                  />
+                </>
+              )}
             </>
           )}
 

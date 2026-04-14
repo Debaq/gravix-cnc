@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { useCanvasManager } from './useCanvasManager'
+import { useCanvasManager, getSharedCanvas } from './useCanvasManager'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 
 export function useKeyboardShortcuts() {
@@ -25,9 +25,15 @@ export function useKeyboardShortcuts() {
       const isCtrl = e.ctrlKey || e.metaKey
       const isShift = e.shiftKey
 
-      // Delete / Backspace - Delete selected
+      // Delete / Backspace
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault()
+        // In node editing mode, delete selected node
+        if (useCanvasStore.getState().nodeEditingElementId) {
+          // Dispatch custom event — handled by DesignCanvas
+          window.dispatchEvent(new CustomEvent('node-edit:delete'))
+          return
+        }
         cmRef.current.deleteSelected()
         return
       }
@@ -77,9 +83,21 @@ export function useKeyboardShortcuts() {
         return
       }
 
-      // Escape - Deselect (skip if in drawing mode — handled by drawing handler)
+      // Escape - Exit node editing / trim / extend / Deselect
       if (e.key === 'Escape') {
+        if (useCanvasStore.getState().nodeEditingElementId) {
+          window.dispatchEvent(new CustomEvent('node-edit:exit'))
+          return
+        }
         if (useCanvasStore.getState().drawingMode) return
+        if (useCanvasStore.getState().trimMode) {
+          useCanvasStore.getState().setTrimMode(false)
+          return
+        }
+        if (useCanvasStore.getState().extendMode) {
+          useCanvasStore.getState().setExtendMode(false)
+          return
+        }
         cmRef.current.deselectAll()
         return
       }

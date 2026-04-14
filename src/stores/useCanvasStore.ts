@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { CanvasElement, WorkArea, GlobalConfig, RasterData } from '@/lib/types'
+import type { CanvasElement, WorkArea, GlobalConfig, RasterData, Layer } from '@/lib/types'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 
 export interface SelectedObjectProps {
@@ -50,7 +50,25 @@ interface CanvasState {
   snapThreshold: number
 
   // Drawing mode
-  drawingMode: 'line' | 'arc' | 'bezier' | null
+  drawingMode: 'line' | 'arc' | 'bezier' | 'cota' | null
+
+  // Measuring mode: 'distance' (2 clicks), 'angle' (3 clicks), or false
+  measuringMode: 'distance' | 'angle' | false
+
+  // Trim mode
+  trimMode: boolean
+
+  // Extend mode
+  extendMode: boolean
+
+  // Node editing mode
+  nodeEditingElementId: string | null
+  nodeEditSelectedNode: number   // índice del nodo seleccionado, -1 = ninguno
+  nodeConstraints: { id: string; type: string; nodeIndex: number }[]
+
+  // Layers
+  layers: Layer[]
+  activeLayerId: string
 
   // Per-operation-type remembered defaults (last used tool/material)
   operationDefaults: Record<string, { tool: string; material: string }>
@@ -74,8 +92,23 @@ interface CanvasState {
   setRasterData: (data: RasterData | null) => void
   toggleSnapToGrid: () => void
   toggleSnapToObjects: () => void
-  setDrawingMode: (mode: 'line' | 'arc' | 'bezier' | null) => void
+  setDrawingMode: (mode: 'line' | 'arc' | 'bezier' | 'cota' | null) => void
+  setMeasuringMode: (mode: 'distance' | 'angle' | false) => void
+  setTrimMode: (active: boolean) => void
+  setExtendMode: (active: boolean) => void
+  setNodeEditing: (elementId: string | null) => void
+  setNodeConstraints: (constraints: { id: string; type: string; nodeIndex: number }[]) => void
+  setNodeEditSelectedNode: (index: number) => void
   updateConfigStatus: () => void
+
+  // Layer actions
+  addLayer: (name?: string, color?: string) => void
+  removeLayer: (id: string) => void
+  updateLayer: (id: string, updates: Partial<Layer>) => void
+  reorderLayers: (layers: Layer[]) => void
+  setActiveLayer: (id: string) => void
+  moveElementToLayer: (elementId: string, layerId: string) => void
+
   findElementById: (id: string) => CanvasElement | undefined
   getElementConfig: (element: CanvasElement) => GlobalConfig
   applyInitialDefaults: (tools: { id: string; category: string }[], materials: { id: string; category: string }[]) => void
@@ -162,6 +195,26 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   // Drawing mode
   drawingMode: null,
 
+  // Measuring mode
+  measuringMode: false,
+
+  // Trim mode
+  trimMode: false,
+
+  // Extend mode
+  extendMode: false,
+
+  // Node editing mode
+  nodeEditingElementId: null,
+  nodeEditSelectedNode: -1,
+  nodeConstraints: [],
+
+  // Layers
+  layers: [
+    { id: 'layer_001', name: 'Capa 1', color: '#333333', visible: true, locked: false, order: 0, config: null }
+  ],
+  activeLayerId: 'layer_001',
+
   // Per-operation-type defaults (initial defaults, overwritten by last used)
   operationDefaults: {
     cnc: { tool: 'cnc_001', material: 'mat_wood_004' },
@@ -172,7 +225,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   // Actions
   addElement: (element) =>
-    set((state) => ({ elements: [...state.elements, element] })),
+    set((state) => ({ 
+      elements: [...state.elements, { ...element, layerId: element.layerId || state.activeLayerId }] 
+    })),
 
   removeElement: (id) =>
     set((state) => ({
@@ -274,7 +329,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   toggleSnapToGrid: () => set((state) => ({ snapToGrid: !state.snapToGrid })),
   toggleSnapToObjects: () => set((state) => ({ snapToObjects: !state.snapToObjects })),
-  setDrawingMode: (mode) => set({ drawingMode: mode }),
+  setDrawingMode: (mode) => set({ drawingMode: mode, measuringMode: false }),
+  setMeasuringMode: (mode) => set({ measuringMode: mode, drawingMode: null, trimMode: false }),
+  setTrimMode: (active) => set({ trimMode: active, extendMode: false, drawingMode: null, measuringMode: false }),
+  setExtendMode: (active) => set({ extendMode: active, trimMode: false, drawingMode: null, measuringMode: false }),
+  setNodeEditing: (elementId) => set({ nodeEditingElementId: elementId, nodeEditSelectedNode: -1, nodeConstraints: [] }),
+  setNodeConstraints: (constraints) => set({ nodeConstraints: constraints }),
+  setNodeEditSelectedNode: (index) => set({ nodeEditSelectedNode: index }),
 
   updateConfigStatus: () => {
     const { elements } = get()
@@ -287,6 +348,49 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     })
     set({ configStatus: hasCustomConfig ? 'multiple' : 'unified' })
   },
+
+  addLayer: (name, color) => set((state) => {
+    const id = `layer_${Date.now()}`
+    const newLayer: Layer = {
+      id,
+      name: name || `Capa ${state.layers.length + 1}`,
+      color: color || '#333333',
+      visible: true,
+      locked: false,
+      order: state.layers.length,
+      config: null
+    }
+    return { 
+      layers: [...state.layers, newLayer],
+      activeLayerId: id
+    }
+  }),
+
+  removeLayer: (id) => set((state) => {
+    if (state.layers.length <= 1) return state // Mantener al menos una
+    const layers = state.layers.filter(l => l.id !== id)
+    let activeLayerId = state.activeLayerId
+    if (activeLayerId === id) {
+      activeLayerId = layers[0].id
+    }
+    // Mover elementos de la capa eliminada a la capa activa
+    const elements = state.elements.map(el => 
+      el.layerId === id ? { ...el, layerId: activeLayerId } : el
+    )
+    return { layers, activeLayerId, elements }
+  }),
+
+  updateLayer: (id, updates) => set((state) => ({
+    layers: state.layers.map(l => l.id === id ? { ...l, ...updates } : l)
+  })),
+
+  reorderLayers: (layers) => set({ layers }),
+
+  setActiveLayer: (id) => set({ activeLayerId: id }),
+
+  moveElementToLayer: (elementId, layerId) => set((state) => ({
+    elements: state.elements.map(el => el.id === elementId ? { ...el, layerId } : el)
+  })),
 
   findElementById: (id) => {
     const { elements } = get()
