@@ -15,6 +15,7 @@ export interface GCodeSegment {
   to: GCodePoint
   type: SegmentType
   lineNumber: number
+  color?: string  // hex color from plotter color groups or laser color mapping
 }
 
 export interface GCodeParseResult {
@@ -33,6 +34,34 @@ function distance3D(a: GCodePoint, b: GCodePoint): number {
   const dy = b.y - a.y
   const dz = b.z - a.z
   return Math.sqrt(dx * dx + dy * dy + dz * dz)
+}
+
+/**
+ * Estimate time for a segment considering trapezoidal acceleration profile.
+ * GRBL default acceleration ~500 mm/s². For short segments, machine never
+ * reaches full speed so time is longer than distance/feedrate.
+ * @param dist - distance in mm
+ * @param feedRate - target feed rate in mm/min
+ * @returns time in seconds
+ */
+function estimateSegmentTime(dist: number, feedRate: number): number {
+  const accel = 500 // mm/s² — GRBL default ($120/$121/$122)
+  const vMax = feedRate / 60 // mm/s
+  // Distance needed to accelerate to vMax: d = v²/(2a)
+  const accelDist = (vMax * vMax) / (2 * accel)
+
+  if (dist <= 0.001) return 0
+
+  if (dist >= 2 * accelDist) {
+    // Trapezoid: accel + cruise + decel
+    const accelTime = vMax / accel
+    const cruiseDist = dist - 2 * accelDist
+    return 2 * accelTime + cruiseDist / vMax
+  } else {
+    // Triangle: never reaches full speed
+    // Peak speed = sqrt(2 * accel * dist/2) = sqrt(accel * dist)
+    return 2 * Math.sqrt(dist / accel)
+  }
 }
 
 /**
@@ -59,11 +88,19 @@ export function parseGCode(gcodeStr: string): GCodeParseResult {
   let laserOn = false
   let currentFeedRate = 1000 // mm/min default
   const rapidFeedRate = 5000 // mm/min assumed for G0
+  let currentColor: string | undefined
 
   const lines = gcodeStr.split('\n')
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i]
+
+    // Parse color from comments: "; --- Color group: #rrggbb ..." or "; --- #rrggbb ..."
+    const colorMatch = raw.match(/;\s*---.*?(#[0-9a-fA-F]{6})/)
+    if (colorMatch) {
+      currentColor = colorMatch[1]
+    }
+
     // Strip comments (everything after ;)
     const line = raw.split(';')[0].trim()
     if (line.length === 0) continue
@@ -123,17 +160,17 @@ export function parseGCode(gcodeStr: string): GCodeParseResult {
         segType = 'cut'
       }
 
-      segments.push({ from, to, type: segType, lineNumber: i + 1 })
+      segments.push({ from, to, type: segType, lineNumber: i + 1, color: currentColor })
 
       const dist = distance3D(from, to)
       totalDistance += dist
 
       if (segType === 'rapid') {
         rapidDistance += dist
-        estimatedTime += (dist / rapidFeedRate) * 60 // seconds
+        estimatedTime += estimateSegmentTime(dist, rapidFeedRate)
       } else {
         cutDistance += dist
-        estimatedTime += (dist / (currentFeedRate || 1000)) * 60 // seconds
+        estimatedTime += estimateSegmentTime(dist, currentFeedRate || 1000)
       }
 
       // Track max depth (most negative Z)

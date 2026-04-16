@@ -17,7 +17,7 @@ import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Wrench, Edit, Trash2, Plus, X } from 'lucide-react'
+import { Wrench, Edit, Trash2, Plus, X, Download, Upload } from 'lucide-react'
 import type { Tool, ToolFormData } from '@/lib/types'
 
 const TOOL_TYPES: Record<string, string[]> = {
@@ -166,13 +166,60 @@ export function ToolsModal() {
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && closeModal()}>
-      <DialogContent className="max-w-2xl max-h-[80vh]">
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Wrench className="h-5 w-5" />
             {t('title')}
           </DialogTitle>
-          <DialogDescription>{tools.length} herramientas</DialogDescription>
+          <DialogDescription className="flex items-center justify-between">
+            <span>{tools.length} herramientas</span>
+            <span className="flex gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-[10px] gap-1"
+                onClick={() => {
+                  const json = JSON.stringify(tools, null, 2)
+                  const blob = new Blob([json], { type: 'application/json' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url; a.download = 'tools.json'; a.click()
+                  URL.revokeObjectURL(url)
+                  addConsoleLine('Tools exportadas')
+                }}
+              >
+                <Download className="h-3 w-3" /> Export
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-[10px] gap-1"
+                onClick={() => {
+                  const input = document.createElement('input')
+                  input.type = 'file'; input.accept = '.json'
+                  input.onchange = async (e) => {
+                    const file = (e.target as HTMLInputElement).files?.[0]
+                    if (!file) return
+                    const text = await file.text()
+                    try {
+                      const imported = JSON.parse(text) as Tool[]
+                      if (!Array.isArray(imported)) throw new Error('not array')
+                      const merged = [...tools]
+                      for (const t of imported) {
+                        if (!merged.find(m => m.id === t.id)) merged.push(t)
+                      }
+                      setTools(merged)
+                      addConsoleLine(`${imported.length} tools importadas`)
+                    } catch { addConsoleLine('Error importando tools') }
+                  }
+                  input.click()
+                }}
+              >
+                <Upload className="h-3 w-3" /> Import
+              </Button>
+            </span>
+          </DialogDescription>
         </DialogHeader>
 
         {showForm ? (

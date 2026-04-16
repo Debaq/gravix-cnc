@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { CanvasElement, WorkArea, GlobalConfig, RasterData, Layer } from '@/lib/types'
+import type { CanvasElement, WorkArea, GlobalConfig, RasterData, Layer, ColorMapping } from '@/lib/types'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 
 export interface SelectedObjectProps {
@@ -70,6 +70,13 @@ interface CanvasState {
   layers: Layer[]
   activeLayerId: string
 
+  // Color mappings for laser mode
+  colorMappings: ColorMapping[]
+
+  // Multiple sheets
+  sheets: { id: string; name: string }[]
+  activeSheetId: string
+
   // Per-operation-type remembered defaults (last used tool/material)
   operationDefaults: Record<string, { tool: string; material: string }>
 
@@ -107,6 +114,11 @@ interface CanvasState {
   updateLayer: (id: string, updates: Partial<Layer>) => void
   reorderLayers: (layers: Layer[]) => void
   setActiveLayer: (id: string) => void
+  addSheet: (name?: string) => void
+  removeSheet: (id: string) => void
+  setActiveSheet: (id: string) => void
+  renameSheet: (id: string, name: string) => void
+  setColorMappings: (mappings: ColorMapping[]) => void
   moveElementToLayer: (elementId: string, layerId: string) => void
 
   findElementById: (id: string) => CanvasElement | undefined
@@ -125,7 +137,7 @@ const defaultGlobalConfig: GlobalConfig = {
   laserPower: 80,
   passes: 1,
   depth: -3,
-  depthStep: 1,
+  depthStep: 0.5,
   toolDiameter: 3.175,
   compensation: 'center',
   stepover: 0.5,
@@ -133,6 +145,8 @@ const defaultGlobalConfig: GlobalConfig = {
   pressure: 15,
   speed: 100,
   pressureZ: -1,
+  bladeOffset: 0,
+  toolLengthOffset: 0,
   // Láser avanzado
   laserMode: 'cut',
   laserDynamic: false,
@@ -146,6 +160,24 @@ const defaultGlobalConfig: GlobalConfig = {
   rasterThreshold: 128,
   rasterInvert: false,
   rasterBidirectional: true,
+  // Kerf láser
+  laserKerf: 0,
+  laserLeadIn: 0,
+  laserFocusZ: 0,
+  // Drill
+  drillPeckDepth: 0,
+  drillRetract: 2,
+  // V-Carve
+  vcarveAngle: 90,
+  vcarveMaxDepth: 5,
+  vcarveStepSize: 0.2,
+  vcarveFlatDepth: 0,
+  // Rest machining
+  restMachiningEnabled: false,
+  restToolDiameter: 1,
+  // Ramping
+  rampEnabled: false,
+  rampAngle: 3,
   // Tabs/soportes
   tabsEnabled: false,
   tabWidth: 5,
@@ -214,6 +246,19 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     { id: 'layer_001', name: 'Capa 1', color: '#333333', visible: true, locked: false, order: 0, config: null }
   ],
   activeLayerId: 'layer_001',
+
+  // Sheets
+  sheets: [{ id: 'sheet_001', name: 'Sheet 1' }],
+  activeSheetId: 'sheet_001',
+
+  // Default color mappings (LightBurn style)
+  colorMappings: [
+    { color: '#ff0000', name: 'Corte', mode: 'cut', power: 90, speed: 300, passes: 1, enabled: true },
+    { color: '#000000', name: 'Grabado', mode: 'engrave', power: 40, speed: 800, passes: 1, enabled: true },
+    { color: '#0000ff', name: 'Marcado', mode: 'engrave', power: 15, speed: 1500, passes: 1, enabled: true },
+    { color: '#00ff00', name: 'Fill', mode: 'fill', power: 60, speed: 600, passes: 1, enabled: true },
+    { color: '#ffff00', name: 'Corte suave', mode: 'cut', power: 50, speed: 500, passes: 2, enabled: true },
+  ],
 
   // Per-operation-type defaults (initial defaults, overwritten by last used)
   operationDefaults: {
@@ -387,6 +432,28 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   reorderLayers: (layers) => set({ layers }),
 
   setActiveLayer: (id) => set({ activeLayerId: id }),
+
+  addSheet: (name) => set((state) => {
+    const id = `sheet_${Date.now()}`
+    return {
+      sheets: [...state.sheets, { id, name: name || `Sheet ${state.sheets.length + 1}` }],
+      activeSheetId: id,
+    }
+  }),
+  removeSheet: (id) => set((state) => {
+    if (state.sheets.length <= 1) return state
+    const sheets = state.sheets.filter(s => s.id !== id)
+    return {
+      sheets,
+      activeSheetId: state.activeSheetId === id ? sheets[0].id : state.activeSheetId,
+    }
+  }),
+  setActiveSheet: (id) => set({ activeSheetId: id }),
+  renameSheet: (id, name) => set((state) => ({
+    sheets: state.sheets.map(s => s.id === id ? { ...s, name } : s),
+  })),
+
+  setColorMappings: (mappings) => set({ colorMappings: mappings }),
 
   moveElementToLayer: (elementId, layerId) => set((state) => ({
     elements: state.elements.map(el => el.id === elementId ? { ...el, layerId } : el)

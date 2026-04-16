@@ -22,6 +22,7 @@ import { arcFrom3Points, sampleCatmullRom } from '@/lib/geometry'
 import {
   extractNodes,
   moveNode,
+  finalizeNodeMove,
   addNodeOnSegment,
   deleteNode,
   hitTestNode,
@@ -31,6 +32,7 @@ import {
   togglePathClosed,
   filletNode,
   chamferNode,
+  dogboneNode,
   type NodeEditData,
 } from '@/lib/node-editor'
 import {
@@ -398,6 +400,8 @@ function exitNodeEditing(canvas: Canvas): void {
   if (nodeEditObject) {
     nodeEditObject.selectable = true
     nodeEditObject.evented = true
+    nodeEditObject.objectCaching = true
+    nodeEditObject.dirty = true
   }
   nodeEditData = null
   nodeEditObject = null
@@ -1337,6 +1341,7 @@ export function DesignCanvas() {
               // Make object non-selectable/movable while editing nodes
               target.selectable = false
               target.evented = false
+              target.objectCaching = false
               canvas.discardActiveObject()
               canvas.selection = false
               storeState.setNodeEditing(elId)
@@ -1489,6 +1494,9 @@ export function DesignCanvas() {
         }
 
         moveNode(nodeEditObject, nodeEditData, nodeDragIndex, targetX, targetY)
+        // Re-extraer todos los nodos para sincronizar overlay con path real
+        const refreshed = extractNodes(nodeEditObject)
+        if (refreshed) nodeEditData = refreshed
         canvas.requestRenderAll()
         return
       }
@@ -1524,9 +1532,11 @@ export function DesignCanvas() {
       if (nodeDragging) {
         nodeDragging = false
         nodeDragIndex = -1
-        // Refresh node positions after drag
-        if (nodeEditObject && nodeEditData) {
+        // Recalcular bounding box y refrescar nodos después del drag
+        if (nodeEditObject) {
+          finalizeNodeMove(nodeEditObject)
           nodeEditData = extractNodes(nodeEditObject)
+          canvas.requestRenderAll()
         }
         pushToHistory()
         const gcState = useGCodeStore.getState()
@@ -1574,8 +1584,7 @@ export function DesignCanvas() {
         // Replace current path with path1, add path2 as new object
         const pathObj = nodeEditObject as Path
         pathObj.path = result.path1 as Path['path']
-        ;(pathObj as unknown as { _setPositionDimensions(o: Record<string, unknown>): void })
-          ._setPositionDimensions({})
+        ;(pathObj as unknown as { setDimensions(): void }).setDimensions()
         pathObj.setCoords()
 
         // Create path2 as new Path object
@@ -1636,8 +1645,22 @@ export function DesignCanvas() {
     window.addEventListener('node-edit:toggle-smooth', handleNodeToggleSmooth)
     window.addEventListener('node-edit:split', handleNodeSplit)
     window.addEventListener('node-edit:toggle-closed', handleNodeToggleClosed)
+    const handleNodeDogbone = (e: any) => {
+      const state = useCanvasStore.getState()
+      if (!state.nodeEditingElementId || !nodeEditData || !nodeEditObject) return
+      if (state.nodeEditSelectedNode < 0) return
+      const radiusPx = (e.detail.radius || 0) * PIXELS_PER_MM
+      const newData = dogboneNode(nodeEditObject, nodeEditData, state.nodeEditSelectedNode, radiusPx)
+      if (newData) {
+        nodeEditData = newData
+        canvas.requestRenderAll()
+        pushToHistory()
+      }
+    }
+
     window.addEventListener('node-edit:fillet', handleNodeFillet)
     window.addEventListener('node-edit:chamfer', handleNodeChamfer)
+    window.addEventListener('node-edit:dogbone', handleNodeDogbone)
 
     // Save initial state to history
     pushToHistory()
@@ -1663,6 +1686,7 @@ export function DesignCanvas() {
       window.removeEventListener('node-edit:toggle-closed', handleNodeToggleClosed)
       window.removeEventListener('node-edit:fillet', handleNodeFillet)
       window.removeEventListener('node-edit:chamfer', handleNodeChamfer)
+      window.removeEventListener('node-edit:dogbone', handleNodeDogbone)
       observer.disconnect()
       canvas.dispose()
       fabricRef.current = null
@@ -2067,7 +2091,7 @@ export function DesignCanvas() {
         const newPathData = extendPathToIntersection(target, endpointIndex, otherObjects)
         if (newPathData) {
           target.path = newPathData as unknown as Path['path']
-          ;(target as unknown as { _setPositionDimensions(o: object): void })._setPositionDimensions({})
+          ;(target as unknown as { setDimensions(): void }).setDimensions()
           target.setCoords()
 
           pushToHistory()

@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import type { OperationType, LaserMode } from '@/lib/types'
+import type { OperationType, LaserMode, WorkType } from '@/lib/types'
 
 export function GlobalConfigModal() {
   const { t } = useTranslation('settings')
@@ -144,7 +144,7 @@ export function GlobalConfigModal() {
                 <Label>{t('globalConfig.workType')}</Label>
                 <Select
                   value={globalConfig.workType}
-                  onValueChange={(v) => setGlobalConfig({ workType: v as 'outline' | 'inside' | 'outside' | 'pocket' })}
+                  onValueChange={(v) => setGlobalConfig({ workType: v as WorkType })}
                 >
                   <SelectTrigger className="mt-1">
                     <SelectValue />
@@ -154,26 +154,105 @@ export function GlobalConfigModal() {
                     <SelectItem value="inside">{t('workTypes.inside')}</SelectItem>
                     <SelectItem value="outside">{t('workTypes.outside')}</SelectItem>
                     <SelectItem value="pocket">{t('workTypes.pocket')}</SelectItem>
+                    <SelectItem value="vcarve">{t('workTypes.vcarve')}</SelectItem>
+                    <SelectItem value="drill">{t('workTypes.drill')}</SelectItem>
+                    <SelectItem value="chamfer">{t('workTypes.chamfer')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               {globalConfig.workType === 'pocket' && (
-                <div>
-                  <Label className="text-xs">{t('globalConfig.stepover')}</Label>
-                  <div className="flex items-center gap-2 mt-1">
+                <>
+                  <div>
+                    <Label className="text-xs">{t('globalConfig.stepover')}</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Input
+                        type="range"
+                        min={10}
+                        max={90}
+                        step={5}
+                        value={Math.round((globalConfig.stepover ?? 0.5) * 100)}
+                        onChange={(e) => setGlobalConfig({ stepover: parseInt(e.target.value) / 100 })}
+                        className="flex-1 h-8"
+                      />
+                      <span className="text-xs font-mono w-10 text-right">
+                        {Math.round((globalConfig.stepover ?? 0.5) * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-2 border-t pt-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs">{t('globalConfig.restMachining')}</Label>
+                      <Switch
+                        checked={globalConfig.restMachiningEnabled ?? false}
+                        onCheckedChange={(checked) => setGlobalConfig({ restMachiningEnabled: checked })}
+                      />
+                    </div>
+                    {globalConfig.restMachiningEnabled && (
+                      <div>
+                        <Label className="text-[11px]">{t('globalConfig.restToolDiameter')}</Label>
+                        <Input
+                          type="number"
+                          value={globalConfig.restToolDiameter ?? 1}
+                          onChange={(e) => setGlobalConfig({ restToolDiameter: parseFloat(e.target.value) || 1 })}
+                          className="mt-1"
+                          min={0.1}
+                          step={0.1}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* V-Carve settings */}
+              {globalConfig.workType === 'vcarve' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">{t('globalConfig.vcarveAngle')}</Label>
                     <Input
-                      type="range"
+                      type="number"
+                      value={globalConfig.vcarveAngle ?? 90}
+                      onChange={(e) => setGlobalConfig({ vcarveAngle: parseFloat(e.target.value) || 90 })}
+                      className="mt-1"
                       min={10}
-                      max={90}
+                      max={180}
                       step={5}
-                      value={Math.round((globalConfig.stepover ?? 0.5) * 100)}
-                      onChange={(e) => setGlobalConfig({ stepover: parseInt(e.target.value) / 100 })}
-                      className="flex-1 h-8"
                     />
-                    <span className="text-xs font-mono w-10 text-right">
-                      {Math.round((globalConfig.stepover ?? 0.5) * 100)}%
-                    </span>
+                  </div>
+                  <div>
+                    <Label className="text-xs">{t('globalConfig.vcarveMaxDepth')}</Label>
+                    <Input
+                      type="number"
+                      value={globalConfig.vcarveMaxDepth ?? 5}
+                      onChange={(e) => setGlobalConfig({ vcarveMaxDepth: parseFloat(e.target.value) || 5 })}
+                      className="mt-1"
+                      min={0.1}
+                      step={0.5}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">{t('globalConfig.vcarveStepSize')}</Label>
+                    <Input
+                      type="number"
+                      value={globalConfig.vcarveStepSize ?? 0.2}
+                      onChange={(e) => setGlobalConfig({ vcarveStepSize: parseFloat(e.target.value) || 0.2 })}
+                      className="mt-1"
+                      min={0.05}
+                      step={0.05}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">{t('globalConfig.vcarveFlatDepth')}</Label>
+                    <Input
+                      type="number"
+                      value={globalConfig.vcarveFlatDepth ?? 0}
+                      onChange={(e) => setGlobalConfig({ vcarveFlatDepth: parseFloat(e.target.value) || 0 })}
+                      className="mt-1"
+                      min={0}
+                      step={0.5}
+                      placeholder="0 = standard"
+                    />
                   </div>
                 </div>
               )}
@@ -186,6 +265,8 @@ export function GlobalConfigModal() {
                     value={globalConfig.depth}
                     onChange={(e) => setGlobalConfig({ depth: parseFloat(e.target.value) || 0 })}
                     className="mt-1"
+                    step="0.1"
+                    min="0.1"
                   />
                 </div>
                 <div>
@@ -193,8 +274,10 @@ export function GlobalConfigModal() {
                   <Input
                     type="number"
                     value={globalConfig.depthStep}
-                    onChange={(e) => setGlobalConfig({ depthStep: parseFloat(e.target.value) || 0 })}
+                    onChange={(e) => setGlobalConfig({ depthStep: Math.max(0.1, parseFloat(e.target.value) || 0.1) })}
                     className="mt-1"
+                    step="0.1"
+                    min="0.1"
                   />
                 </div>
                 <div>
@@ -281,6 +364,33 @@ export function GlobalConfigModal() {
                           min={0.25}
                         />
                       </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Ramp entry */}
+              {globalConfig.workType !== 'pocket' && (
+                <div className="space-y-2 border-t pt-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs">{t('globalConfig.rampEnabled')}</Label>
+                    <Switch
+                      checked={globalConfig.rampEnabled ?? false}
+                      onCheckedChange={(checked) => setGlobalConfig({ rampEnabled: checked })}
+                    />
+                  </div>
+                  {globalConfig.rampEnabled && (
+                    <div>
+                      <Label className="text-[11px]">{t('globalConfig.rampAngle')}</Label>
+                      <Input
+                        type="number"
+                        value={globalConfig.rampAngle ?? 3}
+                        onChange={(e) => setGlobalConfig({ rampAngle: Math.max(0.5, Math.min(45, parseFloat(e.target.value) || 3)) })}
+                        className="mt-1"
+                        min={0.5}
+                        max={45}
+                        step={0.5}
+                      />
                     </div>
                   )}
                 </div>
@@ -373,6 +483,34 @@ export function GlobalConfigModal() {
                     step={0.5}
                   />
                 </div>
+                {globalConfig.laserMode === 'cut' && (
+                  <div>
+                    <Label className="text-xs">{t('globalConfig.laserLeadIn')}</Label>
+                    <Input
+                      type="number"
+                      value={globalConfig.laserLeadIn ?? 0}
+                      onChange={(e) => setGlobalConfig({ laserLeadIn: parseFloat(e.target.value) || 0 })}
+                      className="mt-1"
+                      min={0}
+                      step={0.5}
+                      placeholder="0.0"
+                    />
+                  </div>
+                )}
+                {(globalConfig.laserMode === 'cut' || globalConfig.laserMode === 'engrave') && (
+                  <div>
+                    <Label className="text-xs">{t('globalConfig.laserKerf')}</Label>
+                    <Input
+                      type="number"
+                      value={globalConfig.laserKerf ?? 0}
+                      onChange={(e) => setGlobalConfig({ laserKerf: parseFloat(e.target.value) || 0 })}
+                      className="mt-1"
+                      min={0}
+                      step={0.05}
+                      placeholder="0.0"
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Opciones de relleno (solo modo fill) */}
@@ -450,6 +588,38 @@ export function GlobalConfigModal() {
                   value={globalConfig.speed}
                   onChange={(e) => setGlobalConfig({ speed: parseInt(e.target.value) || 0 })}
                   className="mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">{t('globalConfig.pressureZ')}</Label>
+                <Input
+                  type="number"
+                  value={globalConfig.pressureZ}
+                  onChange={(e) => setGlobalConfig({ pressureZ: parseFloat(e.target.value) || -1 })}
+                  className="mt-1"
+                  step={0.1}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">{t('globalConfig.passes')}</Label>
+                <Input
+                  type="number"
+                  value={globalConfig.passes}
+                  onChange={(e) => setGlobalConfig({ passes: parseInt(e.target.value) || 1 })}
+                  className="mt-1"
+                  min={1}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">{t('globalConfig.bladeOffset')}</Label>
+                <Input
+                  type="number"
+                  value={globalConfig.bladeOffset ?? 0}
+                  onChange={(e) => setGlobalConfig({ bladeOffset: parseFloat(e.target.value) || 0 })}
+                  className="mt-1"
+                  min={0}
+                  step={0.05}
+                  placeholder="0.0"
                 />
               </div>
             </div>

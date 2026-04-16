@@ -130,6 +130,7 @@
   "nodeExit": "Exit editing",
   "nodeFillet": "Fillet corner",
   "nodeChamfer": "Chamfer corner",
+  "nodeDogbone": "Dog-bone (CNC)",
   "boolUnion": "Union",
   "boolDifference": "Difference",
   "boolIntersection": "Intersection",
@@ -146,6 +147,8 @@
   "drawCotaHint": "Click 2 points to add dimension. Escape to cancel.",
   "measuringHint": "Click start point, then end point. Escape to exit.",
   "measuringAngleHint": "Click 3 points: arm 1, vertex, arm 2. Escape to exit.",
+  "constraintH": "Horizontal constraint (move only in X)",
+  "constraintV": "Vertical constraint (move only in Y)",
   "array": {
     "title": "Array Pattern",
     "rect": "Rectangular",

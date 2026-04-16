@@ -26,6 +26,7 @@
     "speed": "Speed",
     "pressure": "Pressure",
     "pressureZ": "Z Pressure (mm)",
+    "bladeOffset": "Blade offset (mm)",
     "applyAll": "Apply to All",
     "stepover": "Stepover",
     "laserMode": "Laser mode",
@@ -35,6 +36,8 @@
       "off": "Constant power"
     },
     "overscan": "Overscan (mm)",
+    "laserKerf": "Kerf (mm)",
+    "laserLeadIn": "Lead-in (mm)",
     "fillSettings": "Fill settings",
     "fillAngle": "Fill angle",
     "fillSpacing": "Spacing (mm)",
@@ -42,7 +45,15 @@
     "tabsEnabled": "Tabs (bridges)",
     "tabWidth": "Tab width (mm)",
     "tabHeight": "Tab height (mm)",
-    "tabCount": "Tab count"
+    "tabCount": "Tab count",
+    "vcarveAngle": "V-bit angle (°)",
+    "vcarveMaxDepth": "Max depth (mm)",
+    "vcarveStepSize": "Resolution (mm)",
+    "vcarveFlatDepth": "Flat-bottom (mm)",
+    "restMachining": "Rest machining",
+    "restToolDiameter": "Finishing tool (mm)",
+    "rampEnabled": "Ramp entry",
+    "rampAngle": "Ramp angle (°)"
   },
   "laserModes": {
     "cut": "Cut",
@@ -81,7 +92,10 @@
     "outline": "Outline (on line)",
     "inside": "Inside (pocket)",
     "outside": "Outside (offset)",
-    "pocket": "Pocket (clear inside)"
+    "pocket": "Pocket (clear inside)",
+    "vcarve": "V-Carve",
+    "drill": "Drill",
+    "chamfer": "Chamfer (Bevel)"
   },
   "compensation": {
     "center": "Center",

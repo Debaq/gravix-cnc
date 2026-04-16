@@ -1,10 +1,11 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { useSerialStore } from '@/stores/useSerialStore'
+import { useWorkflowStore } from '@/stores/useWorkflowStore'
 import { useAppStore } from '@/stores/useAppStore'
-import { isTauri, tauriInvoke, tauriListen } from '@/lib/tauri'
+import { isTauri, isRemote, tauriInvoke, tauriListen } from '@/lib/tauri'
+import { getClientRole } from '@/lib/client-role'
 import type { MachineState } from '@/lib/types'
 
-// Tipos para los eventos del backend
 interface SerialPort {
   name: string
   port_type: string
@@ -12,8 +13,8 @@ interface SerialPort {
 
 interface SerialStatusEvent {
   state: MachineState
-  mpos: { x: number; y: number; z: number }
-  wpos: { x: number; y: number; z: number }
+  mpos: { x: string; y: string; z: string }
+  wpos: { x: string; y: string; z: string }
 }
 
 interface SerialProgressEvent {
@@ -23,7 +24,8 @@ interface SerialProgressEvent {
 }
 
 interface SerialDataEvent {
-  data: string
+  line: string
+  data_type: string
 }
 
 export function useSerial() {
@@ -31,41 +33,43 @@ export function useSerial() {
   const { addConsoleLine } = useAppStore()
   const listenersRegistered = useRef(false)
 
-  // Registrar listeners de eventos Tauri
+  // Registrar listeners de eventos (Tauri o WebSocket)
   useEffect(() => {
-    if (!isTauri() || listenersRegistered.current) return
+    if ((!isTauri() && !isRemote()) || listenersRegistered.current) return
     listenersRegistered.current = true
 
     const unlisteners: (() => void)[] = []
 
     async function setupListeners() {
-      // Datos seriales recibidos
       const unlData = await tauriListen<SerialDataEvent>('serial:data', (payload) => {
-        addConsoleLine(payload.data)
+        if (payload.data_type === 'status') return
+        if (payload.line === 'ok' && !useSerialStore.getState().sending) return
+        addConsoleLine(payload.line)
       })
       unlisteners.push(unlData)
 
-      // Status report GRBL
       const unlStatus = await tauriListen<SerialStatusEvent>('serial:status', (payload) => {
         const { setMachineState, setPosition, posMode } = useSerialStore.getState()
         setMachineState(payload.state)
         const pos = posMode === 'WPos' ? payload.wpos : payload.mpos
         setPosition({
-          x: pos.x.toFixed(3),
-          y: pos.y.toFixed(3),
-          z: pos.z.toFixed(3),
+          x: typeof pos.x === 'number' ? (pos.x as number).toFixed(3) : String(pos.x),
+          y: typeof pos.y === 'number' ? (pos.y as number).toFixed(3) : String(pos.y),
+          z: typeof pos.z === 'number' ? (pos.z as number).toFixed(3) : String(pos.z),
         })
       })
       unlisteners.push(unlStatus)
 
-      // Progreso de envio G-code
       const unlProgress = await tauriListen<SerialProgressEvent>('serial:progress', (payload) => {
         const { setSendProgress } = useSerialStore.getState()
         setSendProgress(payload.percent)
+        const wf = useWorkflowStore.getState()
+        if (wf.activeGCode) {
+          wf.setActiveGCodeLine(payload.current)
+        }
       })
       unlisteners.push(unlProgress)
 
-      // Envio completado
       const unlComplete = await tauriListen<Record<string, never>>('serial:complete', () => {
         const { setSending, setSendProgress } = useSerialStore.getState()
         setSending(false)
@@ -74,7 +78,6 @@ export function useSerial() {
       })
       unlisteners.push(unlComplete)
 
-      // Desconexion
       const unlDisconnected = await tauriListen<Record<string, never>>('serial:disconnected', () => {
         const { setConnected, setMachineState } = useSerialStore.getState()
         setConnected(false)
@@ -92,9 +95,21 @@ export function useSerial() {
     }
   }, [addConsoleLine])
 
+  // Polling de status GRBL (solo local)
+  useEffect(() => {
+    if (getClientRole() !== 'local') return
+    if (!isTauri() || !store.connected || store.sending) return
+    const interval = setInterval(() => {
+      tauriInvoke('serial_send', { command: '?' }).catch(() => {})
+    }, 250)
+    return () => clearInterval(interval)
+  }, [store.connected, store.sending])
+
+  const isLocal = getClientRole() === 'local'
+
   const listPorts = useCallback(async (): Promise<SerialPort[]> => {
-    if (!isTauri()) {
-      addConsoleLine('Tauri no disponible: no se pueden listar puertos')
+    if (!isLocal) {
+      addConsoleLine('Acceso remoto: listar puertos no disponible')
       return []
     }
     try {
@@ -103,11 +118,11 @@ export function useSerial() {
       addConsoleLine(`Error listando puertos: ${err}`)
       return []
     }
-  }, [addConsoleLine])
+  }, [isLocal, addConsoleLine])
 
   const connect = useCallback(async (port: string, baudRate: number) => {
-    if (!isTauri()) {
-      addConsoleLine('Tauri no disponible: no se puede conectar')
+    if (!isLocal) {
+      addConsoleLine('Acceso remoto: conexion serial deshabilitada')
       return
     }
     try {
@@ -121,10 +136,10 @@ export function useSerial() {
       addConsoleLine(`Error conectando: ${err}`)
       store.setConnected(false)
     }
-  }, [store, addConsoleLine])
+  }, [isLocal, store, addConsoleLine])
 
   const disconnect = useCallback(async () => {
-    if (!isTauri()) return
+    if (!isLocal) return
     try {
       await tauriInvoke('serial_disconnect')
       store.setConnected(false)
@@ -134,20 +149,20 @@ export function useSerial() {
     } catch (err) {
       addConsoleLine(`Error desconectando: ${err}`)
     }
-  }, [store, addConsoleLine])
+  }, [isLocal, store, addConsoleLine])
 
   const sendCommand = useCallback(async (cmd: string) => {
-    if (!isTauri() || !store.connected) return
+    if (!isLocal || !store.connected) return
     try {
       await tauriInvoke('serial_send', { command: cmd })
       addConsoleLine(`> ${cmd}`)
     } catch (err) {
       addConsoleLine(`Error enviando: ${err}`)
     }
-  }, [store.connected, addConsoleLine])
+  }, [isLocal, store.connected, addConsoleLine])
 
   const sendGCode = useCallback(async (gcode: string) => {
-    if (!isTauri() || !store.connected) return
+    if (!isLocal || !store.connected) return
     try {
       store.setSending(true)
       store.setSendProgress(0)
@@ -157,10 +172,10 @@ export function useSerial() {
       store.setSending(false)
       addConsoleLine(`Error enviando G-code: ${err}`)
     }
-  }, [store, addConsoleLine])
+  }, [isLocal, store, addConsoleLine])
 
   const cancelSend = useCallback(async () => {
-    if (!isTauri()) return
+    if (!isLocal) return
     try {
       await tauriInvoke('serial_cancel_send')
       store.setSending(false)
@@ -168,9 +183,8 @@ export function useSerial() {
     } catch (err) {
       addConsoleLine(`Error cancelando: ${err}`)
     }
-  }, [store, addConsoleLine])
+  }, [isLocal, store, addConsoleLine])
 
-  // Comandos GRBL rapidos
   const home = useCallback(() => sendCommand('$H'), [sendCommand])
   const unlock = useCallback(() => sendCommand('$X'), [sendCommand])
   const reset = useCallback(() => sendCommand('\x18'), [sendCommand])
@@ -194,7 +208,6 @@ export function useSerial() {
   }, [sendCommand])
 
   return {
-    // Estado
     connected: store.connected,
     port: store.port,
     baudRate: store.baudRate,
@@ -202,15 +215,13 @@ export function useSerial() {
     position: store.position,
     sending: store.sending,
     sendProgress: store.sendProgress,
-    // Acciones de conexion
+    isLocal,
     listPorts,
     connect,
     disconnect,
-    // Envio
     sendCommand,
     sendGCode,
     cancelSend,
-    // Comandos GRBL
     home,
     unlock,
     reset,

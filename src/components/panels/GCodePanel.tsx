@@ -3,6 +3,7 @@ import { useGCodeStore } from '@/stores/useGCodeStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useAppStore } from '@/stores/useAppStore'
 import { useSerialStore } from '@/stores/useSerialStore'
+import { useWorkflowStore } from '@/stores/useWorkflowStore'
 import { useSerial } from '@/hooks/useSerial'
 import { useProject } from '@/hooks/useProject'
 import { useCanvasManager } from '@/hooks/useCanvasManager'
@@ -10,8 +11,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Progress } from '@/components/ui/progress'
-import { Code, Download, Send, Copy, Cog, AlertTriangle, Square } from 'lucide-react'
+import { Code, Download, Copy, Cog, AlertTriangle, Square, ListPlus, Scan } from 'lucide-react'
 import { GCodeGenerator } from '@/lib/gcode-generator'
+import { generateBoundaryGCode, computeBBox } from '@/components/modals/SetupWizardModal'
 
 export function GCodePanel() {
   const { t } = useTranslation('gcode')
@@ -20,6 +22,7 @@ export function GCodePanel() {
   const { addConsoleLine, setWorkspace } = useAppStore()
   const { setGCode, setEstimates } = useGCodeStore()
   const { connected, sending, sendProgress } = useSerialStore()
+  const { addStep } = useWorkflowStore()
   const serial = useSerial()
   const project = useProject()
   const { getJobsForGCode } = useCanvasManager()
@@ -68,9 +71,30 @@ export function GCodePanel() {
     addConsoleLine('G-code copiado al portapapeles')
   }
 
-  const handleSend = () => {
-    if (!gcodeGenerated || !connected || sending) return
+  const handleDryRun = () => {
+    if (!connected || sending) return
+    const jobs = getJobsForGCode()
+    const bbox = computeBBox(jobs)
+    if (!bbox) {
+      addConsoleLine(t('dryRunNoElements'))
+      return
+    }
+    const isLaser = globalConfig.operationType === 'laser'
+    const gcode = generateBoundaryGCode(bbox, isLaser ? 'laser' : 'cnc', 5, 10)
     serial.sendGCode(gcode)
+    addConsoleLine(t('dryRunStarted'))
+  }
+
+  const handleSendToWorkflow = () => {
+    if (!gcodeGenerated) return
+    addStep({
+      id: `step-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      type: 'gcode',
+      name: `G-Code (${gcodeLines} ${t('lines')})`,
+      data: gcode,
+      status: 'pending',
+    })
+    addConsoleLine(t('sentToWorkflow'))
   }
 
   const handleCancelSend = () => {
@@ -78,7 +102,7 @@ export function GCodePanel() {
   }
 
   return (
-    <div className="absolute bottom-12 right-2 z-20 w-80 bg-background border rounded-lg shadow-lg max-h-[50vh] flex flex-col">
+    <div className="absolute bottom-12 right-2 z-20 w-80 max-w-[calc(100%-1rem)] bg-background border rounded-lg shadow-lg max-h-[calc(100%-5rem)] flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b">
         <div className="flex items-center gap-2">
@@ -93,62 +117,78 @@ export function GCodePanel() {
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-1 px-3 py-2 border-b">
-        <Button
-          variant={gcodeNeedsRegeneration ? 'destructive' : 'default'}
-          size="sm"
-          className="flex-1 gap-1"
-          onClick={handleGenerate}
-        >
-          {gcodeNeedsRegeneration ? (
-            <AlertTriangle className="h-3 w-3" />
-          ) : (
-            <Cog className="h-3 w-3" />
-          )}
-          {t('generate')}
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          className="h-8 w-8"
-          onClick={handleCopy}
-          disabled={!gcodeGenerated}
-          title={t('copy')}
-        >
-          <Copy className="h-3 w-3" />
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          className="h-8 w-8"
-          onClick={handleDownload}
-          disabled={!gcodeGenerated}
-          title={t('download')}
-        >
-          <Download className="h-3 w-3" />
-        </Button>
-        {sending ? (
+      <div className="flex flex-col gap-1 px-3 py-2 border-b">
+        {/* Fila 1: Generar + Copiar + Descargar */}
+        <div className="flex items-center gap-1">
           <Button
-            variant="destructive"
-            size="icon"
-            className="h-8 w-8"
-            onClick={handleCancelSend}
-            title={t('stop')}
+            variant={gcodeNeedsRegeneration ? 'destructive' : 'default'}
+            size="sm"
+            className="flex-1 gap-1"
+            onClick={handleGenerate}
           >
-            <Square className="h-3 w-3" />
+            {gcodeNeedsRegeneration ? (
+              <AlertTriangle className="h-3 w-3" />
+            ) : (
+              <Cog className="h-3 w-3" />
+            )}
+            {t('generate')}
           </Button>
-        ) : (
           <Button
             variant="outline"
             size="icon"
             className="h-8 w-8"
-            onClick={handleSend}
-            disabled={!gcodeGenerated || !connected}
-            title={t('sendToGRBL')}
+            onClick={handleCopy}
+            disabled={!gcodeGenerated}
+            title={t('copy')}
           >
-            <Send className="h-3 w-3" />
+            <Copy className="h-3 w-3" />
           </Button>
-        )}
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleDownload}
+            disabled={!gcodeGenerated}
+            title={t('download')}
+          >
+            <Download className="h-3 w-3" />
+          </Button>
+        </div>
+        {/* Fila 2: Workflow + Dry Run */}
+        <div className="flex items-center gap-1">
+          {sending ? (
+            <Button
+              variant="destructive"
+              size="sm"
+              className="flex-1 gap-1"
+              onClick={handleCancelSend}
+            >
+              <Square className="h-3 w-3" />
+              {t('stop')}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 gap-1"
+              onClick={handleSendToWorkflow}
+              disabled={!gcodeGenerated}
+            >
+              <ListPlus className="h-3 w-3" />
+              {t('sendToWorkflow')}
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleDryRun}
+            disabled={!connected || sending}
+            title={t('dryRun')}
+          >
+            <Scan className="h-3 w-3" />
+          </Button>
+        </div>
       </div>
 
       {/* Progress bar */}
@@ -162,12 +202,35 @@ export function GCodePanel() {
         </div>
       )}
 
-      {/* G-code preview */}
+      {/* G-code preview with syntax highlight */}
       <ScrollArea className="flex-1 max-h-[300px]">
         {gcodeGenerated ? (
-          <pre className="p-3 text-xs font-mono text-muted-foreground whitespace-pre-wrap">
-            {gcode}
-          </pre>
+          <div className="p-3 text-xs font-mono whitespace-pre-wrap">
+            {gcode.split('\n').map((line, i) => {
+              const trimmed = line.trim()
+              const isComment = trimmed.startsWith(';')
+              const isRapid = /^G0\b/i.test(trimmed)
+              const isCut = /^G1\b/i.test(trimmed)
+              const isArc = /^G[23]\b/i.test(trimmed)
+              const isMCode = /^M\d/i.test(trimmed)
+              const isTool = /^(T\d|M6)/i.test(trimmed)
+              const isSetup = /^G(90|91|20|21)\b/i.test(trimmed)
+              const cls = isComment ? 'text-emerald-600'
+                : isTool ? 'text-amber-500 font-semibold'
+                : isMCode ? 'text-purple-500'
+                : isRapid ? 'text-blue-400'
+                : isCut ? 'text-foreground'
+                : isArc ? 'text-cyan-500'
+                : isSetup ? 'text-orange-400'
+                : 'text-muted-foreground'
+              return (
+                <div key={i} className="flex hover:bg-muted/30">
+                  <span className="text-muted-foreground/40 w-8 text-right pr-2 select-none shrink-0">{i + 1}</span>
+                  <span className={cls}>{line}</span>
+                </div>
+              )
+            })}
+          </div>
         ) : (
           <div className="p-6 text-center text-sm text-muted-foreground">
             {t('noGCode')}

@@ -134,10 +134,19 @@ function Toolpath({ segments }: ToolpathProps) {
         rc.push(0.2, 0.5, 1.0, 0.2, 0.5, 1.0)
       } else {
         cp.push(fx, fy, fz, tx, ty, tz)
-        const depth = Math.min(Math.abs(fy), 10) / 10
-        const r = 1.0
-        const g = 0.15 + (1 - depth) * 0.2
-        const b = 0.1 + (1 - depth) * 0.15
+        let r: number, g: number, b: number
+        if (seg.color) {
+          // Use path color from plotter/laser color mapping
+          const hex = seg.color.replace('#', '')
+          r = parseInt(hex.slice(0, 2), 16) / 255
+          g = parseInt(hex.slice(2, 4), 16) / 255
+          b = parseInt(hex.slice(4, 6), 16) / 255
+        } else {
+          const depth = Math.min(Math.abs(fy), 10) / 10
+          r = 1.0
+          g = 0.15 + (1 - depth) * 0.2
+          b = 0.1 + (1 - depth) * 0.15
+        }
         cc.push(r, g, b, r, g, b)
       }
     }

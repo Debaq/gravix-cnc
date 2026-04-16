@@ -1,5 +1,5 @@
-import type { Point2D, GCodePath, GCodeJob, GlobalConfig, RasterData } from './types'
-import { offsetPolygon, generatePocketContours, orderPaths, generateHatchLines } from './geometry'
+import type { Point2D, GCodePath, GCodeJob, GlobalConfig, RasterData, ColorMapping } from './types'
+import { offsetPolygon, generatePocketContours, orderPaths, orderPathsInsideFirst, generateHatchLines } from './geometry'
 
 const SAFE_Z = 5
 const FINAL_RETRACT_Z = 10
@@ -73,6 +73,7 @@ export class GCodeGenerator {
       // Tool change header (skip for first tool or no-tool)
       if (!isFirstGroup || (uniqueTools > 0 && group.toolId !== '__none__')) {
         if (!isFirstGroup) {
+          const isPlotter = firstJob.config.operationType === 'plotter' || firstJob.config.operationType === 'pencil'
           // Stop current tool before changing
           if (isCNC) {
             lines.push('M5 ; Spindle OFF')
@@ -80,6 +81,9 @@ export class GCodeGenerator {
             lines.push('M5 S0 ; Laser OFF')
           }
           lines.push(`G0 Z${SAFE_Z} ; Safe height`)
+          if (isPlotter) {
+            lines.push('M0 ; Pause for pen/tool change')
+          }
           lines.push('')
         }
 
@@ -94,6 +98,11 @@ export class GCodeGenerator {
 
       // Tool setup
       if (isCNC) {
+        // Tool length offset (G43)
+        const tlo = firstJob.config.toolLengthOffset || 0
+        if (tlo !== 0) {
+          lines.push(`G43.1 Z${tlo.toFixed(3)} ; Tool length offset`)
+        }
         const rpm = parseFloat(String(firstJob.config.spindleRPM))
         lines.push(`M3 S${rpm} ; Spindle ON`)
         lines.push('G4 P2 ; Dwell for spindle startup')
@@ -114,9 +123,9 @@ export class GCodeGenerator {
         if (opType === 'cnc') {
           lines.push(...await this.emitCNCBody(job.paths, cfg))
         } else if (opType === 'laser') {
-          lines.push(...this.emitLaserBody(job.paths, cfg))
+          lines.push(...await this.emitLaserBody(job.paths, cfg, job.colorMappings))
         } else if (opType === 'plotter' || opType === 'pencil') {
-          lines.push(...this.emitPlotterBody(job.paths, cfg))
+          lines.push(...await this.emitPlotterBody(job.paths, cfg))
         }
 
         lines.push('')
@@ -161,7 +170,7 @@ export class GCodeGenerator {
   private async emitCNCBody(paths: GCodePath[], config: GlobalConfig): Promise<string[]> {
     const lines: string[] = []
     const depth = Math.abs(parseFloat(String(config.depth)))
-    const depthStep = parseFloat(String(config.depthStep))
+    const depthStep = Math.max(0.1, parseFloat(String(config.depthStep)))
     const toolRadius = parseFloat(String(config.toolDiameter)) / 2
     const toolDiameter = parseFloat(String(config.toolDiameter))
     const feedRate = parseFloat(String(config.feedRate))
@@ -177,10 +186,101 @@ export class GCodeGenerator {
       lines.push(`; Stepover: ${Math.round(stepover * 100)}% (${(toolDiameter * stepover).toFixed(2)}mm)`)
     }
 
-    if (workType === 'pocket') {
+    if (workType === 'drill') {
+      // Canned drilling cycles: G81 (simple) or G83 (peck)
+      const peck = config.drillPeckDepth || 0
+      const retract = config.drillRetract || 2
+      const isPeck = peck > 0
+
+      lines.push(`; Drill: ${isPeck ? `G83 peck ${peck}mm` : 'G81 simple'} | Depth: -${depth}mm | Retract: ${retract}mm`)
+
+      // Collect drill points (use first point of each path as hole center)
+      const holes = paths.map(p => p.points[0]).filter(Boolean)
+      if (holes.length === 0) {
+        lines.push('; WARNING: No drill points found')
+      } else {
+        lines.push(`; ${holes.length} holes`)
+        lines.push(`G0 Z${SAFE_Z}`)
+
+        if (isPeck) {
+          // G83 peck drill cycle
+          const firstHole = holes[0]
+          lines.push(`G83 X${firstHole.x.toFixed(3)} Y${firstHole.y.toFixed(3)} Z${(-depth).toFixed(3)} R${retract.toFixed(3)} Q${peck.toFixed(3)} F${plungeRate}`)
+          for (let i = 1; i < holes.length; i++) {
+            lines.push(`X${holes[i].x.toFixed(3)} Y${holes[i].y.toFixed(3)}`)
+          }
+        } else {
+          // G81 simple drill cycle
+          const firstHole = holes[0]
+          lines.push(`G81 X${firstHole.x.toFixed(3)} Y${firstHole.y.toFixed(3)} Z${(-depth).toFixed(3)} R${retract.toFixed(3)} F${plungeRate}`)
+          for (let i = 1; i < holes.length; i++) {
+            lines.push(`X${holes[i].x.toFixed(3)} Y${holes[i].y.toFixed(3)}`)
+          }
+        }
+        lines.push('G80 ; Cancel canned cycle')
+      }
+    } else if (workType === 'chamfer') {
+      // Chamfer: V-bit offset at fixed depth for edge beveling
+      const angle = config.vcarveAngle || 90
+      const halfAngle = (angle / 2) * (Math.PI / 180)
+      const chamferOffset = depth * Math.tan(halfAngle)
+
+      lines.push(`; Chamfer: ${angle}° V-bit | Depth: -${depth}mm | Offset: ${chamferOffset.toFixed(3)}mm`)
+
+      for (const path of paths) {
+        if (!path.closed || path.points.length < 3) continue
+        const contours = await offsetPolygon(path.points, -chamferOffset, true, 'round')
+        for (const contour of contours) {
+          this.emitPathGCode(lines, contour, true, -depth, feedRate, plungeRate)
+        }
+      }
+    } else if (workType === 'vcarve') {
+      const { generateVCarveToolpath, emitVCarveGCode } = await import('./vcarve')
+      const angle = config.vcarveAngle || 90
+      const maxD = config.vcarveMaxDepth || depth
+      const step = config.vcarveStepSize || 0.2
+      const flatD = config.vcarveFlatDepth || 0
+
+      lines.push(`; V-Carve: ${angle}° bit | Max depth: ${maxD}mm | Step: ${step}mm`)
+      if (flatD > 0) lines.push(`; Flat-bottom: ${flatD}mm`)
+
+      for (const path of paths) {
+        if (!path.closed || path.points.length < 3) {
+          lines.push('; WARNING: V-carve requires closed paths, skipping open path')
+          continue
+        }
+        const passes = await generateVCarveToolpath(path.points, {
+          vbitAngle: angle,
+          maxDepth: maxD,
+          stepSize: step,
+          flatDepth: flatD,
+        })
+        lines.push(...emitVCarveGCode(passes, feedRate, plungeRate))
+      }
+    } else if (workType === 'pocket') {
       await this.generatePocketGCode(paths, lines, {
         depth, depthStep, numPasses, toolRadius, stepover, feedRate, plungeRate,
       })
+
+      // Rest machining: second pocket pass with smaller tool in corners
+      if (config.restMachiningEnabled && config.restToolDiameter > 0 && config.restToolDiameter < toolDiameter) {
+        const restRadius = config.restToolDiameter / 2
+        const restStepover = stepover
+        lines.push('')
+        lines.push('; ---- REST MACHINING ----')
+        lines.push(`; Finishing tool: ${config.restToolDiameter}mm`)
+        lines.push('M5 ; Spindle OFF for tool change')
+        lines.push(`G0 Z${SAFE_Z}`)
+        lines.push('M0 ; Pause for tool change')
+        lines.push(`M3 S${parseFloat(String(config.spindleRPM))} ; Spindle ON`)
+        lines.push('G4 P2')
+        lines.push('')
+
+        await this.generatePocketGCode(paths, lines, {
+          depth, depthStep, numPasses, toolRadius: restRadius, stepover: restStepover,
+          feedRate: feedRate * 0.8, plungeRate: plungeRate * 0.8,
+        })
+      }
     } else {
       await this.generateContourGCode(paths, lines, {
         workType, depth, depthStep, numPasses, toolRadius, feedRate, plungeRate,
@@ -188,6 +288,8 @@ export class GCodeGenerator {
         tabWidth: config.tabWidth,
         tabHeight: config.tabHeight,
         tabCount: config.tabCount,
+        rampEnabled: config.rampEnabled,
+        rampAngle: config.rampAngle,
       })
     }
 
@@ -209,6 +311,8 @@ export class GCodeGenerator {
       tabWidth?: number
       tabHeight?: number
       tabCount?: number
+      rampEnabled?: boolean
+      rampAngle?: number
     }
   ) {
     const processedPaths: { points: Point2D[]; closed: boolean }[] = []
@@ -243,8 +347,13 @@ export class GCodeGenerator {
 
     const useTabs = opts.tabsEnabled && (opts.tabCount ?? 0) > 0
 
+    const useRamp = opts.rampEnabled && (opts.rampAngle ?? 0) > 0
+
     if (useTabs) {
       lines.push(`; Tabs: ${opts.tabCount} x ${opts.tabWidth}mm (height: ${opts.tabHeight}mm)`)
+    }
+    if (useRamp) {
+      lines.push(`; Ramp entry: ${opts.rampAngle}°`)
     }
 
     for (let pass = 1; pass <= opts.numPasses; pass++) {
@@ -263,7 +372,8 @@ export class GCodeGenerator {
             opts.tabHeight ?? 1, opts.tabWidth ?? 5, opts.tabCount ?? 4,
           )
         } else {
-          this.emitPathGCode(lines, path.points, path.closed, currentDepth, opts.feedRate, opts.plungeRate)
+          this.emitPathGCode(lines, path.points, path.closed, currentDepth, opts.feedRate, opts.plungeRate,
+            useRamp ? opts.rampAngle : undefined)
         }
       }
     }
@@ -348,21 +458,84 @@ export class GCodeGenerator {
     depth: number,
     feedRate: number,
     plungeRate: number,
+    rampAngle?: number,
   ) {
     if (points.length === 0) return
 
     const start = points[0]
     lines.push(`G0 X${start.x.toFixed(3)} Y${start.y.toFixed(3)}`)
-    lines.push(`G1 Z${depth.toFixed(3)} F${plungeRate}`)
 
-    for (let i = 1; i < points.length; i++) {
-      const pt = points[i]
-      lines.push(`G1 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${feedRate}`)
+    // Ramp entry: descend gradually along the first segment(s) instead of plunge
+    if (rampAngle && rampAngle > 0 && points.length >= 2) {
+      const zDrop = Math.abs(depth) + SAFE_Z  // Total Z to descend (from safe to depth)
+      const rampRad = (rampAngle * Math.PI) / 180
+      const rampLength = zDrop / Math.tan(rampRad)  // Horizontal distance needed
 
-      const prev = points[i - 1]
-      const dist = this.distance(prev, pt)
-      this.totalDistance += dist
-      this.totalTime += (dist / feedRate) * 60
+      // Move to safe Z first, then ramp down along path segments
+      lines.push(`G0 Z${SAFE_Z}`)
+      let remaining = rampLength
+      let currentZ = 0  // Start from Z0 level
+      let ptIdx = 0
+
+      while (remaining > 0 && ptIdx < points.length - 1) {
+        const from = points[ptIdx]
+        const to = points[ptIdx + 1]
+        const segLen = this.distance(from, to)
+
+        if (segLen <= 0.001) {
+          ptIdx++
+          continue
+        }
+
+        if (segLen >= remaining) {
+          // Partial segment — interpolate end point
+          const t = remaining / segLen
+          const interpX = from.x + (to.x - from.x) * t
+          const interpY = from.y + (to.y - from.y) * t
+          currentZ = depth
+          lines.push(`G1 X${interpX.toFixed(3)} Y${interpY.toFixed(3)} Z${currentZ.toFixed(3)} F${Math.min(feedRate, plungeRate * 2)}`)
+          this.totalDistance += remaining
+          this.totalTime += (remaining / feedRate) * 60
+          remaining = 0
+        } else {
+          // Full segment
+          const fraction = segLen / rampLength
+          currentZ = Math.max(depth, currentZ - fraction * zDrop)
+          lines.push(`G1 X${to.x.toFixed(3)} Y${to.y.toFixed(3)} Z${currentZ.toFixed(3)} F${Math.min(feedRate, plungeRate * 2)}`)
+          this.totalDistance += segLen
+          this.totalTime += (segLen / feedRate) * 60
+          remaining -= segLen
+          ptIdx++
+        }
+      }
+
+      // Ensure we're at target depth
+      if (currentZ > depth) {
+        lines.push(`G1 Z${depth.toFixed(3)} F${plungeRate}`)
+      }
+
+      // Continue with remaining points at depth
+      for (let i = ptIdx + 1; i < points.length; i++) {
+        const pt = points[i]
+        lines.push(`G1 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${feedRate}`)
+        const prev = points[i - 1]
+        const dist = this.distance(prev, pt)
+        this.totalDistance += dist
+        this.totalTime += (dist / feedRate) * 60
+      }
+    } else {
+      // Standard plunge entry
+      lines.push(`G1 Z${depth.toFixed(3)} F${plungeRate}`)
+
+      for (let i = 1; i < points.length; i++) {
+        const pt = points[i]
+        lines.push(`G1 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${feedRate}`)
+
+        const prev = points[i - 1]
+        const dist = this.distance(prev, pt)
+        this.totalDistance += dist
+        this.totalTime += (dist / feedRate) * 60
+      }
     }
 
     if (closed && points.length > 2) {
@@ -493,7 +666,7 @@ export class GCodeGenerator {
   // Laser Body
   // ============================================
 
-  private emitLaserBody(paths: GCodePath[], config: GlobalConfig): string[] {
+  private async emitLaserBody(paths: GCodePath[], config: GlobalConfig, colorMappings?: ColorMapping[]): Promise<string[]> {
     const lines: string[] = []
     const feedRate = parseFloat(String(config.feedRate))
     const laserPower = parseFloat(String(config.laserPower))
@@ -503,18 +676,105 @@ export class GCodeGenerator {
     const dynamic = config.laserDynamic ?? false
     const laserCmd = dynamic ? 'M4' : 'M3'
     const overscan = config.overscan || 0
+    const kerf = config.laserKerf || 0
+    const focusZ = config.laserFocusZ || 0
 
     lines.push(`; Power: ${laserPower}% (S${laserS}) | ${laserCmd} | Feed: ${feedRate}`)
+    if (focusZ !== 0) {
+      lines.push(`; Focus Z: ${focusZ}mm`)
+      lines.push(`G0 Z${focusZ.toFixed(3)} ; Focus height`)
+    }
 
-    for (let pass = 1; pass <= passes; pass++) {
-      if (passes > 1) {
-        lines.push(`; Pass ${pass}/${passes}`)
+    // Kerf compensation: offset closed paths inward by half kerf width
+    let processedPaths = paths
+    if (kerf > 0 && laserMode === 'cut') {
+      lines.push(`; Kerf compensation: ${kerf}mm (offset: ${(kerf / 2).toFixed(3)}mm)`)
+      const compensated: GCodePath[] = []
+      for (const path of paths) {
+        if (path.closed && path.points.length >= 3) {
+          const offset = -(kerf / 2)
+          const result = await offsetPolygon(path.points, offset, true, 'round')
+          if (result.length > 0) {
+            for (const contour of result) {
+              compensated.push({ points: contour, closed: true })
+            }
+          } else {
+            lines.push('; WARNING: Shape too small for kerf compensation, using original')
+            compensated.push(path)
+          }
+        } else {
+          compensated.push(path)
+        }
+      }
+      processedPaths = compensated
+    }
+
+    // Color mapping: group paths by stroke color and apply per-color settings
+    const activeMappings = colorMappings?.filter(m => m.enabled) || []
+    const hasColorMapping = activeMappings.length > 0 && processedPaths.some(p => p.strokeColor)
+
+    if (hasColorMapping) {
+      lines.push('; Color mapping active')
+      // Group paths by color
+      const colorGroups = new Map<string, GCodePath[]>()
+      const unmapped: GCodePath[] = []
+
+      for (const path of processedPaths) {
+        const color = path.strokeColor?.toLowerCase()
+        const mapping = color ? activeMappings.find(m => m.color.toLowerCase() === color) : undefined
+        if (mapping) {
+          const arr = colorGroups.get(mapping.color) || []
+          arr.push(path)
+          colorGroups.set(mapping.color, arr)
+        } else {
+          unmapped.push(path)
+        }
       }
 
-      if (laserMode === 'fill') {
-        this.generateLaserFill(paths, lines, config, laserS, laserCmd, feedRate, overscan)
-      } else {
-        this.generateLaserContour(paths, lines, laserS, laserCmd, feedRate)
+      // Process each color group with its mapping settings
+      for (const mapping of activeMappings) {
+        const groupPaths = colorGroups.get(mapping.color)
+        if (!groupPaths || groupPaths.length === 0) continue
+
+        const mS = Math.round((mapping.power / 100) * 1000)
+        const mPasses = Math.max(1, mapping.passes)
+
+        lines.push(`; --- ${mapping.name} (${mapping.color}) P:${mapping.power}% S:${mapping.speed} ---`)
+
+        for (let pass = 1; pass <= mPasses; pass++) {
+          if (mPasses > 1) lines.push(`; Pass ${pass}/${mPasses}`)
+          if (mapping.mode === 'fill') {
+            this.generateLaserFill(groupPaths, lines, { ...config, fillSpacing: config.fillSpacing }, mS, laserCmd, mapping.speed, overscan)
+          } else {
+            this.generateLaserContour(groupPaths, lines, mS, laserCmd, mapping.speed, true, config.laserLeadIn || 0)
+          }
+        }
+      }
+
+      // Process unmapped paths with default settings
+      if (unmapped.length > 0) {
+        lines.push('; --- Default (unmapped colors) ---')
+        for (let pass = 1; pass <= passes; pass++) {
+          if (passes > 1) lines.push(`; Pass ${pass}/${passes}`)
+          if (laserMode === 'fill') {
+            this.generateLaserFill(unmapped, lines, config, laserS, laserCmd, feedRate, overscan)
+          } else {
+            this.generateLaserContour(unmapped, lines, laserS, laserCmd, feedRate, true, config.laserLeadIn || 0)
+          }
+        }
+      }
+    } else {
+      // Standard processing without color mapping
+      for (let pass = 1; pass <= passes; pass++) {
+        if (passes > 1) {
+          lines.push(`; Pass ${pass}/${passes}`)
+        }
+
+        if (laserMode === 'fill') {
+          this.generateLaserFill(processedPaths, lines, config, laserS, laserCmd, feedRate, overscan)
+        } else {
+          this.generateLaserContour(processedPaths, lines, laserS, laserCmd, feedRate, true, config.laserLeadIn || 0)
+        }
       }
     }
 
@@ -529,20 +789,71 @@ export class GCodeGenerator {
     laserS: number,
     laserCmd: string,
     feedRate: number,
+    cornerReduction: boolean = true,
+    leadInDist: number = 0,
   ) {
-    paths.forEach((path, pathIndex) => {
+    // Inside-first ordering: cut inner shapes before outer contours
+    const ordered = orderPathsInsideFirst(paths)
+
+    ordered.forEach((path) => {
       if (path.points.length === 0) return
 
       const startPoint = path.points[0]
-      lines.push('M5 S0')
-      lines.push(`G0 X${startPoint.x.toFixed(3)} Y${startPoint.y.toFixed(3)}`)
-      lines.push(`${laserCmd} S${laserS}`)
+
+      // Lead-in: for closed paths, approach from outside with a small arc
+      if (leadInDist > 0 && path.closed && path.points.length >= 3) {
+        // Calculate perpendicular offset at start point for lead-in position
+        const nextPt = path.points[1]
+        const dx = nextPt.x - startPoint.x
+        const dy = nextPt.y - startPoint.y
+        const segLen = Math.sqrt(dx * dx + dy * dy)
+        if (segLen > 0.001) {
+          // Perpendicular direction (outward from path)
+          const px = -dy / segLen * leadInDist
+          const py = dx / segLen * leadInDist
+          const leadX = startPoint.x + px
+          const leadY = startPoint.y + py
+
+          lines.push('M5 S0')
+          lines.push(`G0 X${leadX.toFixed(3)} Y${leadY.toFixed(3)}`)
+          lines.push(`${laserCmd} S${laserS}`)
+          // Arc to start point (G2 = CW arc using I,J relative offsets)
+          const iOff = startPoint.x - leadX
+          const jOff = startPoint.y - leadY
+          lines.push(`G2 X${startPoint.x.toFixed(3)} Y${startPoint.y.toFixed(3)} I${(iOff/2).toFixed(3)} J${(jOff/2).toFixed(3)} F${feedRate}`)
+        } else {
+          lines.push('M5 S0')
+          lines.push(`G0 X${startPoint.x.toFixed(3)} Y${startPoint.y.toFixed(3)}`)
+          lines.push(`${laserCmd} S${laserS}`)
+        }
+      } else {
+        lines.push('M5 S0')
+        lines.push(`G0 X${startPoint.x.toFixed(3)} Y${startPoint.y.toFixed(3)}`)
+        lines.push(`${laserCmd} S${laserS}`)
+      }
 
       for (let i = 1; i < path.points.length; i++) {
         const pt = path.points[i]
-        lines.push(`G1 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${feedRate}`)
-
         const prevPt = path.points[i - 1]
+
+        // Corner power reduction: reduce power at sharp angles where machine decelerates
+        if (cornerReduction && i >= 2) {
+          const pp = path.points[i - 2]
+          const angle = this.angleBetween(pp, prevPt, pt)
+          if (angle < 150) {
+            // Scale power: 180° (straight) = full, 0° (U-turn) = 40%
+            const factor = 0.4 + 0.6 * (angle / 180)
+            const reducedS = Math.round(laserS * factor)
+            lines.push(`${laserCmd} S${reducedS}`)
+            lines.push(`G1 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${feedRate}`)
+            lines.push(`${laserCmd} S${laserS}`)
+          } else {
+            lines.push(`G1 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${feedRate}`)
+          }
+        } else {
+          lines.push(`G1 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${feedRate}`)
+        }
+
         const dist = this.distance(prevPt, pt)
         this.totalDistance += dist
         this.totalTime += (dist / feedRate) * 60
@@ -624,43 +935,102 @@ export class GCodeGenerator {
   // Plotter/Pencil Body
   // ============================================
 
-  private emitPlotterBody(paths: GCodePath[], config: GlobalConfig): string[] {
+  private async emitPlotterBody(paths: GCodePath[], config: GlobalConfig): Promise<string[]> {
     const lines: string[] = []
     const feedRate = parseFloat(String(config.speed || config.feedRate || 1000))
-    const penDown = config.operationType === 'pencil'
-      ? parseFloat(String(config.pressureZ || -1))
-      : -1
+    const penDown = parseFloat(String(config.pressureZ || -1))
+    const passes = Math.max(1, config.passes || 1)
+    const bladeOffset = config.bladeOffset || 0
 
-    lines.push(`; Speed: ${feedRate} | Z down: ${penDown}`)
+    lines.push(`; Speed: ${feedRate} | Z down: ${penDown} | Passes: ${passes}`)
 
-    for (const path of paths) {
-      if (path.points.length === 0) continue
-
-      const start = path.points[0]
-      lines.push(`G0 Z${SAFE_Z}`)
-      lines.push(`G0 X${start.x.toFixed(3)} Y${start.y.toFixed(3)}`)
-      lines.push(`G1 Z${penDown.toFixed(3)} F${feedRate}`)
-
-      for (let i = 1; i < path.points.length; i++) {
-        const pt = path.points[i]
-        lines.push(`G1 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${feedRate}`)
-
-        const prev = path.points[i - 1]
-        const dist = this.distance(prev, pt)
-        this.totalDistance += dist
-        this.totalTime += (dist / feedRate) * 60
+    // Blade offset compensation: expand closed paths outward by blade radius
+    let processedPaths = paths
+    if (bladeOffset > 0) {
+      lines.push(`; Blade offset: ${bladeOffset}mm`)
+      const compensated: GCodePath[] = []
+      for (const path of paths) {
+        if (path.closed && path.points.length >= 3) {
+          const result = await offsetPolygon(path.points, -bladeOffset, true, 'round')
+          if (result.length > 0) {
+            for (const contour of result) {
+              compensated.push({ points: contour, closed: true })
+            }
+          } else {
+            lines.push('; WARNING: Shape too small for blade offset, using original')
+            compensated.push(path)
+          }
+        } else {
+          compensated.push(path)
+        }
       }
-
-      if (path.closed && path.points.length > 2) {
-        lines.push(`G1 X${start.x.toFixed(3)} Y${start.y.toFixed(3)} F${feedRate}`)
-        const last = path.points[path.points.length - 1]
-        const dist = this.distance(last, start)
-        this.totalDistance += dist
-        this.totalTime += (dist / feedRate) * 60
-      }
-
-      lines.push(`G0 Z${SAFE_Z}`)
+      processedPaths = compensated
     }
+
+    // Group paths by stroke color for pen sorting (plotter)
+    const colorGroups: { color: string; paths: GCodePath[] }[] = []
+    const colorMap = new Map<string, GCodePath[]>()
+    for (const path of processedPaths) {
+      const color = path.strokeColor || '__default__'
+      if (!colorMap.has(color)) {
+        const arr: GCodePath[] = []
+        colorMap.set(color, arr)
+        colorGroups.push({ color, paths: arr })
+      }
+      colorMap.get(color)!.push(path)
+    }
+
+    const hasMultipleColors = colorGroups.length > 1
+    if (hasMultipleColors) {
+      lines.push(`; Color groups: ${colorGroups.length} (M0 pause between groups)`)
+    }
+
+    for (let pass = 1; pass <= passes; pass++) {
+      if (passes > 1) {
+        lines.push(`; Pass ${pass}/${passes}`)
+      }
+
+      for (let gi = 0; gi < colorGroups.length; gi++) {
+        const group = colorGroups[gi]
+
+        if (hasMultipleColors) {
+          lines.push(`; --- Color group: ${group.color === '__default__' ? 'default' : group.color} (${group.paths.length} paths) ---`)
+          if (gi > 0) {
+            lines.push(`G0 Z${SAFE_Z}`)
+            lines.push('M0 ; Pause for pen change')
+          }
+        }
+
+      for (const path of group.paths) {
+        if (path.points.length === 0) continue
+
+        const start = path.points[0]
+        lines.push(`G0 Z${SAFE_Z}`)
+        lines.push(`G0 X${start.x.toFixed(3)} Y${start.y.toFixed(3)}`)
+        lines.push(`G1 Z${penDown.toFixed(3)} F${feedRate}`)
+
+        for (let i = 1; i < path.points.length; i++) {
+          const pt = path.points[i]
+          lines.push(`G1 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${feedRate}`)
+
+          const prev = path.points[i - 1]
+          const dist = this.distance(prev, pt)
+          this.totalDistance += dist
+          this.totalTime += (dist / feedRate) * 60
+        }
+
+        if (path.closed && path.points.length > 2) {
+          lines.push(`G1 X${start.x.toFixed(3)} Y${start.y.toFixed(3)} F${feedRate}`)
+          const last = path.points[path.points.length - 1]
+          const dist = this.distance(last, start)
+          this.totalDistance += dist
+          this.totalTime += (dist / feedRate) * 60
+        }
+
+        lines.push(`G0 Z${SAFE_Z}`)
+      }
+      } // end color group
+    } // end passes
 
     return lines
   }
@@ -819,6 +1189,18 @@ export class GCodeGenerator {
     const dx = p2.x - p1.x
     const dy = p2.y - p1.y
     return Math.sqrt(dx * dx + dy * dy)
+  }
+
+  /** Angle in degrees between vectors (p1→p2) and (p2→p3). 180 = straight, 0 = U-turn */
+  private angleBetween(p1: Point2D, p2: Point2D, p3: Point2D): number {
+    const v1x = p1.x - p2.x, v1y = p1.y - p2.y
+    const v2x = p3.x - p2.x, v2y = p3.y - p2.y
+    const dot = v1x * v2x + v1y * v2y
+    const mag1 = Math.sqrt(v1x * v1x + v1y * v1y)
+    const mag2 = Math.sqrt(v2x * v2x + v2y * v2y)
+    if (mag1 < 0.001 || mag2 < 0.001) return 180
+    const cos = Math.max(-1, Math.min(1, dot / (mag1 * mag2)))
+    return Math.acos(cos) * (180 / Math.PI)
   }
 
   getEstimates() {

@@ -26,6 +26,7 @@
     "speed": "Velocidad",
     "pressure": "Presion",
     "pressureZ": "Presion Z (mm)",
+    "bladeOffset": "Offset cuchilla (mm)",
     "applyAll": "Aplicar a Todos",
     "stepover": "Solapamiento",
     "laserMode": "Modo laser",
@@ -35,6 +36,8 @@
       "off": "Potencia constante"
     },
     "overscan": "Overscan (mm)",
+    "laserKerf": "Kerf (mm)",
+    "laserLeadIn": "Lead-in (mm)",
     "fillSettings": "Configuracion de relleno",
     "fillAngle": "Angulo de relleno",
     "fillSpacing": "Espaciado (mm)",
@@ -42,7 +45,15 @@
     "tabsEnabled": "Soportes (tabs)",
     "tabWidth": "Ancho tab (mm)",
     "tabHeight": "Alto tab (mm)",
-    "tabCount": "Cantidad tabs"
+    "tabCount": "Cantidad tabs",
+    "vcarveAngle": "Ángulo V-bit (°)",
+    "vcarveMaxDepth": "Prof. máxima (mm)",
+    "vcarveStepSize": "Resolución (mm)",
+    "vcarveFlatDepth": "Flat-bottom (mm)",
+    "restMachining": "Rest Machining",
+    "restToolDiameter": "Fresa acabado (mm)",
+    "rampEnabled": "Entrada en rampa",
+    "rampAngle": "Ángulo de rampa (°)"
   },
   "laserModes": {
     "cut": "Corte",
@@ -81,7 +92,10 @@
     "outline": "Contorno (sobre linea)",
     "inside": "Interior (por dentro)",
     "outside": "Exterior (por fuera)",
-    "pocket": "Cajeado (vaciar interior)"
+    "pocket": "Cajeado (vaciar interior)",
+    "vcarve": "V-Carve",
+    "drill": "Taladrado",
+    "chamfer": "Bisel (Chamfer)"
   },
   "compensation": {
     "center": "Centro",

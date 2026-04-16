@@ -18,6 +18,13 @@ interface SerialState {
   jogDistance: number
   jogSpeed: number
 
+  // Machine limits (from GRBL $$)
+  maxTravel: { x: number; y: number; z: number }
+  softLimitsEnabled: boolean
+
+  // Coordinate system
+  activeWorkspace: string  // G54-G59
+
   // Sending
   sending: boolean
   sendProgress: number
@@ -33,6 +40,9 @@ interface SerialState {
   setSpindleOverride: (value: number) => void
   setJogDistance: (distance: number) => void
   setJogSpeed: (speed: number) => void
+  setMaxTravel: (travel: { x: number; y: number; z: number }) => void
+  setSoftLimitsEnabled: (enabled: boolean) => void
+  setActiveWorkspace: (ws: string) => void
   setSending: (sending: boolean) => void
   setSendProgress: (progress: number) => void
 }
@@ -53,6 +63,13 @@ export const useSerialStore = create<SerialState>((set) => ({
   // Jog
   jogDistance: 1,
   jogSpeed: 1000,
+
+  // Machine limits
+  maxTravel: { x: 300, y: 300, z: 80 },
+  softLimitsEnabled: false,
+
+  // Coordinate system
+  activeWorkspace: 'G54',
 
   // Sending
   sending: false,
@@ -75,6 +92,9 @@ export const useSerialStore = create<SerialState>((set) => ({
   setSpindleOverride: (value) => set({ spindleOverride: value }),
   setJogDistance: (distance) => set({ jogDistance: distance }),
   setJogSpeed: (speed) => set({ jogSpeed: speed }),
+  setMaxTravel: (travel) => set({ maxTravel: travel }),
+  setSoftLimitsEnabled: (enabled) => set({ softLimitsEnabled: enabled }),
+  setActiveWorkspace: (ws) => set({ activeWorkspace: ws }),
   setSending: (sending) => set({ sending }),
   setSendProgress: (progress) => set({ sendProgress: progress }),
 }))

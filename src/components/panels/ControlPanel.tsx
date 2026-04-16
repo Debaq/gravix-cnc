@@ -1,8 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSerialStore } from '@/stores/useSerialStore'
+import { useWorkflowStore } from '@/stores/useWorkflowStore'
 import { useAppStore } from '@/stores/useAppStore'
 import { useSerial } from '@/hooks/useSerial'
+import { useKeyboardJog } from '@/hooks/useKeyboardJog'
+import { useCanvasStore } from '@/stores/useCanvasStore'
+import { getSharedCanvas } from '@/hooks/useCanvasManager'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -29,6 +33,9 @@ import {
   Wifi,
   WifiOff,
   RefreshCw,
+  Frame,
+  Settings2,
+  TestTube,
 } from 'lucide-react'
 
 const STATE_COLORS: Record<string, string> = {
@@ -45,6 +52,7 @@ const STATE_COLORS: Record<string, string> = {
 export function ControlPanel() {
   const { t } = useTranslation('serial')
   const serial = useSerial()
+  useKeyboardJog()
 
   const {
     connected,
@@ -60,14 +68,22 @@ export function ControlPanel() {
     setJogDistance,
     setJogSpeed,
     setBaudRate,
+    activeWorkspace,
+    setActiveWorkspace,
   } = useSerialStore()
 
   const { consoleLines, addConsoleLine } = useAppStore()
+  const { simulating, simulatedPos, simulatedFeed, simulatedSpindle } = useWorkflowStore()
 
   const [ports, setPorts] = useState<{ name: string; port_type: string }[]>([])
   const [selectedPort, setSelectedPort] = useState('')
   const [commandInput, setCommandInput] = useState('')
   const [loadingPorts, setLoadingPorts] = useState(false)
+  const [commandHistory, setCommandHistory] = useState<string[]>([])
+  const [historyIndex, setHistoryIndex] = useState(-1)
+  const consoleEndRef = useCallback((node: HTMLDivElement | null) => {
+    node?.scrollIntoView({ behavior: 'smooth' })
+  }, [consoleLines.length])
 
   const refreshPorts = useCallback(async () => {
     setLoadingPorts(true)
@@ -95,18 +111,133 @@ export function ControlPanel() {
 
   const handleSendCommand = () => {
     if (!commandInput.trim()) return
-    serial.sendCommand(commandInput.trim())
+    const cmd = commandInput.trim()
+    serial.sendCommand(cmd)
+    setCommandHistory(prev => {
+      const filtered = prev.filter(c => c !== cmd)
+      return [cmd, ...filtered].slice(0, 50)
+    })
+    setHistoryIndex(-1)
     setCommandInput('')
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleSendCommand()
+  const handleConsoleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSendCommand()
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      if (commandHistory.length > 0) {
+        const next = Math.min(historyIndex + 1, commandHistory.length - 1)
+        setHistoryIndex(next)
+        setCommandInput(commandHistory[next])
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      if (historyIndex > 0) {
+        const next = historyIndex - 1
+        setHistoryIndex(next)
+        setCommandInput(commandHistory[next])
+      } else {
+        setHistoryIndex(-1)
+        setCommandInput('')
+      }
+    }
+  }
+
+  const handleLaserFrame = () => {
+    if (!connected) return
+
+    // Get design bounding box from Fabric canvas objects
+    const canvas = getSharedCanvas()
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    let hasObjects = false
+
+    if (canvas) {
+      const objects = canvas.getObjects().filter((o: any) => !o.excludeFromExport && o.visible !== false)
+      for (const obj of objects) {
+        const br = obj.getBoundingRect()
+        if (!br) continue
+        hasObjects = true
+        if (br.left < minX) minX = br.left
+        if (br.top < minY) minY = br.top
+        if (br.left + br.width > maxX) maxX = br.left + br.width
+        if (br.top + br.height > maxY) maxY = br.top + br.height
+      }
+    }
+
+    if (!hasObjects) {
+      // Fallback: use work area
+      const wa = useCanvasStore.getState().workArea
+      minX = 0; minY = 0; maxX = wa.width; maxY = wa.height
+      addConsoleLine('Frame: sin objetos, usando área de trabajo completa')
+    }
+
+    // Convert canvas coords to mm (canvas Y is inverted)
+    const wa = useCanvasStore.getState().workArea
+    const x1 = Math.max(0, minX).toFixed(3)
+    const y1 = Math.max(0, wa.height - maxY).toFixed(3)
+    const x2 = Math.min(wa.width, maxX).toFixed(3)
+    const y2 = Math.min(wa.height, wa.height - minY).toFixed(3)
+
+    const feedRate = 1000
+    const framePower = 'S10' // Very low power for visibility
+
+    const gcode = [
+      '; Laser Frame - Bounding box preview',
+      'G90 G21',
+      'M5 S0',
+      `G0 X${x1} Y${y1}`,
+      `M4 ${framePower}`,
+      `G1 X${x2} Y${y1} F${feedRate}`,
+      `G1 X${x2} Y${y2} F${feedRate}`,
+      `G1 X${x1} Y${y2} F${feedRate}`,
+      `G1 X${x1} Y${y1} F${feedRate}`,
+      'M5 S0',
+      'G0 X0 Y0',
+    ].join('\n')
+
+    serial.sendGCode(gcode)
+    addConsoleLine(`Frame: (${x1},${y1}) → (${x2},${y2})`)
+  }
+
+  const handleTestCut = () => {
+    if (!connected) return
+    const cfg = useCanvasStore.getState().globalConfig
+    const size = 10 // 10mm square
+    const lines: string[] = ['G90 G21', '; Test cut/draw - 10mm square at current position']
+
+    if (cfg.operationType === 'laser') {
+      const power = Math.round((cfg.laserPower / 100) * 1000)
+      const cmd = cfg.laserDynamic ? 'M4' : 'M3'
+      lines.push('M5 S0', `G0 X0 Y0`, `${cmd} S${power}`,
+        `G1 X${size} Y0 F${cfg.feedRate}`, `G1 X${size} Y${size} F${cfg.feedRate}`,
+        `G1 X0 Y${size} F${cfg.feedRate}`, `G1 X0 Y0 F${cfg.feedRate}`,
+        'M5 S0')
+    } else if (cfg.operationType === 'plotter' || cfg.operationType === 'pencil') {
+      const penZ = cfg.pressureZ || -1
+      lines.push(`G0 Z5`, `G0 X0 Y0`, `G1 Z${penZ} F${cfg.speed || 1000}`,
+        `G1 X${size} Y0 F${cfg.speed || 1000}`, `G1 X${size} Y${size} F${cfg.speed || 1000}`,
+        `G1 X0 Y${size} F${cfg.speed || 1000}`, `G1 X0 Y0 F${cfg.speed || 1000}`,
+        'G0 Z5')
+    } else {
+      // CNC
+      const depth = -Math.min(Math.abs(cfg.depthStep), 1)
+      lines.push(`M3 S${cfg.spindleRPM}`, 'G4 P2', `G0 X0 Y0`, `G0 Z5`,
+        `G1 Z${depth} F${cfg.plungeRate}`,
+        `G1 X${size} Y0 F${cfg.feedRate}`, `G1 X${size} Y${size} F${cfg.feedRate}`,
+        `G1 X0 Y${size} F${cfg.feedRate}`, `G1 X0 Y0 F${cfg.feedRate}`,
+        'G0 Z5', 'M5')
+    }
+
+    lines.push('G0 X0 Y0')
+    serial.sendGCode(lines.join('\n'))
+    addConsoleLine(`Test ${cfg.operationType}: 10mm square`)
   }
 
   return (
     <ResizablePanelGroup direction="horizontal" className="h-full">
       {/* ═══ COL 1: Macros + Workflow ═══ */}
-      <ResizablePanel defaultSize={15} minSize={10} maxSize={25}>
+      <ResizablePanel defaultSize={15} minSize={8} maxSize={25}>
         <MacrosWorkflowPanel />
       </ResizablePanel>
 
@@ -165,14 +296,26 @@ export function ControlPanel() {
                     </Select>
                   </div>
                 </div>
-                <Button
-                  className="w-full"
-                  variant={connected ? 'destructive' : 'default'}
-                  size="sm"
-                  onClick={handleConnect}
-                >
-                  {connected ? t('disconnect') : t('connect')}
-                </Button>
+                <div className="flex gap-1">
+                  <Button
+                    className="flex-1"
+                    variant={connected ? 'destructive' : 'default'}
+                    size="sm"
+                    onClick={handleConnect}
+                  >
+                    {connected ? t('disconnect') : t('connect')}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => useAppStore.getState().openModal('grblSettings')}
+                    disabled={!connected}
+                    title="GRBL Settings ($$)"
+                  >
+                    <Settings2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
 
               {/* ── Estado de Máquina ── */}
@@ -180,10 +323,25 @@ export function ControlPanel() {
                 {/* Estado */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${STATE_COLORS[machineState] || 'bg-gray-400'}`} />
-                    <span className="text-sm font-semibold">{machineState}</span>
+                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${simulating ? 'bg-cyan-500 animate-pulse' : (STATE_COLORS[machineState] || 'bg-gray-400')}`} />
+                    <span className={`text-sm font-semibold ${simulating ? 'text-cyan-400' : ''}`}>
+                      {simulating ? 'Simulación' : machineState}
+                    </span>
                   </div>
                   <div className="flex items-center gap-1">
+                    <select
+                      className="text-[10px] text-muted-foreground font-mono cursor-pointer px-1 py-0.5 rounded bg-transparent hover:bg-muted border-none outline-none"
+                      value={activeWorkspace}
+                      onChange={(e) => {
+                        setActiveWorkspace(e.target.value)
+                        if (connected) serial.sendCommand(e.target.value)
+                      }}
+                      disabled={!connected}
+                    >
+                      {['G54', 'G55', 'G56', 'G57', 'G58', 'G59'].map(ws => (
+                        <option key={ws} value={ws}>{ws}</option>
+                      ))}
+                    </select>
                     <button
                       className="text-[10px] text-muted-foreground hover:text-foreground font-mono cursor-pointer px-1.5 py-0.5 rounded hover:bg-muted"
                       onClick={togglePosMode}
@@ -205,21 +363,21 @@ export function ControlPanel() {
 
                 {/* Ejes */}
                 {[
-                  { axis: 'X', value: position.x, color: 'text-red-500', bg: 'bg-red-500/10', key: 'x' as const },
-                  { axis: 'Y', value: position.y, color: 'text-green-500', bg: 'bg-green-500/10', key: 'y' as const },
-                  { axis: 'Z', value: position.z, color: 'text-blue-500', bg: 'bg-blue-500/10', key: 'z' as const },
-                ].map(({ axis, value, color, bg, key }) => (
-                  <div key={axis} className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 ${bg}`}>
-                    <span className={`text-xs font-bold w-3 ${color}`}>{axis}</span>
-                    <span className="flex-1 text-right font-mono text-base font-semibold tabular-nums">
-                      {value}
+                  { axis: 'X', value: position.x, simValue: simulatedPos.x, color: 'text-red-500', bg: 'bg-red-500/10', key: 'x' as const },
+                  { axis: 'Y', value: position.y, simValue: simulatedPos.y, color: 'text-green-500', bg: 'bg-green-500/10', key: 'y' as const },
+                  { axis: 'Z', value: position.z, simValue: simulatedPos.z, color: 'text-blue-500', bg: 'bg-blue-500/10', key: 'z' as const },
+                ].map(({ axis, value, simValue, color, bg, key }) => (
+                  <div key={axis} className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 ${simulating ? 'bg-cyan-500/10 border border-cyan-500/20' : bg}`}>
+                    <span className={`text-xs font-bold w-3 ${simulating ? 'text-cyan-400' : color}`}>{axis}</span>
+                    <span className={`flex-1 text-right font-mono text-base font-semibold tabular-nums ${simulating ? 'text-cyan-300' : ''}`}>
+                      {simulating ? simValue.toFixed(3) : value}
                     </span>
                     <Button
                       variant="ghost"
                       size="sm"
                       className="h-6 w-9 text-[10px] text-muted-foreground"
                       onClick={() => serial.setZero(key)}
-                      disabled={!connected}
+                      disabled={!connected || simulating}
                     >
                       =0
                     </Button>
@@ -228,13 +386,17 @@ export function ControlPanel() {
 
                 {/* Overrides */}
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-muted rounded-md px-2 py-1.5 text-center">
+                  <div className={`rounded-md px-2 py-1.5 text-center ${simulating ? 'bg-cyan-500/10 border border-cyan-500/20' : 'bg-muted'}`}>
                     <span className="text-[10px] text-muted-foreground block">Feed</span>
-                    <span className="text-sm font-semibold font-mono">{feedOverride}%</span>
+                    <span className={`text-sm font-semibold font-mono ${simulating ? 'text-cyan-300' : ''}`}>
+                      {simulating ? `${simulatedFeed}` : `${feedOverride}%`}
+                    </span>
                   </div>
-                  <div className="bg-muted rounded-md px-2 py-1.5 text-center">
+                  <div className={`rounded-md px-2 py-1.5 text-center ${simulating ? 'bg-cyan-500/10 border border-cyan-500/20' : 'bg-muted'}`}>
                     <span className="text-[10px] text-muted-foreground block">Spindle</span>
-                    <span className="text-sm font-semibold font-mono">{spindleOverride}%</span>
+                    <span className={`text-sm font-semibold font-mono ${simulating ? 'text-cyan-300' : ''}`}>
+                      {simulating ? `${simulatedSpindle}` : `${spindleOverride}%`}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -255,9 +417,17 @@ export function ControlPanel() {
                     <OctagonX className="h-3 w-3 shrink-0" /> <span className="truncate">{t('stop')}</span>
                   </Button>
                 </div>
-                <Button variant="outline" size="sm" className="w-full text-xs gap-1 overflow-hidden" onClick={serial.resume} disabled={!connected}>
-                  <Play className="h-3 w-3 shrink-0" /> <span className="truncate">{t('resume')}</span>
-                </Button>
+                <div className="grid grid-cols-3 gap-1">
+                  <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={serial.resume} disabled={!connected}>
+                    <Play className="h-3 w-3 shrink-0" /> <span className="truncate">{t('resume')}</span>
+                  </Button>
+                  <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={handleLaserFrame} disabled={!connected} title="Laser Frame - Recorrer perímetro del diseño">
+                    <Frame className="h-3 w-3 shrink-0" /> <span className="truncate">Frame</span>
+                  </Button>
+                  <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={handleTestCut} disabled={!connected} title="Test Cut/Draw - Cuadrado 10mm con config actual">
+                    <TestTube className="h-3 w-3 shrink-0" /> <span className="truncate">Test</span>
+                  </Button>
+                </div>
               </div>
 
               {/* ── Jog ── */}
@@ -330,7 +500,7 @@ export function ControlPanel() {
       <ResizableHandle withHandle />
 
       {/* ═══ COL 3: Consola ═══ */}
-      <ResizablePanel defaultSize={20} minSize={12} maxSize={35}>
+      <ResizablePanel defaultSize={20} minSize={8} maxSize={35}>
         <div className="bg-background border rounded-lg flex flex-col h-full min-h-0 mx-2">
           <div className="flex items-center justify-between px-3 py-2 border-b">
             <span className="text-sm font-semibold">{t('console')}</span>
@@ -340,9 +510,25 @@ export function ControlPanel() {
           </div>
           <ScrollArea className="flex-1 min-h-0 p-2">
             <div className="space-y-0.5">
-              {consoleLines.map((line, i) => (
-                <p key={i} className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{line}</p>
-              ))}
+              {consoleLines.map((line, i) => {
+                const isSim = line.startsWith('[SIM]')
+                const isError = /error|alarm|ALARM/i.test(line)
+                const isOk = line.includes('] ok')
+                const isCmd = line.includes('] > ')
+                const isGrblSetting = /\$\d+=/.test(line)
+                const cls = isSim ? 'text-cyan-400'
+                  : isError ? 'text-red-400 font-semibold'
+                  : isOk ? 'text-emerald-500'
+                  : isCmd ? 'text-blue-400'
+                  : isGrblSetting ? 'text-amber-400'
+                  : 'text-muted-foreground'
+                return (
+                  <p key={i} className={`text-xs font-mono whitespace-pre-wrap ${cls}`}>
+                    {line}
+                  </p>
+                )
+              })}
+              <div ref={consoleEndRef} />
             </div>
           </ScrollArea>
           <div className="flex items-center gap-1 p-2 border-t">
@@ -350,7 +536,7 @@ export function ControlPanel() {
               placeholder={t('command')}
               value={commandInput}
               onChange={(e) => setCommandInput(e.target.value)}
-              onKeyDown={handleKeyDown}
+              onKeyDown={handleConsoleKeyDown}
               className="h-7 text-xs font-mono"
               disabled={!connected}
             />
@@ -370,7 +556,7 @@ export function ControlPanel() {
       <ResizableHandle withHandle />
 
       {/* ═══ COL 4: GCode activo + Preview + Timeline ═══ */}
-      <ResizablePanel defaultSize={35} minSize={18} maxSize={45}>
+      <ResizablePanel defaultSize={35} minSize={12} maxSize={45}>
         <div className="pl-2 h-full">
           <GCodePreviewPanel />
         </div>

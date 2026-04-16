@@ -10,6 +10,7 @@ import {
   Group,
   FabricObject,
   FabricImage,
+  FabricText,
   ActiveSelection,
   loadSVGFromString,
   Point,
@@ -21,6 +22,9 @@ import { isTauri } from '@/lib/tauri'
 import { useAppStore } from '@/stores/useAppStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import { linearizeCubicBezier, linearizeQuadraticBezier, arcFrom3Points, catmullRomToCubicBezier } from '@/lib/geometry'
+import { booleanOperation } from '@/lib/boolean-ops'
+import { offsetPolygon } from '@/lib/geometry'
+import { parseDxf, dxfToFabricObjects } from '@/lib/dxf-parser'
 
 // ============================================
 // Shared canvas reference for cross-component access
@@ -481,6 +485,7 @@ export function useCanvasManager() {
     selectElement,
     setSvgDimensions,
     setSelectedObjectProps,
+    activeLayerId,
   } = useCanvasStore()
 
   // ------------------------------------------
@@ -563,6 +568,51 @@ export function useCanvasManager() {
       markGCodeStale()
     },
     [addElement, selectElement, setSvgDimensions],
+  )
+
+  const loadDXF = useCallback(
+    async (file: File) => {
+      const canvas = getCanvas()
+      if (!canvas) return
+
+      const text = await file.text()
+      try {
+        const entities = parseDxf(text)
+        const objects = dxfToFabricObjects(entities)
+
+        if (objects.length === 0) return
+
+        const group = new Group(objects)
+        const elementId = generateId()
+        setCustomProp(group, ELEMENT_ID_KEY, elementId)
+
+        const svgW = (group.width ?? 100) * (group.scaleX ?? 1)
+        const svgH = (group.height ?? 100) * (group.scaleY ?? 1)
+        const svgPos = findNextFreePosition(canvas, svgW, svgH)
+        group.set({ left: svgPos.left, top: svgPos.top })
+
+        const element: CanvasElement = {
+          id: elementId,
+          type: 'svg',
+          name: file.name.replace(/\.dxf$/i, ''),
+          visible: true,
+          locked: false,
+          config: null,
+          children: [],
+          fabricObject: group,
+        }
+
+        addElement(element)
+        canvas.add(group)
+        canvas.setActiveObject(group)
+        canvas.requestRenderAll()
+        pushToHistory()
+        markGCodeStale()
+      } catch (err) {
+        console.error('Error loading DXF:', err)
+      }
+    },
+    [addElement, pushToHistory],
   )
 
   // ------------------------------------------
@@ -1819,19 +1869,44 @@ export function useCanvasManager() {
       .getObjects()
       .filter((o) => getCustomProp(o, NON_INTERACTIVE_KEY) !== true)
 
-    for (const obj of userObjects) {
-      if (!obj.visible) continue
-
-      // Find the CanvasElement for this Fabric object
+    // Group objects by layer
+    const objectsByLayer: Record<string, FabricObject[]> = {}
+    userObjects.forEach((obj) => {
       const elId = getCustomProp(obj, ELEMENT_ID_KEY) as string | undefined
       const element = elId ? state.findElementById(elId) : undefined
-      const config = element ? state.getElementConfig(element) : state.globalConfig
-      const elementName = element?.name ?? `Object`
+      const layerId = element?.layerId || state.activeLayerId
+      if (!objectsByLayer[layerId]) objectsByLayer[layerId] = []
+      objectsByLayer[layerId].push(obj)
+    })
 
-      // Extract paths from this object
-      const paths: GCodePath[] = []
+    // Sort layers by order and process visible ones
+    const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order)
 
-      if (obj instanceof Path) {
+    for (const layer of sortedLayers) {
+      if (!layer.visible) continue
+      const layerObjects = objectsByLayer[layer.id] || []
+
+      for (const obj of layerObjects) {
+        if (!obj.visible) continue
+
+        // Find the CanvasElement for this Fabric object
+        const elId = getCustomProp(obj, ELEMENT_ID_KEY) as string | undefined
+        const element = elId ? state.findElementById(elId) : undefined
+        
+        // Config priority: element > layer > global
+        const config = element?.config 
+          ? state.getElementConfig(element) 
+          : (layer.config || state.globalConfig)
+          
+        const elementName = element?.name ?? `Object`
+
+        // Capture stroke color for plotter color grouping
+        const objStroke = typeof obj.stroke === 'string' ? obj.stroke : undefined
+
+        // Extract paths from this object
+        const paths: GCodePath[] = []
+
+        if (obj instanceof Path) {
         const pathPoints = extractPathPoints(obj, originPos, wa.origin)
         if (pathPoints.length > 0) {
           paths.push({ points: pathPoints, closed: isPathClosed(obj) })
@@ -1907,6 +1982,13 @@ export function useCanvasManager() {
       }
 
       if (paths.length > 0) {
+        // Tag paths with stroke color for plotter color grouping
+        if (objStroke) {
+          for (const p of paths) {
+            if (!p.strokeColor) p.strokeColor = objStroke
+          }
+        }
+
         // Support multiple operations per element
         const ops =
           element?.operations && element.operations.length > 0
@@ -1914,19 +1996,27 @@ export function useCanvasManager() {
             : [config]
 
         for (const opConfig of ops) {
-          jobs.push({
+          const job: GCodeJob = {
             elementId: elId ?? '',
             elementName,
             config: opConfig,
             paths,
-          })
+          }
+          // Attach color mappings for laser mode
+          if (opConfig.operationType === 'laser') {
+            const mappings = state.colorMappings
+            if (mappings && mappings.length > 0) {
+              job.colorMappings = mappings
+            }
+          }
+          jobs.push(job)
         }
       }
-    }
+      }
+      }
 
-    return jobs
-  }, [])
-
+      return jobs
+      }, [])
   // ------------------------------------------
   // Update selected object properties in the store (in mm)
   // Throttled via rAF to avoid store churn during drags
@@ -2613,9 +2703,600 @@ export function useCanvasManager() {
     markGCodeStale()
   }, [selectElement])
 
+  // Boolean Operations (Union, Difference, Intersection, XOR)
+  const booleanOperationSelected = useCallback(async (op: 'union' | 'difference' | 'intersection' | 'xor') => {
+    const canvas = getCanvas()
+    if (!canvas) return
+    const activeObject = canvas.getActiveObject()
+    if (!activeObject) return
+
+    let objects: FabricObject[] = []
+    if (activeObject instanceof ActiveSelection) {
+      objects = activeObject.getObjects()
+    }
+
+    if (objects.length < 2) return
+
+    const { workArea } = useCanvasStore.getState()
+    const { width, height, origin } = workArea
+    
+    // Calculate origin in pixels
+    const originPos = getOriginPixels(
+      origin, 
+      width * PIXELS_PER_MM, 
+      height * PIXELS_PER_MM, 
+      0, 0
+    )
+
+    const subjectPaths: Point2D[][] = []
+    const clipPaths: Point2D[][] = []
+
+    if (op === 'union') {
+      objects.forEach(obj => {
+        const paths = extractObjectPaths(obj, originPos, origin)
+        subjectPaths.push(...paths.map(p => p.points))
+      })
+    } else {
+      // Sort by z-index to determine subject (bottom-most in stack)
+      const allCanvasObjects = canvas.getObjects()
+      const sorted = [...objects].sort((a, b) => {
+        return allCanvasObjects.indexOf(a) - allCanvasObjects.indexOf(b)
+      })
+      
+      const subjectObj = sorted[0]
+      const clipObjs = sorted.slice(1)
+
+      const sPaths = extractObjectPaths(subjectObj, originPos, origin)
+      subjectPaths.push(...sPaths.map(p => p.points))
+
+      clipObjs.forEach(obj => {
+        const cPaths = extractObjectPaths(obj, originPos, origin)
+        clipPaths.push(...cPaths.map(p => p.points))
+      })
+    }
+
+    const resultPoints = await booleanOperation(subjectPaths, clipPaths, op)
+    
+    if (resultPoints.length === 0) {
+      deleteSelected()
+      return
+    }
+
+    const flipY = origin.startsWith('bottom')
+    const toPx = (p: Point2D) => {
+      const x = p.x * PIXELS_PER_MM + originPos.x
+      const y = flipY 
+        ? originPos.y - (p.y * PIXELS_PER_MM)
+        : (p.y * PIXELS_PER_MM) + originPos.y
+      return { x, y }
+    }
+
+    // Build the SVG path data
+    let pathString = ""
+    resultPoints.forEach(poly => {
+      if (poly.length < 2) return
+      const first = toPx(poly[0])
+      pathString += `M ${first.x} ${first.y} `
+      for (let i = 1; i < poly.length; i++) {
+        const pt = toPx(poly[i])
+        pathString += `L ${pt.x} ${pt.y} `
+      }
+      pathString += "Z "
+    })
+
+    const newPath = new Path(pathString, {
+      fill: 'rgba(0,0,0,0.1)',
+      stroke: '#333',
+      strokeWidth: 1,
+    })
+
+    // Remove originals
+    objects.forEach(obj => {
+      const elementId = getCustomProp(obj, ELEMENT_ID_KEY) as string
+      if (elementId) removeElement(elementId)
+      canvas.remove(obj)
+    })
+
+    // Add new result
+    const newId = generateId()
+    setCustomProp(newPath, ELEMENT_ID_KEY, newId)
+    const element: CanvasElement = {
+      id: newId,
+      type: 'svg',
+      name: `${op.charAt(0).toUpperCase() + op.slice(1)} Result`,
+      visible: true,
+      locked: false,
+      config: null,
+      children: [],
+      fabricObject: newPath,
+    }
+    addElement(element)
+    canvas.add(newPath)
+    canvas.setActiveObject(newPath)
+    
+    canvas.requestRenderAll()
+    pushToHistory()
+    markGCodeStale()
+  }, [addElement, removeElement, pushToHistory, deleteSelected])
+
+  // Offset a shape by distance in mm
+  const offsetSelected = useCallback(async (distanceMm: number) => {
+    const canvas = getCanvas()
+    if (!canvas || Math.abs(distanceMm) < 0.001) return
+    
+    const activeObject = canvas.getActiveObject()
+    if (!activeObject) return
+
+    let objects: FabricObject[] = []
+    if (activeObject instanceof ActiveSelection) {
+      objects = activeObject.getObjects()
+    } else {
+      objects = [activeObject]
+    }
+
+    const { workArea } = useCanvasStore.getState()
+    const { width, height, origin } = workArea
+    const originPos = getOriginPixels(origin, width * PIXELS_PER_MM, height * PIXELS_PER_MM, 0, 0)
+    const flipY = origin.startsWith('bottom')
+
+    const toPx = (p: Point2D) => {
+      const x = p.x * PIXELS_PER_MM + originPos.x
+      const y = flipY 
+        ? originPos.y - (p.y * PIXELS_PER_MM)
+        : (p.y * PIXELS_PER_MM) + originPos.y
+      return { x, y }
+    }
+
+    const newPaths: Path[] = []
+
+    for (const obj of objects) {
+      const gcodePaths = extractObjectPaths(obj, originPos, origin)
+      for (const gp of gcodePaths) {
+        const resultPolys = await offsetPolygon(gp.points, distanceMm, gp.closed, 'round')
+        
+        if (resultPolys.length > 0) {
+          let pathString = ""
+          resultPolys.forEach(poly => {
+            if (poly.length < 2) return
+            const first = toPx(poly[0])
+            pathString += `M ${first.x} ${first.y} `
+            for (let i = 1; i < poly.length; i++) {
+              const pt = toPx(poly[i])
+              pathString += `L ${pt.x} ${pt.y} `
+            }
+            pathString += "Z "
+          })
+          
+          const newPath = new Path(pathString, {
+            fill: 'rgba(0,0,0,0.05)',
+            stroke: '#666',
+            strokeWidth: 1,
+            strokeDashArray: [5, 5]
+          })
+          newPaths.push(newPath)
+        }
+      }
+    }
+
+    if (newPaths.length > 0) {
+      newPaths.forEach(path => {
+        const newId = generateId()
+        setCustomProp(path, ELEMENT_ID_KEY, newId)
+        const element: CanvasElement = {
+          id: newId,
+          type: 'svg',
+          name: `Offset ${distanceMm}mm`,
+          visible: true,
+          locked: false,
+          config: null,
+          children: [],
+          fabricObject: path,
+        }
+        addElement(element)
+        canvas.add(path)
+      })
+      
+      const selection = new ActiveSelection(newPaths, { canvas })
+      canvas.setActiveObject(selection)
+      canvas.requestRenderAll()
+      pushToHistory()
+      markGCodeStale()
+    }
+  }, [addElement, pushToHistory])
+
+  // Create a rectangular array of copies
+  const arrayRectangular = useCallback(async (
+    rows: number,
+    cols: number,
+    spacingX: number,
+    spacingY: number
+  ) => {
+    const canvas = getCanvas()
+    if (!canvas) return
+    const active = canvas.getActiveObject()
+    if (!active) return
+
+    const objects = active instanceof ActiveSelection ? active.getObjects() : [active]
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (r === 0 && c === 0) continue
+
+        for (const obj of objects) {
+          const cloned = await obj.clone()
+          const dx = c * spacingX * PIXELS_PER_MM
+          const dy = r * spacingY * PIXELS_PER_MM
+
+          cloned.set({
+            left: (obj.left ?? 0) + dx,
+            top: (obj.top ?? 0) + dy
+          })
+
+          const newId = generateId()
+          setCustomProp(cloned, ELEMENT_ID_KEY, newId)
+
+          const element: CanvasElement = {
+            id: newId,
+            type: 'svg',
+            name: `Copy R${r}C${c}`,
+            visible: true,
+            locked: false,
+            config: null,
+            children: [],
+            fabricObject: cloned,
+          }
+
+          addElement(element)
+          canvas.add(cloned)
+        }
+      }
+    }
+
+    canvas.requestRenderAll()
+    pushToHistory()
+    markGCodeStale()
+  }, [addElement, pushToHistory])
+
+  // Create a polar array of copies
+  const arrayPolar = useCallback(async (
+    count: number,
+    totalAngle: number,
+    centerX: number,
+    centerY: number
+  ) => {
+    const canvas = getCanvas()
+    if (!canvas) return
+    const active = canvas.getActiveObject()
+    if (!active) return
+
+    const objects = active instanceof ActiveSelection ? active.getObjects() : [active]
+    const angleStep = totalAngle / count
+
+    const cx = centerX * PIXELS_PER_MM
+    const cy = centerY * PIXELS_PER_MM
+
+    for (let i = 1; i < count; i++) {
+      const angleDeg = i * angleStep
+      const angleRad = angleDeg * (Math.PI / 180)
+
+      for (const obj of objects) {
+        const cloned = await obj.clone()
+        const ox = obj.left ?? 0
+        const oy = obj.top ?? 0
+
+        const s = Math.sin(angleRad)
+        const co = Math.cos(angleRad)
+
+        const tx = ox - cx
+        const ty = oy - cy
+
+        cloned.set({
+          left: tx * co - ty * s + cx,
+          top: tx * s + ty * co + cy,
+          angle: (obj.angle ?? 0) + angleDeg
+        })
+
+        const newId = generateId()
+        setCustomProp(cloned, ELEMENT_ID_KEY, newId)
+
+        const element: CanvasElement = {
+          id: newId,
+          type: 'svg',
+          name: `Polar Copy ${i}`,
+          visible: true,
+          locked: false,
+          config: null,
+          children: [],
+          fabricObject: cloned,
+        }
+
+        addElement(element)
+        canvas.add(cloned)
+      }
+    }
+
+    canvas.requestRenderAll()
+    pushToHistory()
+    markGCodeStale()
+  }, [addElement, pushToHistory])
+
+  // Mirror selected objects horizontally or vertically with copy
+  const mirrorSelected = useCallback((axis: 'h' | 'v') => {
+    const canvas = getCanvas()
+    if (!canvas) return
+    const active = canvas.getActiveObject()
+    if (!active) return
+
+    const objects = active instanceof ActiveSelection ? active.getObjects() : [active]
+    const bounds = active.getBoundingRect()
+    const centerX = bounds.left + bounds.width / 2
+    const centerY = bounds.top + bounds.height / 2
+
+    objects.forEach(obj => {
+      obj.clone().then((cloned: FabricObject) => {
+        if (axis === 'h') {
+          // Reflect across vertical axis passing through centerX
+          const dx = centerX - (obj.left ?? 0)
+          cloned.set({
+            left: centerX + dx - (obj.width ?? 0) * (obj.scaleX ?? 1),
+            flipX: !obj.flipX
+          })
+        } else {
+          // Reflect across horizontal axis passing through centerY
+          const dy = centerY - (obj.top ?? 0)
+          cloned.set({
+            top: centerY + dy - (obj.height ?? 0) * (obj.scaleY ?? 1),
+            flipY: !obj.flipY
+          })
+        }
+
+        const newId = generateId()
+        setCustomProp(cloned, ELEMENT_ID_KEY, newId)
+        
+        const element: CanvasElement = {
+          id: newId,
+          type: 'svg',
+          name: `${getCustomProp(obj, '_name') || 'Object'} Mirror`,
+          visible: true,
+          locked: false,
+          config: null,
+          children: [],
+          fabricObject: cloned,
+        }
+        
+        addElement(element)
+        canvas.add(cloned)
+      })
+    })
+
+    pushToHistory()
+    markGCodeStale()
+  }, [addElement, pushToHistory])
+
+  // Export canvas to SVG file
+  const exportSVG = useCallback(() => {
+    const canvas = getCanvas()
+    if (!canvas) return
+
+    const svg = canvas.toSVG({
+      width: String(useCanvasStore.getState().workArea.width * PIXELS_PER_MM),
+      height: String(useCanvasStore.getState().workArea.height * PIXELS_PER_MM),
+      viewBox: {
+        x: 0,
+        y: 0,
+        width: useCanvasStore.getState().workArea.width * PIXELS_PER_MM,
+        height: useCanvasStore.getState().workArea.height * PIXELS_PER_MM
+      }
+    })
+
+    const blob = new Blob([svg], { type: 'image/svg+xml' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${useAppStore.getState().projectName || 'export'}.svg`
+    link.click()
+    URL.revokeObjectURL(url)
+  }, [])
+
+  // Export canvas to DXF
+  const exportDXF = useCallback(() => {
+    const canvas = getCanvas()
+    if (!canvas) return
+
+    const wa = useCanvasStore.getState().workArea
+    const originPos = getOriginPixels(
+      wa.origin,
+      wa.width * PIXELS_PER_MM,
+      wa.height * PIXELS_PER_MM,
+      WORK_AREA_PADDING,
+      WORK_AREA_PADDING,
+    )
+    const flipY = wa.origin.startsWith('bottom')
+
+    const toMM = (px: number, py: number) => ({
+      x: (px - originPos.x) / PIXELS_PER_MM,
+      y: flipY
+        ? (originPos.y - py) / PIXELS_PER_MM
+        : (py - originPos.y) / PIXELS_PER_MM,
+    })
+
+    let dxf = "  0\nSECTION\n  2\nHEADER\n  0\nENDSEC\n  0\nSECTION\n  2\nENTITIES\n"
+
+    const userObjects = canvas.getObjects().filter(o => getCustomProp(o, NON_INTERACTIVE_KEY) !== true)
+
+    const emitPolyline = (pts: Point2D[], closed: boolean) => {
+      if (pts.length < 2) return
+      dxf += `  0\nLWPOLYLINE\n  8\n0\n100\nAcDbEntity\n100\nAcDbPolyline\n 90\n${pts.length}\n 70\n${closed ? 1 : 0}\n`
+      for (const p of pts) {
+        dxf += ` 10\n${p.x.toFixed(4)}\n 20\n${p.y.toFixed(4)}\n`
+      }
+    }
+
+    for (const obj of userObjects) {
+      if (!obj.visible) continue
+
+      if (obj instanceof Circle) {
+        const matrix = obj.calcTransformMatrix()
+        const center = util.transformPoint(new Point(0, 0), matrix)
+        const c = toMM(center.x, center.y)
+        const r = (obj.radius ?? 0) * (obj.scaleX ?? 1) / PIXELS_PER_MM
+        dxf += `  0\nCIRCLE\n  8\n0\n 10\n${c.x.toFixed(4)}\n 20\n${c.y.toFixed(4)}\n 40\n${r.toFixed(4)}\n`
+      } else if (obj instanceof Ellipse) {
+        const extracted = extractObjectPaths(obj, originPos, wa.origin)
+        for (const p of extracted) emitPolyline(p.points, true)
+      } else if (obj instanceof Rect) {
+        const w = (obj.width ?? 0)
+        const h = (obj.height ?? 0)
+        const matrix = obj.calcTransformMatrix()
+        const corners = [
+          util.transformPoint(new Point(-w / 2, -h / 2), matrix),
+          util.transformPoint(new Point(w / 2, -h / 2), matrix),
+          util.transformPoint(new Point(w / 2, h / 2), matrix),
+          util.transformPoint(new Point(-w / 2, h / 2), matrix),
+        ].map(p => toMM(p.x, p.y))
+        emitPolyline(corners, true)
+      } else if (obj instanceof Line) {
+        const matrix = obj.calcTransformMatrix()
+        const p1 = util.transformPoint(new Point(obj.x1 ?? 0, obj.y1 ?? 0), matrix)
+        const p2 = util.transformPoint(new Point(obj.x2 ?? 0, obj.y2 ?? 0), matrix)
+        const a = toMM(p1.x, p1.y)
+        const b = toMM(p2.x, p2.y)
+        dxf += `  0\nLINE\n  8\n0\n 10\n${a.x.toFixed(4)}\n 20\n${a.y.toFixed(4)}\n 11\n${b.x.toFixed(4)}\n 21\n${b.y.toFixed(4)}\n`
+      } else if (obj instanceof Path) {
+        const pts = extractPathPoints(obj, originPos, wa.origin)
+        if (pts.length > 0) emitPolyline(pts, isPathClosed(obj))
+      } else if (obj instanceof FabricPolygon) {
+        const extracted = extractObjectPaths(obj, originPos, wa.origin)
+        for (const p of extracted) emitPolyline(p.points, true)
+      } else if (obj instanceof Group) {
+        const children = obj.getObjects()
+        for (const child of children) {
+          if (child instanceof Path) {
+            const pts = extractPathPoints(child, originPos, wa.origin, obj)
+            if (pts.length > 0) emitPolyline(pts, isPathClosed(child))
+          } else {
+            const extracted = extractObjectPaths(child, originPos, wa.origin)
+            for (const p of extracted) emitPolyline(p.points, p.closed)
+          }
+        }
+      }
+    }
+
+    dxf += "  0\nENDSEC\n  0\nEOF\n"
+
+    const blob = new Blob([dxf], { type: 'application/dxf' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${useAppStore.getState().projectName || 'export'}.dxf`
+    link.click()
+    URL.revokeObjectURL(url)
+  }, [])
+
+  // Add a persistent dimension (cota) between two points
+  const addCota = useCallback((p1: Point2D, p2: Point2D) => {
+    const canvas = getCanvas()
+    if (!canvas) return
+
+    const distPx = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2)
+    const distMm = distPx / PIXELS_PER_MM
+    const angleRad = Math.atan2(p2.y - p1.y, p2.x - p1.x)
+    
+    // Perpendicular vector for offset
+    const nx = -Math.sin(angleRad)
+    const ny = Math.cos(angleRad)
+    
+    const offset = 20 // Pixels offset from points
+    
+    const x1 = p1.x + nx * offset
+    const y1 = p1.y + ny * offset
+    const x2 = p2.x + nx * offset
+    const y2 = p2.y + ny * offset
+
+    // Dimension line
+    const line = new Line([x1, y1, x2, y2], {
+      stroke: '#0ea5e9',
+      strokeWidth: 1,
+    })
+
+    // Extension lines (dotted)
+    const ext1 = new Line([p1.x, p1.y, x1 + nx * 5, y1 + ny * 5], {
+      stroke: '#0ea5e9',
+      strokeWidth: 0.5,
+      strokeDashArray: [2, 2]
+    })
+    const ext2 = new Line([p2.x, p2.y, x2 + nx * 5, y2 + ny * 5], {
+      stroke: '#0ea5e9',
+      strokeWidth: 0.5,
+      strokeDashArray: [2, 2]
+    })
+
+    // Text label
+    // Rotate text to be readable (0-180 range)
+    let textAngle = angleRad * (180 / Math.PI)
+    if (textAngle > 90) textAngle -= 180
+    if (textAngle < -90) textAngle += 180
+
+    const text = new FabricText(`${distMm.toFixed(2)} mm`, {
+      left: (x1 + x2) / 2,
+      top: (y1 + y2) / 2,
+      fontSize: 10,
+      fill: '#0ea5e9',
+      angle: textAngle,
+      originX: 'center',
+      originY: 'bottom',
+      fontFamily: 'Inter, sans-serif'
+    })
+
+    const group = new Group([line, ext1, ext2, text], {
+      selectable: true,
+      hasControls: false,
+    })
+
+    const elementId = generateId()
+    setCustomProp(group, ELEMENT_ID_KEY, elementId)
+    setCustomProp(group, NON_INTERACTIVE_KEY, true) // Don't export to G-code
+
+    const element: CanvasElement = {
+      id: elementId,
+      type: 'cota',
+      name: `Cota ${distMm.toFixed(1)}mm`,
+      visible: true,
+      locked: false,
+      config: null,
+      children: [],
+      fabricObject: group,
+      makerParams: { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, dist: distMm }
+    }
+
+    addElement(element)
+    canvas.add(group)
+    canvas.requestRenderAll()
+    pushToHistory()
+  }, [addElement, pushToHistory])
+
+  // Register a path created by split operation
+  const addSplitPath = useCallback((fabricObj: FabricObject) => {
+    const elementId = generateId()
+    setCustomProp(fabricObj, ELEMENT_ID_KEY, elementId)
+    const element: CanvasElement = {
+      id: elementId,
+      type: 'svg',
+      name: `Path ${Date.now() % 1000}`,
+      visible: true,
+      locked: false,
+      config: null,
+      children: [],
+      fabricObject: fabricObj,
+    }
+    addElement(element)
+    markGCodeStale()
+  }, [addElement])
+
   return {
     setCanvas,
     loadSVG,
+    loadDXF,
     loadImage,
     addRasterToCanvas,
     addShape,
@@ -2655,6 +3336,15 @@ export function useCanvasManager() {
     distribute,
     groupSelected,
     ungroupSelected,
+    booleanOperationSelected,
+    offsetSelected,
+    arrayRectangular,
+    arrayPolar,
+    mirrorSelected,
+    exportSVG,
+    exportDXF,
+    addCota,
+    addSplitPath,
   }
 }
 

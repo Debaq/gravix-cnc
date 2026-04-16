@@ -1,5 +1,5 @@
 // ============================================
-// TIPOS COMPARTIDOS - GRBL Web Control Pro v5.0
+// TIPOS COMPARTIDOS - Gravix v1.0.0
 // ============================================
 
 // Workspaces
@@ -9,7 +9,7 @@ export type Workspace = 'design' | 'preview' | 'control'
 export type OperationType = 'cnc' | 'laser' | 'plotter' | 'pencil'
 
 // Tipos de trabajo CNC
-export type WorkType = 'outline' | 'inside' | 'outside' | 'pocket'
+export type WorkType = 'outline' | 'inside' | 'outside' | 'pocket' | 'vcarve' | 'drill' | 'chamfer'
 
 // Modos de operación láser
 export type LaserMode = 'cut' | 'engrave' | 'fill' | 'raster'
@@ -71,6 +71,8 @@ export interface GlobalConfig {
   pressure: number
   speed: number
   pressureZ: number
+  bladeOffset: number         // Compensación de cuchilla plotter (mm)
+  toolLengthOffset: number    // Offset Z de herramienta (mm) para G43
   // Configuración láser avanzada
   laserMode: LaserMode
   laserDynamic: boolean      // true = M4 (potencia dinámica), false = M3 (potencia constante)
@@ -84,6 +86,24 @@ export interface GlobalConfig {
   rasterThreshold: number    // Umbral de blanco/negro (0-255)
   rasterInvert: boolean      // Invertir imagen (para materiales oscuros)
   rasterBidirectional: boolean // Escaneo bidireccional en ráster
+  // Kerf compensation láser
+  laserKerf: number          // Ancho de corte láser (mm) para compensación
+  laserLeadIn: number        // Distancia lead-in/out (mm, 0 = disabled)
+  laserFocusZ: number        // Altura Z de foco láser (mm, 0 = surface)
+  // Drill CNC
+  drillPeckDepth: number        // Profundidad por picotazo en G83 (mm, 0 = G81 simple)
+  drillRetract: number          // Altura de retracción entre pecks (mm)
+  // V-Carve CNC
+  vcarveAngle: number           // Ángulo total del V-bit (grados, e.g. 60, 90)
+  vcarveMaxDepth: number        // Profundidad máxima V-carve (mm)
+  vcarveStepSize: number        // Resolución de offset (mm)
+  vcarveFlatDepth: number       // Profundidad flat-bottom (0 = standard)
+  // Rest machining CNC
+  restMachiningEnabled: boolean  // Segundo pass con fresa chica en esquinas
+  restToolDiameter: number       // Diámetro de fresa de acabado (mm)
+  // Ramping / Lead-in CNC
+  rampEnabled: boolean        // Entrada en rampa en vez de plunge directo
+  rampAngle: number           // Ángulo de rampa (grados, 0-45)
   // Tabs/soportes para corte CNC
   tabsEnabled: boolean       // Activar tabs en cortes
   tabWidth: number           // Ancho de cada tab (mm)
@@ -101,10 +121,11 @@ export interface MachinePosition {
 // Elemento del canvas
 export interface CanvasElement {
   id: string
-  type: 'svg' | 'rect' | 'circle' | 'line' | 'maker' | 'group'
+  type: 'svg' | 'rect' | 'circle' | 'line' | 'maker' | 'group' | 'cota'
   name: string
   visible: boolean
   locked: boolean
+  layerId?: string // ID de la capa a la que pertenece
   expanded?: boolean
   showConfig?: boolean
   config: GlobalConfig | null
@@ -118,6 +139,17 @@ export interface CanvasElement {
   svgData?: string | null
   // Fabric.js object reference (not serializable)
   fabricObject?: unknown
+}
+
+// Capa del diseño
+export interface Layer {
+  id: string
+  name: string
+  color: string
+  visible: boolean
+  locked: boolean
+  order: number
+  config: GlobalConfig | null // Override de operación para toda la capa
 }
 
 // Herramienta
@@ -134,6 +166,7 @@ export interface Tool {
   pressure?: number
   speed?: number
   offset?: number
+  lengthOffset?: number  // Tool length offset Z (mm) para G43
   thickness?: number
   color?: string
   notes?: string
@@ -190,6 +223,7 @@ export interface Point2D {
 export interface GCodePath {
   points: Point2D[]
   closed: boolean
+  strokeColor?: string  // Color de stroke para agrupación plotter (hex)
 }
 
 // Job de G-code: un elemento con su config resuelta y paths extraidos
@@ -198,6 +232,18 @@ export interface GCodeJob {
   elementName: string
   config: GlobalConfig
   paths: GCodePath[]
+  colorMappings?: ColorMapping[]  // Laser color→config mappings
+}
+
+// Color mapping para láser (colores SVG → configuraciones)
+export interface ColorMapping {
+  color: string        // hex color (#ff0000)
+  name: string         // display name (Corte, Grabado, etc.)
+  mode: LaserMode      // cut, engrave, fill
+  power: number        // % power
+  speed: number        // mm/min
+  passes: number
+  enabled: boolean
 }
 
 // Estimaciones de mecanizado

@@ -130,6 +130,7 @@
   "nodeExit": "Salir de edicion",
   "nodeFillet": "Redondear esquina",
   "nodeChamfer": "Biselar esquina",
+  "nodeDogbone": "Dog-bone (CNC)",
   "boolUnion": "Union",
   "boolDifference": "Diferencia",
   "boolIntersection": "Interseccion",
