@@ -1,8 +1,11 @@
-import { useRef, useMemo, useEffect } from 'react'
+import { useRef, useMemo, useEffect, useCallback, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import type { ThreeEvent } from '@react-three/fiber'
 import { OrbitControls, Grid, Line, GizmoHelper, GizmoViewcube } from '@react-three/drei'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
+import { useCAMStore } from '@/stores/useCAMStore'
+import { useLibraryStore } from '@/stores/useLibraryStore'
 import { useTranslation } from 'react-i18next'
 import { Box, AlertTriangle } from 'lucide-react'
 import { parseGCode, formatTime } from '@/lib/gcode-parser'
@@ -35,6 +38,64 @@ function getWorkAreaBounds(width: number, height: number, origin: string) {
     case 'bottom-center': return { minX: -width / 2, minY: 0, maxX: width / 2, maxY: height }
     case 'bottom-right':  return { minX: -width, minY: 0, maxX: 0, maxY: height }
   }
+}
+
+// Global flag to disable OrbitControls during drag
+const dragState = { active: false }
+
+/**
+ * Convert Three.js position back to G-code coordinates.
+ * Inverse of gcodeToThree: Three X → G-code X, Three Y → G-code Z, Three -Z → G-code Y
+ */
+function threeToGcode(tx: number, ty: number, tz: number): { x: number; y: number; z: number } {
+  return { x: tx, y: -tz, z: ty }
+}
+
+/**
+ * Hook for dragging objects on the XZ plane (Three.js Y=planeY).
+ * Attaches pointer listeners to the canvas DOM so drag continues even when pointer leaves mesh.
+ */
+function useDragOnPlane(
+  planeY: number,
+  onDrag: (gcodePos: { x: number; y: number; z: number }) => void,
+  onDragEnd?: () => void,
+) {
+  const { gl, camera } = useThree()
+  const isDragging = useRef(false)
+  const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeY), [planeY])
+  const ray = useMemo(() => new THREE.Raycaster(), [])
+  const hit = useMemo(() => new THREE.Vector3(), [])
+
+  const projectPointer = useCallback((e: PointerEvent) => {
+    const rect = gl.domElement.getBoundingClientRect()
+    const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1
+    const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1
+    ray.setFromCamera(new THREE.Vector2(nx, ny), camera)
+    if (ray.ray.intersectPlane(plane, hit)) {
+      onDrag(threeToGcode(hit.x, hit.y, hit.z))
+    }
+  }, [gl, camera, plane, ray, hit, onDrag])
+
+  const onPointerUp = useCallback(() => {
+    if (!isDragging.current) return
+    isDragging.current = false
+    dragState.active = false
+    gl.domElement.removeEventListener('pointermove', projectPointer)
+    gl.domElement.removeEventListener('pointerup', onPointerUp)
+    gl.domElement.style.cursor = ''
+    onDragEnd?.()
+  }, [gl, projectPointer, onDragEnd])
+
+  const startDrag = useCallback((e: ThreeEvent<PointerEvent>) => {
+    e.stopPropagation()
+    isDragging.current = true
+    dragState.active = true
+    gl.domElement.addEventListener('pointermove', projectPointer)
+    gl.domElement.addEventListener('pointerup', onPointerUp)
+    gl.domElement.style.cursor = 'grabbing'
+  }, [gl, projectPointer, onPointerUp])
+
+  return startDrag
 }
 
 function WorkArea({ bounds, width, height }: {
@@ -117,6 +178,35 @@ interface ToolpathProps {
 
 function Toolpath({ segments }: ToolpathProps) {
   const { animationProgress, viewer3DPlaying } = useGCodeStore()
+  const selectedOpId = useCAMStore((s) => s.selectedOperationId)
+  const soloOpId = useCAMStore((s) => s.soloOperationId)
+  const camOps = useCAMStore((s) => s.operations)
+
+  // Build highlight info
+  const { highlightSet, disabledSet } = useMemo(() => {
+    const focusId = soloOpId ?? selectedOpId
+    let hSet: Set<string> | null = null
+    const dSet = new Set<string>()
+
+    if (focusId) {
+      const op = camOps.find((o) => o.id === focusId)
+      if (op) {
+        const cfg = op.config
+        const wd = cfg.operationType === 'cnc' ? cfg.workType : (cfg.operationType === 'laser' ? cfg.laserMode : cfg.operationType)
+        hSet = new Set([`${op.elementName}:${wd}`])
+      }
+    }
+
+    for (const o of camOps) {
+      if (!o.enabled) {
+        const c = o.config
+        const wd = c.operationType === 'cnc' ? c.workType : (c.operationType === 'laser' ? c.laserMode : c.operationType)
+        dSet.add(`${o.elementName}:${wd}`)
+      }
+    }
+
+    return { highlightSet: hSet, disabledSet: dSet }
+  }, [selectedOpId, soloOpId, camOps])
 
   const { rapidPoints, rapidColors, cutPoints, cutColors, totalSegments } = useMemo(() => {
     const rp: number[] = []
@@ -126,28 +216,41 @@ function Toolpath({ segments }: ToolpathProps) {
 
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i]
+
+      // Check if disabled
+      if (seg.operationId && disabledSet.has(seg.operationId)) continue
+
+      // Determine dim factor
+      const isDimmed = highlightSet !== null && seg.operationId && !highlightSet.has(seg.operationId)
+      const isHighlighted = highlightSet !== null && seg.operationId && highlightSet.has(seg.operationId)
+      const dimFactor = isDimmed ? 0.15 : 1.0
+
       const [fx, fy, fz] = gcodeToThree(seg.from.x, seg.from.y, seg.from.z)
       const [tx, ty, tz] = gcodeToThree(seg.to.x, seg.to.y, seg.to.z)
 
       if (seg.type === 'rapid') {
         rp.push(fx, fy, fz, tx, ty, tz)
-        rc.push(0.2, 0.5, 1.0, 0.2, 0.5, 1.0)
+        rc.push(0.2 * dimFactor, 0.5 * dimFactor, 1.0 * dimFactor, 0.2 * dimFactor, 0.5 * dimFactor, 1.0 * dimFactor)
       } else {
         cp.push(fx, fy, fz, tx, ty, tz)
         let r: number, g: number, b: number
         if (seg.color) {
-          // Use path color from plotter/laser color mapping
           const hex = seg.color.replace('#', '')
           r = parseInt(hex.slice(0, 2), 16) / 255
           g = parseInt(hex.slice(2, 4), 16) / 255
           b = parseInt(hex.slice(4, 6), 16) / 255
+        } else if (isHighlighted) {
+          // Highlighted: bright green
+          r = 0.2
+          g = 1.0
+          b = 0.3
         } else {
           const depth = Math.min(Math.abs(fy), 10) / 10
           r = 1.0
           g = 0.15 + (1 - depth) * 0.2
           b = 0.1 + (1 - depth) * 0.15
         }
-        cc.push(r, g, b, r, g, b)
+        cc.push(r * dimFactor, g * dimFactor, b * dimFactor, r * dimFactor, g * dimFactor, b * dimFactor)
       }
     }
 
@@ -158,7 +261,7 @@ function Toolpath({ segments }: ToolpathProps) {
       cutColors: new Float32Array(cc),
       totalSegments: segments.length,
     }
-  }, [segments])
+  }, [segments, highlightSet, disabledSet])
 
   const rapidRef = useRef<THREE.LineSegments>(null)
   const cutRef = useRef<THREE.LineSegments>(null)
@@ -170,12 +273,16 @@ function Toolpath({ segments }: ToolpathProps) {
     if (!viewer3DPlaying && animationProgress >= 100) return
 
     const progress = animationProgress / 100
-    const visibleSegments = Math.floor(progress * totalSegments)
-
+    // Count visible segments excluding disabled ones
     let rapidsShown = 0
     let cutsShown = 0
-    for (let i = 0; i < Math.min(visibleSegments, segments.length); i++) {
-      if (segments[i].type === 'rapid') rapidsShown++
+    const visibleCount = Math.floor(progress * totalSegments)
+    let counted = 0
+    for (let i = 0; i < segments.length && counted < visibleCount; i++) {
+      const seg = segments[i]
+      if (seg.operationId && disabledSet.has(seg.operationId)) continue
+      counted++
+      if (seg.type === 'rapid') rapidsShown++
       else cutsShown++
     }
 
@@ -224,12 +331,143 @@ function Toolpath({ segments }: ToolpathProps) {
   )
 }
 
+/**
+ * Tool shapes by type:
+ *   endmill  → cylinder (flat bottom)
+ *   ballnose → cylinder + hemisphere bottom
+ *   vbit     → cone (inverted, tip down)
+ *   blade    → thin triangle wedge
+ *   pen/pencil/marker → thin cone tip
+ *   laser    → cone beam (wireframe)
+ */
+function ToolShape({ toolType, radius, angle, shaftLen }: {
+  toolType: string
+  radius: number
+  angle: number
+  shaftLen: number
+}) {
+  const mat = <meshStandardMaterial color="#FFD700" transparent opacity={0.85} />
+  const wireMat = <meshBasicMaterial color="#FF4444" wireframe transparent opacity={0.5} />
+
+  switch (toolType) {
+    case 'ballnose':
+      return (
+        <group>
+          {/* Shaft */}
+          <mesh position={[0, shaftLen / 2 + radius, 0]}>
+            <cylinderGeometry args={[radius, radius, shaftLen, 16]} />
+            {mat}
+          </mesh>
+          {/* Ball tip */}
+          <mesh position={[0, radius, 0]}>
+            <sphereGeometry args={[radius, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
+            {mat}
+          </mesh>
+        </group>
+      )
+
+    case 'vbit': {
+      // Cone tip: angle is total included angle
+      const halfAngle = ((angle || 60) / 2) * Math.PI / 180
+      const coneHeight = radius / Math.tan(halfAngle)
+      return (
+        <group>
+          {/* Shaft */}
+          <mesh position={[0, coneHeight + shaftLen / 2, 0]}>
+            <cylinderGeometry args={[radius, radius, shaftLen, 16]} />
+            {mat}
+          </mesh>
+          {/* Cone tip (wide top, point bottom) */}
+          <mesh position={[0, coneHeight / 2, 0]}>
+            <coneGeometry args={[radius, coneHeight, 16]} />
+            {mat}
+          </mesh>
+        </group>
+      )
+    }
+
+    case 'blade':
+      return (
+        <group>
+          {/* Thin blade wedge - approximate with a flattened cone */}
+          <mesh position={[0, shaftLen / 2 + 1, 0]}>
+            <cylinderGeometry args={[radius * 0.3, radius * 0.3, shaftLen, 8]} />
+            {mat}
+          </mesh>
+          <mesh position={[0, 0.5, 0]} rotation={[0, 0, 0]}>
+            <coneGeometry args={[radius * 0.8, 2, 4]} />
+            {mat}
+          </mesh>
+        </group>
+      )
+
+    case 'co2':
+    case 'diode':
+    case 'fiber':
+      // Laser beam cone (wireframe)
+      return (
+        <mesh position={[0, shaftLen / 2, 0]}>
+          <coneGeometry args={[radius * 2, shaftLen, 8]} />
+          {wireMat}
+        </mesh>
+      )
+
+    case 'pen':
+    case 'pencil':
+    case 'marker':
+      return (
+        <group>
+          {/* Body */}
+          <mesh position={[0, shaftLen / 2 + 2, 0]}>
+            <cylinderGeometry args={[radius * 0.8, radius * 0.8, shaftLen, 8]} />
+            {mat}
+          </mesh>
+          {/* Tip */}
+          <mesh position={[0, 1, 0]}>
+            <coneGeometry args={[radius * 0.8, 2, 8]} />
+            {mat}
+          </mesh>
+        </group>
+      )
+
+    case 'endmill':
+    default:
+      // Flat endmill: cylinder
+      return (
+        <group>
+          <mesh position={[0, shaftLen / 2, 0]}>
+            <cylinderGeometry args={[radius, radius, shaftLen, 16]} />
+            {mat}
+          </mesh>
+          {/* Flat bottom cap */}
+          <mesh position={[0, 0, 0]} rotation={[Math.PI / 2, 0, 0]}>
+            <circleGeometry args={[radius, 16]} />
+            {mat}
+          </mesh>
+        </group>
+      )
+  }
+}
+
 function ToolIndicator({ segments }: { segments: GCodeSegment[] }) {
-  const meshRef = useRef<THREE.Mesh>(null)
+  const groupRef = useRef<THREE.Group>(null)
   const { animationProgress, viewer3DPlaying } = useGCodeStore()
+  const { globalConfig } = useCanvasStore()
+  const { tools } = useLibraryStore()
+
+  // Resolve tool info
+  const toolInfo = useMemo(() => {
+    const toolId = globalConfig.tool
+    const tool = toolId ? tools.find((t) => t.id === toolId) : null
+    const diameter = tool?.diameter ?? globalConfig.toolDiameter ?? 3.175
+    const radius = diameter / 2
+    const type = tool?.type ?? 'endmill'
+    const angle = tool?.angle ?? globalConfig.vcarveAngle ?? 60
+    return { type, radius, angle }
+  }, [globalConfig.tool, globalConfig.toolDiameter, globalConfig.vcarveAngle, tools])
 
   useFrame(() => {
-    if (!meshRef.current || segments.length === 0) return
+    if (!groupRef.current || segments.length === 0) return
 
     const progress = animationProgress / 100
     const segIndex = Math.min(
@@ -246,17 +484,23 @@ function ToolIndicator({ segments }: { segments: GCodeSegment[] }) {
     const z = seg.from.z + (seg.to.z - seg.from.z) * Math.min(segProgress, 1)
 
     const [tx, ty, tz] = gcodeToThree(x, y, z)
-    meshRef.current.position.set(tx, ty, tz)
-    meshRef.current.visible = viewer3DPlaying || animationProgress < 100
+    groupRef.current.position.set(tx, ty, tz)
+    groupRef.current.visible = viewer3DPlaying || animationProgress < 100
   })
 
   if (segments.length === 0) return null
 
+  const shaftLen = Math.max(toolInfo.radius * 6, 10)
+
   return (
-    <mesh ref={meshRef}>
-      <sphereGeometry args={[2, 16, 16]} />
-      <meshBasicMaterial color="#FFD700" />
-    </mesh>
+    <group ref={groupRef}>
+      <ToolShape
+        toolType={toolInfo.type}
+        radius={toolInfo.radius}
+        angle={toolInfo.angle}
+        shaftLen={shaftLen}
+      />
+    </group>
   )
 }
 
@@ -291,6 +535,275 @@ function ThickCutLines({ segments }: { segments: GCodeSegment[] }) {
         <Line key={i} points={points} color="#FF3333" lineWidth={2} opacity={0.9} transparent />
       ))}
     </group>
+  )
+}
+
+/**
+ * Single draggable parking marker in 3D.
+ */
+function DraggableParkMarker({ markerId, color }: { markerId: string; color: string }) {
+  const marker = useCAMStore((s) => s.markers.find((m) => m.id === markerId))
+  const selectedMarkerId = useCAMStore((s) => s.selectedMarkerId)
+  const { updateParkPosition, selectMarker } = useCAMStore()
+  const [hovered, setHovered] = useState(false)
+
+  const startDrag = useDragOnPlane(
+    marker?.parkPosition.z ?? 30, // drag on plane at marker's Z height
+    useCallback((pos) => {
+      updateParkPosition(markerId, { x: Math.round(pos.x * 10) / 10, y: Math.round(pos.y * 10) / 10 })
+    }, [markerId, updateParkPosition]),
+  )
+
+  if (!marker) return null
+
+  const [px, py, pz] = gcodeToThree(marker.parkPosition.x, marker.parkPosition.y, marker.parkPosition.z)
+  const isSelected = selectedMarkerId === markerId
+
+  return (
+    <group position={[px, py, pz]}>
+      <mesh
+        onPointerDown={(e) => { selectMarker(markerId); startDrag(e) }}
+        onPointerOver={() => setHovered(true)}
+        onPointerOut={() => setHovered(false)}
+      >
+        <sphereGeometry args={[isSelected ? 4 : hovered ? 3.5 : 2.5, 16, 16]} />
+        <meshStandardMaterial
+          color={color}
+          transparent
+          opacity={isSelected ? 0.9 : hovered ? 0.8 : 0.6}
+          emissive={color}
+          emissiveIntensity={isSelected ? 0.4 : 0.1}
+        />
+      </mesh>
+      <Line
+        points={[[0, -py, 0], [0, 0, 0]]}
+        color={color}
+        lineWidth={1}
+        dashed
+        dashSize={3}
+        gapSize={2}
+      />
+      {isSelected && (
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[5, 6, 24]} />
+          <meshBasicMaterial color={color} transparent opacity={0.4} side={2} />
+        </mesh>
+      )}
+    </group>
+  )
+}
+
+function ParkingPositions() {
+  const markers = useCAMStore((s) => s.markers)
+  if (markers.length === 0) return null
+
+  const colors: Record<string, string> = {
+    'pause': '#f59e0b',
+    'tool-change': '#3b82f6',
+    'message': '#a855f7',
+  }
+
+  return (
+    <group>
+      {markers.map((m) => (
+        <DraggableParkMarker key={m.id} markerId={m.id} color={colors[m.type] ?? '#f59e0b'} />
+      ))}
+    </group>
+  )
+}
+
+/**
+ * CAM Setup visuals: draggable tool change area + draggable clamps.
+ */
+function CAMSetupVisuals() {
+  const setup = useCAMStore((s) => s.setup)
+  const { updateSetup, updateClamp } = useCAMStore()
+  const tcp = setup.toolChangePosition
+  const tcs = setup.toolChangeSize
+  const isArea = tcs.width > 0 && tcs.height > 0
+
+  const [tcx, tcy, tcz] = gcodeToThree(tcp.x, tcp.y, tcp.z)
+  const [tcHover, setTcHover] = useState(false)
+
+  const startDragTC = useDragOnPlane(
+    tcp.z,
+    useCallback((pos) => {
+      updateSetup({
+        toolChangePosition: {
+          ...useCAMStore.getState().setup.toolChangePosition,
+          x: Math.round(pos.x * 10) / 10,
+          y: Math.round(pos.y * 10) / 10,
+        },
+      })
+    }, [updateSetup]),
+  )
+
+  return (
+    <group>
+      {/* Tool change position/area */}
+      <group position={[tcx, tcy, tcz]}>
+        {isArea ? (
+          /* Area mode */
+          <mesh
+            onPointerDown={startDragTC}
+            onPointerOver={() => setTcHover(true)}
+            onPointerOut={() => setTcHover(false)}
+          >
+            <boxGeometry args={[tcs.width, 2, tcs.height]} />
+            <meshStandardMaterial
+              color="#3b82f6"
+              transparent
+              opacity={tcHover ? 0.5 : 0.3}
+              emissive="#3b82f6"
+              emissiveIntensity={0.15}
+            />
+          </mesh>
+        ) : (
+          /* Point mode — diamond */
+          <mesh
+            rotation={[0, Math.PI / 4, 0]}
+            onPointerDown={startDragTC}
+            onPointerOver={() => setTcHover(true)}
+            onPointerOut={() => setTcHover(false)}
+          >
+            <boxGeometry args={[tcHover ? 5 : 4, tcHover ? 5 : 4, tcHover ? 5 : 4]} />
+            <meshStandardMaterial
+              color="#3b82f6"
+              transparent
+              opacity={tcHover ? 0.85 : 0.7}
+              emissive="#3b82f6"
+              emissiveIntensity={0.2}
+            />
+          </mesh>
+        )}
+        {/* Wireframe border for area */}
+        {isArea && (
+          <mesh>
+            <boxGeometry args={[tcs.width, 2, tcs.height]} />
+            <meshBasicMaterial color="#3b82f6" wireframe transparent opacity={0.6} />
+          </mesh>
+        )}
+        {/* Vertical dashed line to ground */}
+        <Line
+          points={[[0, -tcy, 0], [0, 0, 0]]}
+          color="#3b82f6"
+          lineWidth={1}
+          dashed
+          dashSize={3}
+          gapSize={2}
+        />
+      </group>
+
+      {/* Clamps — draggable red boxes */}
+      {setup.clamps.map((clamp) => (
+        <DraggableClamp key={clamp.id} clampId={clamp.id} />
+      ))}
+    </group>
+  )
+}
+
+/**
+ * Clamp shape: T-profile (base bar + top jaw + bolt knob).
+ * Looks like a real toggle clamp / hold-down clamp.
+ */
+function DraggableClamp({ clampId }: { clampId: string }) {
+  const clamp = useCAMStore((s) => s.setup.clamps.find((c) => c.id === clampId))
+  const { updateClamp } = useCAMStore()
+  const [hovered, setHovered] = useState(false)
+
+  const startDrag = useDragOnPlane(
+    0,
+    useCallback((pos) => {
+      const c = useCAMStore.getState().setup.clamps.find((cl) => cl.id === clampId)
+      if (!c) return
+      updateClamp(clampId, {
+        x: Math.round((pos.x - c.width / 2) * 10) / 10,
+        y: Math.round((pos.y - c.height / 2) * 10) / 10,
+      })
+    }, [clampId, updateClamp]),
+  )
+
+  if (!clamp) return null
+
+  const [cx, , cz] = gcodeToThree(clamp.x + clamp.width / 2, clamp.y + clamp.height / 2, 0)
+  const w = clamp.width
+  const d = clamp.height // depth (G-code Y = Three.js Z)
+  const isInfinite = clamp.zHeight === 0
+  const visH = isInfinite ? 15 : clamp.zHeight // visual height
+  const baseH = 3 // base plate
+  const jawH = visH - baseH
+  const color = hovered ? '#f87171' : '#dc2626'
+  const opacity = hovered ? 0.7 : 0.55
+
+  return (
+    <group
+      position={[cx, 0, cz]}
+      onPointerDown={startDrag}
+      onPointerOver={() => setHovered(true)}
+      onPointerOut={() => setHovered(false)}
+    >
+      {/* Base plate — wide flat bar on surface */}
+      <mesh position={[0, baseH / 2, 0]}>
+        <boxGeometry args={[w, baseH, d]} />
+        <meshStandardMaterial color={color} transparent opacity={opacity} metalness={0.4} roughness={0.6} />
+      </mesh>
+
+      {/* Jaw / pressure arm — narrower, taller, centered */}
+      <mesh position={[0, baseH + jawH / 2, 0]}>
+        <boxGeometry args={[w * 0.6, jawH, d * 0.5]} />
+        <meshStandardMaterial color={color} transparent opacity={opacity} metalness={0.4} roughness={0.6} />
+      </mesh>
+
+      {/* Bolt knob on top */}
+      <mesh position={[0, baseH + jawH + 1.5, 0]}>
+        <cylinderGeometry args={[w * 0.15, w * 0.2, 3, 8]} />
+        <meshStandardMaterial color="#991b1b" transparent opacity={opacity} metalness={0.5} roughness={0.4} />
+      </mesh>
+
+      {/* Infinite height indicator — dashed line going up */}
+      {isInfinite && (
+        <Line
+          points={[[0, visH + 3, 0], [0, visH + 20, 0]]}
+          color="#ef4444"
+          lineWidth={1}
+          dashed
+          dashSize={2}
+          gapSize={2}
+        />
+      )}
+
+      {/* Wireframe footprint on surface */}
+      <mesh position={[0, 0.1, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[w, d]} />
+        <meshBasicMaterial color="#ef4444" wireframe transparent opacity={0.4} side={2} />
+      </mesh>
+    </group>
+  )
+}
+
+/**
+ * OrbitControls that auto-disables during 3D object dragging.
+ */
+function OrbitControlsWithDrag({ centerX, centerZ, maxDist }: { centerX: number; centerZ: number; maxDist: number }) {
+  const controlsRef = useRef<any>(null)
+
+  useFrame(() => {
+    if (controlsRef.current) {
+      controlsRef.current.enabled = !dragState.active
+    }
+  })
+
+  return (
+    <OrbitControls
+      ref={controlsRef}
+      makeDefault
+      enableDamping
+      dampingFactor={0.1}
+      target={[centerX, 0, centerZ]}
+      maxPolarAngle={Math.PI}
+      minDistance={50}
+      maxDistance={maxDist}
+    />
   )
 }
 
@@ -394,16 +907,10 @@ function Scene() {
           <ToolIndicator segments={segments} />
         </>
       )}
-      <OrbitControls
-        makeDefault
-        enableDamping
-        dampingFactor={0.1}
-        target={[centerX, 0, centerZ]}
-        maxPolarAngle={Math.PI}
-        minDistance={50}
-        maxDistance={Math.max(workArea.width, workArea.height) * 5}
-      />
-      <GizmoHelper alignment="top-right" margin={[80, 80]}>
+      <ParkingPositions />
+      <CAMSetupVisuals />
+      <OrbitControlsWithDrag centerX={centerX} centerZ={centerZ} maxDist={Math.max(workArea.width, workArea.height) * 5} />
+      <GizmoHelper alignment="top-left" margin={[80, 80]}>
         <GizmoViewcube
           color="#5B4B9F"
           textColor="#ffffff"

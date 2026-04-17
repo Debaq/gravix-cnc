@@ -1,15 +1,15 @@
 {
-  "title": "GRBL Web Control Pro v5.0",
-  "subtitle": "Tauri + React + TypeScript",
+  "title": "Gravix v1.0.0",
+  "subtitle": "CNC · Laser · Plotter · Pencil",
   "canvasTitle": "Canvas",
   "scrollZoom": "Scroll: Zoom in/out",
   "clickDrag": "Click + Drag: Select/move",
   "middleClickDrag": "Middle click + Drag: Pan",
   "shiftClickDrag": "Shift + Click + Drag: Pan",
   "workspacesTitle": "Workspaces",
-  "designDesc": "Create/edit elements, load SVG",
-  "previewDesc": "Visualize G-code in 3D",
-  "controlDesc": "Connect and control the machine",
+  "cadDesc": "Create/edit elements, load SVG",
+  "camDesc": "Generate and visualize G-code in 3D",
+  "cncDesc": "Connect and control the machine",
   "workflowTitle": "Workflow",
   "step1": "Configure work area",
   "step2": "Load SVG or create shapes",
@@ -17,7 +17,7 @@
   "step4": "Generate G-code",
   "step5": "Preview in 3D",
   "step6": "Connect machine and send",
-  "design": "Design",
-  "preview": "Preview",
-  "control": "Control"
+  "cad": "CAD",
+  "cam": "CAM",
+  "cnc": "CNC"
 }

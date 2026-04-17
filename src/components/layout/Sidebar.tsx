@@ -4,14 +4,15 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { PanelLeftClose, PanelLeft } from 'lucide-react'
 import { DesignPanel } from '@/components/panels/DesignPanel'
-import { PreviewPanel } from '@/components/panels/PreviewPanel'
+import { OperationsPanel } from '@/components/panels/OperationsPanel'
+import { LayersPanel } from '@/components/panels/LayersPanel'
 
 export function Sidebar() {
   const { t } = useTranslation('header')
   const { currentWorkspace, leftPanelCollapsed, toggleLeftPanel } = useAppStore()
 
   // El workspace de control usa todo el espacio principal, no necesita sidebar
-  if (currentWorkspace === 'control') return null
+  if (currentWorkspace === 'cnc') return null
 
   if (leftPanelCollapsed) {
     return (
@@ -24,12 +25,12 @@ export function Sidebar() {
   }
 
   return (
-    <div className="flex flex-col w-72 bg-card border-r">
+    <div className={`flex flex-col min-w-0 bg-card border-r overflow-hidden ${currentWorkspace === 'cam' ? 'w-[340px] max-w-[35vw]' : 'w-72 max-w-[30vw]'}`}>
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b">
         <span className="text-sm font-semibold">
-          {currentWorkspace === 'design' && t('design')}
-          {currentWorkspace === 'preview' && t('preview')}
+          {currentWorkspace === 'cad' && t('cad')}
+          {currentWorkspace === 'cam' && t('cam')}
         </span>
         <Button variant="ghost" size="icon" onClick={toggleLeftPanel}>
           <PanelLeftClose className="h-4 w-4" />
@@ -37,12 +38,20 @@ export function Sidebar() {
       </div>
 
       {/* Content */}
-      <ScrollArea className="flex-1">
-        <div className="p-3">
-          {currentWorkspace === 'design' && <DesignPanel />}
-          {currentWorkspace === 'preview' && <PreviewPanel />}
+      {currentWorkspace === 'cad' ? (
+        <ScrollArea className="flex-1">
+          <div className="p-3 space-y-4 min-w-0">
+            <DesignPanel />
+            <div className="h-64 pt-2">
+              <LayersPanel />
+            </div>
+          </div>
+        </ScrollArea>
+      ) : currentWorkspace === 'cam' ? (
+        <div className="flex-1 min-h-0 p-3">
+          <OperationsPanel />
         </div>
-      </ScrollArea>
+      ) : null}
     </div>
   )
 }

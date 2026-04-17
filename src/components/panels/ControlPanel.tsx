@@ -7,12 +7,12 @@ import { useSerial } from '@/hooks/useSerial'
 import { useKeyboardJog } from '@/hooks/useKeyboardJog'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { getSharedCanvas } from '@/hooks/useCanvasManager'
+import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable'
 import { MacrosWorkflowPanel } from '@/components/panels/control/MacrosWorkflowPanel'
 import { GCodePreviewPanel } from '@/components/panels/control/GCodePreviewPanel'
@@ -36,7 +36,33 @@ import {
   Frame,
   Settings2,
   TestTube,
+  ZapOff,
+  ShieldAlert,
 } from 'lucide-react'
+
+const GRBL_ERRORS: Record<string, { es: string; en: string; recovery: ('reset' | 'unlock' | 'home' | 'resume')[] }> = {
+  'error:1':  { es: 'Comando G-code no reconocido', en: 'Unrecognized G-code command', recovery: [] },
+  'error:2':  { es: 'Formato numerico invalido', en: 'Bad number format', recovery: [] },
+  'error:3':  { es: 'Valor $ invalido', en: 'Invalid $ statement', recovery: [] },
+  'error:5':  { es: 'Homing no habilitado en configuracion', en: 'Homing cycle not enabled', recovery: ['reset'] },
+  'error:8':  { es: 'Comando requiere estado Idle (no en movimiento/alarma)', en: 'Command requires Idle state', recovery: ['reset', 'unlock'] },
+  'error:9':  { es: 'Comandos G-code bloqueados durante alarma o jog', en: 'G-code locked during alarm or jog', recovery: ['reset', 'unlock'] },
+  'error:14': { es: 'Linea de inicio excede limite', en: 'Startup line exceeds limit', recovery: [] },
+  'error:15': { es: 'Jog excede limites de viaje', en: 'Jog target exceeds machine travel', recovery: [] },
+  'error:17': { es: 'Modo laser requiere salida PWM', en: 'Laser mode requires PWM output', recovery: [] },
+  'error:22': { es: 'Feed rate no definido', en: 'Feed rate not set', recovery: [] },
+  'error:24': { es: 'Valor de coordenada G-code invalido', en: 'Invalid G-code coordinate value', recovery: [] },
+  'ALARM:1':  { es: 'Limite duro activado. Posicion perdida.', en: 'Hard limit triggered. Position lost.', recovery: ['unlock', 'home'] },
+  'ALARM:2':  { es: 'Limite suave. Movimiento fuera de rango.', en: 'Soft limit. Motion out of range.', recovery: ['unlock', 'home'] },
+  'ALARM:3':  { es: 'Reset durante movimiento. Posicion perdida.', en: 'Reset while in motion. Position lost.', recovery: ['unlock', 'home'] },
+  'ALARM:4':  { es: 'Sonda no contacto dentro del rango.', en: 'Probe fail. No contact.', recovery: ['unlock'] },
+  'ALARM:5':  { es: 'Sonda activa antes de iniciar ciclo.', en: 'Probe already triggered.', recovery: ['unlock'] },
+  'ALARM:6':  { es: 'Fallo homing. Limite no encontrado.', en: 'Homing fail. Switch not found.', recovery: ['unlock'] },
+  'ALARM:7':  { es: 'Fallo homing. Limite no se despejo.', en: 'Homing fail. Switch not cleared.', recovery: ['unlock'] },
+  'ALARM:8':  { es: 'Fallo homing. Pull-off insuficiente.', en: 'Homing fail. Pull-off failed.', recovery: ['unlock'] },
+  'ALARM:9':  { es: 'Homing requerido. Bloqueado por seguridad.', en: 'Homing required. Locked.', recovery: ['home'] },
+  'ALARM:10': { es: 'Limites suaves requieren homing. Ejecuta $H.', en: 'Soft limits need homing. Run $H.', recovery: ['home'] },
+}
 
 const STATE_COLORS: Record<string, string> = {
   Idle: 'bg-emerald-500',
@@ -70,10 +96,17 @@ export function ControlPanel() {
     setBaudRate,
     activeWorkspace,
     setActiveWorkspace,
+    laserPower,
+    setLaserPower,
+    laserTestDuration,
+    lastError,
+    clearLastError,
   } = useSerialStore()
 
-  const { consoleLines, addConsoleLine } = useAppStore()
+  const { consoleLines, addConsoleLine, language } = useAppStore()
   const { simulating, simulatedPos, simulatedFeed, simulatedSpindle } = useWorkflowStore()
+  const operationType = useCanvasStore((s) => s.globalConfig.operationType)
+  const isLaser = operationType === 'laser'
 
   const [ports, setPorts] = useState<{ name: string; port_type: string }[]>([])
   const [selectedPort, setSelectedPort] = useState('')
@@ -248,75 +281,128 @@ export function ControlPanel() {
         <div className="flex flex-col h-full min-h-0 pl-2">
           <ScrollArea className="flex-1">
             <div className="space-y-3 pr-2">
-              {/* Conexion */}
-              <div className="bg-background border rounded-lg p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <Badge variant={connected ? 'success' : 'destructive'} className="gap-1">
-                    {connected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-                    {connected ? t('connected') : t('disconnected')}
-                  </Badge>
+              {/* Conexion: compacta cuando esta conectado */}
+              {connected ? (
+                <div className="bg-background border rounded-lg px-2 py-1.5 flex items-center gap-1.5">
+                  <Wifi className="h-3 w-3 text-green-500 shrink-0" />
+                  <span className="text-[11px] font-mono truncate flex-1" title={selectedPort}>
+                    {selectedPort.replace(/^\/dev\//, '')} @ {baudRate}
+                  </span>
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={refreshPorts}
-                    disabled={loadingPorts}
+                    variant="outline"
+                    size="sm"
+                    className="h-6 px-2 text-[10px] shrink-0"
+                    onClick={() => useAppStore.getState().openModal('grblSettings')}
+                    title="GRBL Settings ($$)"
                   >
-                    <RefreshCw className={`h-3 w-3 ${loadingPorts ? 'animate-spin' : ''}`} />
+                    <Settings2 className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="h-6 px-2 text-[10px] shrink-0"
+                    onClick={handleConnect}
+                  >
+                    {t('disconnect')}
                   </Button>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] text-muted-foreground">{t('port')}</label>
-                    <Select value={selectedPort} onValueChange={setSelectedPort} disabled={connected}>
-                      <SelectTrigger className="h-7 text-xs">
-                        <SelectValue placeholder={t('selectPort')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ports.map((p) => (
-                          <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>
-                        ))}
-                        {ports.length === 0 && (
-                          <SelectItem value="_none" disabled>{t('selectPort')}</SelectItem>
-                        )}
-                      </SelectContent>
-                    </Select>
+              ) : (
+                <div className="bg-background border rounded-lg p-2 space-y-1.5">
+                  <div className="flex items-end gap-1.5">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0"
+                      onClick={refreshPorts}
+                      disabled={loadingPorts}
+                      title={t('refresh') || 'Refrescar puertos'}
+                    >
+                      <RefreshCw className={`h-3 w-3 ${loadingPorts ? 'animate-spin' : ''}`} />
+                    </Button>
+                    <div className="flex-1 min-w-0">
+                      <label className="text-[10px] text-muted-foreground">{t('port')}</label>
+                      <Select value={selectedPort} onValueChange={setSelectedPort}>
+                        <SelectTrigger className="h-7 text-xs">
+                          <SelectValue placeholder={t('selectPort')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ports.map((p) => (
+                            <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>
+                          ))}
+                          {ports.length === 0 && (
+                            <SelectItem value="_none" disabled>{t('selectPort')}</SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="w-20 shrink-0">
+                      <label className="text-[10px] text-muted-foreground">{t('baudRate')}</label>
+                      <Select value={baudRate.toString()} onValueChange={(v) => setBaudRate(parseInt(v))}>
+                        <SelectTrigger className="h-7 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[9600, 19200, 38400, 57600, 115200].map((b) => (
+                            <SelectItem key={b} value={b.toString()}>{b}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-[10px] text-muted-foreground">{t('baudRate')}</label>
-                    <Select value={baudRate.toString()} onValueChange={(v) => setBaudRate(parseInt(v))} disabled={connected}>
-                      <SelectTrigger className="h-7 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[9600, 19200, 38400, 57600, 115200].map((b) => (
-                          <SelectItem key={b} value={b.toString()}>{b}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="flex gap-1">
                   <Button
-                    className="flex-1"
-                    variant={connected ? 'destructive' : 'default'}
+                    className="w-full h-7"
                     size="sm"
                     onClick={handleConnect}
                   >
-                    {connected ? t('disconnect') : t('connect')}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-8 w-8 shrink-0"
-                    onClick={() => useAppStore.getState().openModal('grblSettings')}
-                    disabled={!connected}
-                    title="GRBL Settings ($$)"
-                  >
-                    <Settings2 className="h-3.5 w-3.5" />
+                    {t('connect')}
                   </Button>
                 </div>
-              </div>
+              )}
+
+              {/* ── Error/Alarm Banner ── */}
+              {lastError && (() => {
+                const key = lastError.split(' ')[0].trim()
+                const info = GRBL_ERRORS[key]
+                const desc = info ? (language === 'en' ? info.en : info.es) : lastError
+                return (
+                  <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-red-400 flex items-center gap-1.5">
+                        <ShieldAlert className="h-3.5 w-3.5" />
+                        {key}
+                      </span>
+                      <Button variant="ghost" size="sm" className="h-5 text-[10px]" onClick={clearLastError}>
+                        X
+                      </Button>
+                    </div>
+                    <p className="text-xs text-red-300">{desc}</p>
+                    {info && info.recovery.length > 0 && (
+                      <div className="flex gap-1 flex-wrap">
+                        {info.recovery.includes('reset') && (
+                          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => { serial.reset(); clearLastError() }}>
+                            <RotateCcw className="h-3 w-3 mr-1" /> {t('reset')}
+                          </Button>
+                        )}
+                        {info.recovery.includes('unlock') && (
+                          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => { serial.unlock(); clearLastError() }}>
+                            <Unlock className="h-3 w-3 mr-1" /> {t('unlock')}
+                          </Button>
+                        )}
+                        {info.recovery.includes('home') && (
+                          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => { serial.home(); clearLastError() }}>
+                            <Home className="h-3 w-3 mr-1" /> {t('home')}
+                          </Button>
+                        )}
+                        {info.recovery.includes('resume') && (
+                          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => { serial.resume(); clearLastError() }}>
+                            <Play className="h-3 w-3 mr-1" /> {t('resume')}
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
 
               {/* ── Estado de Máquina ── */}
               <div className="bg-background border rounded-lg p-3 space-y-3">
@@ -348,16 +434,6 @@ export function ControlPanel() {
                     >
                       {posMode}
                     </button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 text-[10px]"
-                      onClick={() => serial.setZero()}
-                      disabled={!connected}
-                    >
-                      <Target className="h-3 w-3 mr-1" />
-                      {t('setZero')}
-                    </Button>
                   </div>
                 </div>
 
@@ -413,11 +489,14 @@ export function ControlPanel() {
                   <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={serial.reset} disabled={!connected} title={t('reset')}>
                     <RotateCcw className="h-3 w-3 shrink-0" /> <span className="truncate">{t('reset')}</span>
                   </Button>
-                  <Button variant="destructive" size="sm" className="text-xs gap-1 overflow-hidden" onClick={serial.stop} disabled={!connected} title={t('stop')}>
+                  <Button variant="destructive" size="sm" className="text-xs gap-1 overflow-hidden" onClick={serial.abort} disabled={!connected} title={t('stop')}>
                     <OctagonX className="h-3 w-3 shrink-0" /> <span className="truncate">{t('stop')}</span>
                   </Button>
                 </div>
-                <div className="grid grid-cols-3 gap-1">
+                <div className="grid grid-cols-4 gap-1">
+                  <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={() => serial.setZero()} disabled={!connected} title={t('setZero') || 'Fijar origen actual (G10 L20 P1 X0 Y0 Z0)'}>
+                    <Target className="h-3 w-3 shrink-0" /> <span className="truncate">{t('setZero') || 'Set Zero'}</span>
+                  </Button>
                   <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={serial.resume} disabled={!connected}>
                     <Play className="h-3 w-3 shrink-0" /> <span className="truncate">{t('resume')}</span>
                   </Button>
@@ -430,65 +509,148 @@ export function ControlPanel() {
                 </div>
               </div>
 
+              {/* ── Laser / Spindle Power Control ── */}
+              {(() => {
+                const max = isLaser ? 1000 : 24000
+                const presets: { label: string; value: number }[] = isLaser
+                  ? [
+                      { label: t('laserPresetLow') || 'Suave', value: 200 },
+                      { label: t('laserPresetMid') || 'Medio', value: 500 },
+                      { label: t('laserPresetHigh') || 'Fuerte', value: 900 },
+                    ]
+                  : [
+                      { label: t('spindlePresetLow') || 'Lento', value: 6000 },
+                      { label: t('spindlePresetMid') || 'Medio', value: 12000 },
+                      { label: t('spindlePresetHigh') || 'Rápido', value: 20000 },
+                    ]
+                const offCmd = isLaser ? serial.laserOff : () => serial.sendCommand('M5')
+                const testCmd = () => {
+                  serial.sendCommand(`M3 S${laserPower}`)
+                  setTimeout(() => serial.sendCommand(isLaser ? 'M5 S0' : 'M5'), laserTestDuration)
+                }
+                return (
+                  <div className={`bg-background border rounded-lg p-3 space-y-2 ${isLaser ? 'border-orange-500/30' : 'border-blue-500/30'}`}>
+                    <div className="flex items-center justify-between">
+                      <h3 className={`text-xs font-semibold ${isLaser ? 'text-orange-500' : 'text-blue-400'}`}>
+                        {isLaser ? t('laserPower') : (t('spindleSpeed') || 'Velocidad husillo (RPM)')}
+                      </h3>
+                      <span className="text-[10px] font-mono text-muted-foreground">
+                        {isLaser ? `${(laserPower / 10).toFixed(1)}%` : `${laserPower} RPM`}
+                      </span>
+                    </div>
+                    <Slider
+                      min={0}
+                      max={max}
+                      step={isLaser ? 10 : 100}
+                      value={[laserPower]}
+                      onValueChange={([v]) => setLaserPower(v)}
+                    />
+                    <div className="grid grid-cols-3 gap-1">
+                      {presets.map((p) => (
+                        <Button
+                          key={p.value}
+                          variant={laserPower === p.value ? 'default' : 'outline'}
+                          size="sm"
+                          className="text-xs h-7"
+                          onClick={() => setLaserPower(p.value)}
+                        >
+                          {p.label}
+                        </Button>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-3 gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs"
+                        onClick={() => serial.sendCommand(`S${laserPower}`)}
+                        disabled={!connected}
+                      >
+                        {t('laserSetPower')}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs gap-1"
+                        onClick={testCmd}
+                        disabled={!connected}
+                      >
+                        <TestTube className="h-3 w-3" />
+                        {t('laserTestPulse')}
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="text-xs gap-1 font-semibold"
+                        onClick={offCmd}
+                        disabled={!connected}
+                        title={isLaser ? t('laserOff') : (t('spindleOff') || 'Husillo OFF (M5)')}
+                      >
+                        <ZapOff className="h-3 w-3" />
+                        OFF
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })()}
+
               {/* ── Jog ── */}
               <div className="bg-background border rounded-lg p-3 space-y-2">
                 <h3 className="text-xs font-semibold">{t('jog')}</h3>
-                <div className="grid grid-cols-3 gap-1 max-w-[140px] mx-auto">
-                  <div />
-                  <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => serial.jogXY(0, jogDistance, jogSpeed)} disabled={!connected}>
-                    <ArrowUp className="h-4 w-4" />
-                  </Button>
-                  <div />
-                  <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => serial.jogXY(-jogDistance, 0, jogSpeed)} disabled={!connected}>
-                    <ArrowLeft className="h-4 w-4" />
-                  </Button>
-                  <Button variant="outline" size="icon" className="h-9 w-9" onClick={serial.home} disabled={!connected}>
-                    <Home className="h-3 w-3" />
-                  </Button>
-                  <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => serial.jogXY(jogDistance, 0, jogSpeed)} disabled={!connected}>
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                  <div />
-                  <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => serial.jogXY(0, -jogDistance, jogSpeed)} disabled={!connected}>
-                    <ArrowDown className="h-4 w-4" />
-                  </Button>
-                  <div />
-                </div>
-
-                <div className="flex items-center justify-center gap-2">
-                  <span className="text-xs text-blue-500 font-bold">Z</span>
-                  <Button variant="outline" size="sm" className="h-7" onClick={() => serial.jogZ(jogDistance, jogSpeed)} disabled={!connected}>
-                    <ChevronUp className="h-3 w-3" />
-                  </Button>
-                  <Button variant="outline" size="sm" className="h-7" onClick={() => serial.jogZ(-jogDistance, jogSpeed)} disabled={!connected}>
-                    <ChevronDown className="h-3 w-3" />
-                  </Button>
-                </div>
-
-                <Separator />
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] text-muted-foreground">{t('jogDistance')} (mm)</label>
-                    <Select value={jogDistance.toString()} onValueChange={(v) => setJogDistance(parseFloat(v))}>
-                      <SelectTrigger className="h-7 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[0.1, 0.5, 1, 5, 10, 50].map((d) => (
-                          <SelectItem key={d} value={d.toString()}>{d}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                <div className="flex items-center justify-center gap-3">
+                  <div className="flex flex-col gap-1.5 w-24 shrink-0">
+                    <div>
+                      <label className="text-[10px] text-muted-foreground block leading-tight">{t('jogDistance')} (mm)</label>
+                      <Select value={jogDistance.toString()} onValueChange={(v) => setJogDistance(parseFloat(v))}>
+                        <SelectTrigger className="h-7 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[0.1, 0.5, 1, 5, 10, 50].map((d) => (
+                            <SelectItem key={d} value={d.toString()}>{d}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-muted-foreground block leading-tight">{t('jogSpeed')}</label>
+                      <Input
+                        type="number"
+                        value={jogSpeed}
+                        onChange={(e) => setJogSpeed(parseInt(e.target.value) || 1000)}
+                        className="h-7 text-xs"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-[10px] text-muted-foreground">{t('jogSpeed')}</label>
-                    <Input
-                      type="number"
-                      value={jogSpeed}
-                      onChange={(e) => setJogSpeed(parseInt(e.target.value) || 1000)}
-                      className="h-7 text-xs"
-                    />
+                  <div className="grid grid-cols-3 gap-1">
+                    <div />
+                    <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => serial.jogXY(0, jogDistance, jogSpeed)} disabled={!connected}>
+                      <ArrowUp className="h-4 w-4" />
+                    </Button>
+                    <div />
+                    <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => serial.jogXY(-jogDistance, 0, jogSpeed)} disabled={!connected}>
+                      <ArrowLeft className="h-4 w-4" />
+                    </Button>
+                    <Button variant="outline" size="icon" className="h-9 w-9" onClick={serial.home} disabled={!connected}>
+                      <Home className="h-3 w-3" />
+                    </Button>
+                    <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => serial.jogXY(jogDistance, 0, jogSpeed)} disabled={!connected}>
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                    <div />
+                    <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => serial.jogXY(0, -jogDistance, jogSpeed)} disabled={!connected}>
+                      <ArrowDown className="h-4 w-4" />
+                    </Button>
+                    <div />
+                  </div>
+                  <div className="flex flex-col items-center gap-1">
+                    <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => serial.jogZ(jogDistance, jogSpeed)} disabled={!connected} title="Z+">
+                      <ChevronUp className="h-4 w-4 text-blue-500" />
+                    </Button>
+                    <span className="text-[10px] text-blue-500 font-bold leading-none">Z</span>
+                    <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => serial.jogZ(-jogDistance, jogSpeed)} disabled={!connected} title="Z-">
+                      <ChevronDown className="h-4 w-4 text-blue-500" />
+                    </Button>
                   </div>
                 </div>
               </div>

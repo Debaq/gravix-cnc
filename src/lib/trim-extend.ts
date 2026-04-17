@@ -16,6 +16,7 @@ import {
   Point,
   util,
 } from 'fabric'
+import type { TMat2D } from 'fabric'
 import { linearizeCubicBezier, linearizeQuadraticBezier } from '@/lib/geometry'
 
 // ============================================
@@ -497,7 +498,7 @@ function canvasToPathLocal(canvasPt: Point2D, pathObj: Path): Point2D {
  * Aplica una matriz de transformación a un punto local.
  */
 function txMatrix(x: number, y: number, matrix: number[]): Point2D {
-  const pt = util.transformPoint(new Point(x, y), matrix)
+  const pt = util.transformPoint(new Point(x, y), matrix as TMat2D)
   return { x: pt.x, y: pt.y }
 }
 

@@ -19,6 +19,7 @@ interface WorkflowState {
   currentStepIndex: number
   workflowRunning: boolean
   addStep: (step: WorkflowStep) => void
+  updateStep: (id: string, data: Partial<Omit<WorkflowStep, 'id'>>) => void
   removeStep: (id: string) => void
   moveStep: (fromIndex: number, toIndex: number) => void
   setStepStatus: (id: string, status: WorkflowStep['status']) => void
@@ -28,6 +29,10 @@ interface WorkflowState {
   resetWorkflow: () => void
   clearSteps: () => void
 
+  // Highlight para step recién añadido
+  highlightStepId: string | null
+  clearHighlight: () => void
+
   // GCode actual en ejecución
   activeGCode: string
   activeGCodeName: string
@@ -36,17 +41,25 @@ interface WorkflowState {
   setActiveGCode: (name: string, gcode: string) => void
   setActiveGCodeLine: (line: number) => void
   clearActiveGCode: () => void
+
+  // Simulación
+  simulating: boolean
+  simPaused: boolean
+  simSpeed: number  // ms por línea
+  simulatedPos: { x: number; y: number; z: number }
+  simulatedFeed: number
+  simulatedSpindle: number
+  setSimulating: (v: boolean) => void
+  setSimPaused: (v: boolean) => void
+  setSimSpeed: (ms: number) => void
+  setSimulatedPos: (pos: { x: number; y: number; z: number }) => void
+  setSimulatedFeed: (f: number) => void
+  setSimulatedSpindle: (s: number) => void
 }
 
 export const useWorkflowStore = create<WorkflowState>((set) => ({
-  // Macros - presets de ejemplo
-  macros: [
-    { id: 'probe-z', name: 'Probe Z', gcode: 'G38.2 Z-20 F100\nG10 L20 P1 Z0\nG0 Z5', icon: 'probe' },
-    { id: 'spindle-on', name: 'Spindle ON', gcode: 'M3 S12000', icon: 'cog' },
-    { id: 'spindle-off', name: 'Spindle OFF', gcode: 'M5', icon: 'cog' },
-    { id: 'coolant-on', name: 'Coolant ON', gcode: 'M8', icon: 'droplet' },
-    { id: 'coolant-off', name: 'Coolant OFF', gcode: 'M9', icon: 'droplet' },
-  ],
+  // Macros de usuario (los built-ins se generan dinamicamente en UI segun operationType)
+  macros: [],
   addMacro: (macro) => set((s) => ({ macros: [...s.macros, macro] })),
   removeMacro: (id) => set((s) => ({ macros: s.macros.filter((m) => m.id !== id) })),
   updateMacro: (id, data) =>
@@ -65,7 +78,11 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   steps: [],
   currentStepIndex: -1,
   workflowRunning: false,
-  addStep: (step) => set((s) => ({ steps: [...s.steps, step] })),
+  highlightStepId: null,
+  clearHighlight: () => set({ highlightStepId: null }),
+  addStep: (step) => set((s) => ({ steps: [...s.steps, step], highlightStepId: step.id })),
+  updateStep: (id, data) =>
+    set((s) => ({ steps: s.steps.map((st) => (st.id === id ? { ...st, ...data } : st)) })),
   removeStep: (id) => set((s) => ({ steps: s.steps.filter((st) => st.id !== id) })),
   moveStep: (from, to) =>
     set((s) => {
@@ -109,4 +126,18 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   setActiveGCodeLine: (line) => set({ activeGCodeLine: line }),
   clearActiveGCode: () =>
     set({ activeGCode: '', activeGCodeName: '', activeGCodeLine: 0, activeGCodeTotal: 0 }),
+
+  // Simulación
+  simulating: false,
+  simPaused: false,
+  simSpeed: 50,
+  simulatedPos: { x: 0, y: 0, z: 0 },
+  simulatedFeed: 0,
+  simulatedSpindle: 0,
+  setSimulating: (v) => set({ simulating: v, simPaused: false }),
+  setSimPaused: (v) => set({ simPaused: v }),
+  setSimSpeed: (ms) => set({ simSpeed: ms }),
+  setSimulatedPos: (pos) => set({ simulatedPos: pos }),
+  setSimulatedFeed: (f) => set({ simulatedFeed: f }),
+  setSimulatedSpindle: (s) => set({ simulatedSpindle: s }),
 }))

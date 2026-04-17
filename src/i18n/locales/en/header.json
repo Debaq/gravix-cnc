@@ -2,9 +2,9 @@
   "newProject": "New Project",
   "openProject": "Open Project",
   "saveProject": "Save Project",
-  "design": "Design",
-  "preview": "Preview",
-  "control": "Control",
+  "cad": "CAD",
+  "cam": "CAM",
+  "cnc": "CNC",
   "globalConfig": "Global Config",
   "tools": "Tools",
   "materials": "Materials",
@@ -12,5 +12,11 @@
   "grblSettings": "GRBL Settings",
   "help": "Help",
   "language": "Language",
-  "modified": "Modified"
+  "modified": "Modified",
+  "setupWizard": "Setup",
+  "dryRun": "Test Area",
+  "networkServer": "Network Server",
+  "library": "Library",
+  "export": "Export",
+  "backToProjects": "Back to Projects"
 }

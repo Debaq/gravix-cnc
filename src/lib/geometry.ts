@@ -479,6 +479,114 @@ export function generateHatchLines(
 }
 
 // ============================================
+// ANCHO MÍNIMO DE FEATURES (Tool vs Geometry)
+// ============================================
+
+/**
+ * Distancia punto-a-segmento (perpendicular o al extremo más cercano).
+ */
+function pointToSegmentDist(p: Point2D, a: Point2D, b: Point2D): number {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const lenSq = dx * dx + dy * dy
+  if (lenSq < 1e-10) return Math.hypot(p.x - a.x, p.y - a.y)
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq))
+  const projX = a.x + t * dx
+  const projY = a.y + t * dy
+  return Math.hypot(p.x - projX, p.y - projY)
+}
+
+/**
+ * Estima el ancho mínimo de un polígono cerrado.
+ * Para cada vértice, mide distancia a aristas no adyacentes.
+ * El mínimo es una aproximación del "cuello" más estrecho.
+ *
+ * Para paths con muchos puntos (ej: texto), samplea cada N puntos.
+ */
+export function estimateMinFeatureWidth(points: Point2D[]): number {
+  const n = points.length
+  if (n < 3) return 0
+
+  let minWidth = Infinity
+
+  // Sampleo: max ~200 puntos para mantener O(n²) manejable
+  const step = Math.max(1, Math.floor(n / 200))
+
+  for (let i = 0; i < n; i += step) {
+    const p = points[i]
+
+    for (let j = 0; j < n; j++) {
+      // Saltar aristas adyacentes (misma arista y vecinas)
+      const next = (j + 1) % n
+      if (j === i || j === (i - 1 + n) % n || next === i || next === (i + 1) % n) continue
+
+      const a = points[j]
+      const b = points[next]
+      const dist = pointToSegmentDist(p, a, b)
+      if (dist < minWidth) minWidth = dist
+    }
+  }
+
+  return minWidth === Infinity ? 0 : minWidth
+}
+
+/**
+ * Valida si una herramienta CNC cabe en un conjunto de paths.
+ * Retorna warnings para paths donde el diámetro de herramienta es mayor
+ * que el ancho mínimo del feature.
+ */
+export function validateToolVsPaths(
+  paths: { points: Point2D[]; closed: boolean }[],
+  toolDiameter: number,
+  workType: string,
+): { warnings: string[]; errors: string[] } {
+  const warnings: string[] = []
+  const errors: string[] = []
+
+  if (toolDiameter <= 0) return { warnings, errors }
+
+  const toolRadius = toolDiameter / 2
+
+  for (let i = 0; i < paths.length; i++) {
+    const path = paths[i]
+    if (!path.closed || path.points.length < 3) continue
+
+    const minWidth = estimateMinFeatureWidth(path.points)
+    if (minWidth <= 0) continue
+
+    if (workType === 'inside' || workType === 'pocket') {
+      // Herramienta debe caber adentro: diámetro < ancho mínimo
+      if (toolDiameter >= minWidth) {
+        errors.push(
+          `Path ${i + 1}: herramienta ${toolDiameter}mm no cabe en shape de ${minWidth.toFixed(2)}mm ancho (${workType})`
+        )
+      } else if (toolDiameter > minWidth * 0.8) {
+        warnings.push(
+          `Path ${i + 1}: herramienta ${toolDiameter}mm muy ajustada para shape de ${minWidth.toFixed(2)}mm (${workType})`
+        )
+      }
+    } else if (workType === 'outline') {
+      // En outline, herramienta corta a lo largo del path — si el feature es
+      // más angosto que el diámetro, detalle se pierde
+      if (toolDiameter > minWidth) {
+        warnings.push(
+          `Path ${i + 1}: herramienta ${toolDiameter}mm mas ancha que detalle de ${minWidth.toFixed(2)}mm — se perdera detalle`
+        )
+      }
+    } else if (workType === 'vcarve' || workType === 'chamfer') {
+      // V-carve/chamfer adaptan profundidad, pero si es extremo, advertir
+      if (toolDiameter > minWidth * 2) {
+        warnings.push(
+          `Path ${i + 1}: herramienta ${toolDiameter}mm grande para detalle de ${minWidth.toFixed(2)}mm`
+        )
+      }
+    }
+  }
+
+  return { warnings, errors }
+}
+
+// ============================================
 // ARCO POR 3 PUNTOS
 // ============================================
 

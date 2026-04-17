@@ -3,42 +3,59 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --color-background: oklch(1 0 0);
-  --color-foreground: oklch(0.145 0 0);
+  /* Light mode tokens */
+  --color-background: oklch(0.965 0.008 30); /* gris cálido rosado — cards blancas flotan */
+  --color-foreground: oklch(0.145 0.012 30);
   --color-card: oklch(1 0 0);
-  --color-card-foreground: oklch(0.145 0 0);
+  --color-card-foreground: oklch(0.145 0.012 30);
   --color-popover: oklch(1 0 0);
-  --color-popover-foreground: oklch(0.145 0 0);
-  --color-primary: oklch(0.4 0.12 280);
+  --color-popover-foreground: oklch(0.145 0.012 30);
+  --color-primary: oklch(0.22 0.018 25);
   --color-primary-foreground: oklch(0.985 0 0);
-  --color-secondary: oklch(0.97 0 0);
-  --color-secondary-foreground: oklch(0.205 0 0);
-  --color-muted: oklch(0.97 0 0);
-  --color-muted-foreground: oklch(0.556 0 0);
-  --color-accent: oklch(0.97 0 0);
-  --color-accent-foreground: oklch(0.205 0 0);
-  --color-destructive: oklch(0.577 0.245 27.325);
-  --color-destructive-foreground: oklch(0.577 0.245 27.325);
-  --color-border: oklch(0.922 0 0);
-  --color-input: oklch(0.922 0 0);
-  --color-ring: oklch(0.4 0.12 280);
-  --color-chart-1: oklch(0.646 0.222 41.116);
-  --color-chart-2: oklch(0.6 0.118 184.704);
-  --color-chart-3: oklch(0.398 0.07 227.392);
-  --color-chart-4: oklch(0.828 0.189 84.429);
-  --color-chart-5: oklch(0.769 0.188 70.08);
-  --color-sidebar-background: oklch(0.985 0 0);
-  --color-sidebar-foreground: oklch(0.145 0 0);
-  --color-sidebar-primary: oklch(0.4 0.12 280);
+  --color-secondary: oklch(0.965 0.006 30);
+  --color-secondary-foreground: oklch(0.22 0.018 25);
+  --color-muted: oklch(0.965 0.006 30);
+  --color-muted-foreground: oklch(0.52 0.015 25);
+  --color-accent: oklch(0.577 0.245 27);
+  --color-accent-foreground: oklch(0.985 0 0);
+  --color-destructive: oklch(0.577 0.245 27);
+  --color-destructive-foreground: oklch(0.985 0 0);
+  --color-border: oklch(0.905 0.008 30);
+  --color-input: oklch(0.905 0.008 30);
+  --color-ring: oklch(0.577 0.245 27);
+
+  /* Charts */
+  --color-chart-1: oklch(0.577 0.245 27);
+  --color-chart-2: oklch(0.6 0.118 184);
+  --color-chart-3: oklch(0.65 0.16 55);
+  --color-chart-4: oklch(0.55 0.13 240);
+  --color-chart-5: oklch(0.68 0.13 150);
+
+  /* Sidebar */
+  --color-sidebar-background: oklch(0.985 0.004 30);
+  --color-sidebar-foreground: oklch(0.145 0.012 30);
+  --color-sidebar-primary: oklch(0.22 0.018 25);
   --color-sidebar-primary-foreground: oklch(0.985 0 0);
-  --color-sidebar-accent: oklch(0.97 0 0);
-  --color-sidebar-accent-foreground: oklch(0.205 0 0);
-  --color-sidebar-border: oklch(0.922 0 0);
-  --color-sidebar-ring: oklch(0.4 0.12 280);
-  --radius-sm: 0.25rem;
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
-  --radius-xl: 0.75rem;
+  --color-sidebar-accent: oklch(0.965 0.006 30);
+  --color-sidebar-accent-foreground: oklch(0.22 0.018 25);
+  --color-sidebar-border: oklch(0.905 0.008 30);
+  --color-sidebar-ring: oklch(0.577 0.245 27);
+
+  /* Semantic state colors */
+  --color-success-bg: oklch(0.95 0.04 160);
+  --color-success-fg: oklch(0.35 0.1 160);
+  --color-warning-bg: oklch(0.96 0.05 80);
+  --color-warning-fg: oklch(0.45 0.12 60);
+  --color-error-bg: oklch(0.96 0.04 27);
+  --color-error-fg: oklch(0.45 0.18 27);
+  --color-info-bg: oklch(0.95 0.03 240);
+  --color-info-fg: oklch(0.38 0.1 240);
+
+  /* Radii — design system */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
 }
 
 @layer base {
@@ -51,11 +68,49 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  code, pre, .font-mono, [class*="mono"] {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  /* Dark mode overrides */
+  .dark {
+    --color-background: oklch(0.12 0.012 25);
+    --color-foreground: oklch(0.985 0 0);
+    --color-card: oklch(0.16 0.012 25);
+    --color-card-foreground: oklch(0.985 0 0);
+    --color-popover: oklch(0.16 0.012 25);
+    --color-popover-foreground: oklch(0.985 0 0);
+    --color-primary: oklch(0.985 0 0);
+    --color-primary-foreground: oklch(0.22 0.018 25);
+    --color-secondary: oklch(0.22 0.018 25);
+    --color-secondary-foreground: oklch(0.985 0 0);
+    --color-muted: oklch(0.22 0.018 25);
+    --color-muted-foreground: oklch(0.62 0.015 25);
+    --color-accent: oklch(0.577 0.245 27);
+    --color-accent-foreground: oklch(0.985 0 0);
+    --color-destructive: oklch(0.577 0.245 27);
+    --color-destructive-foreground: oklch(0.985 0 0);
+    --color-border: oklch(0.28 0.018 25);
+    --color-input: oklch(0.28 0.018 25);
+    --color-ring: oklch(0.577 0.245 27);
+    --color-sidebar-background: oklch(0.14 0.012 25);
+    --color-sidebar-foreground: oklch(0.985 0 0);
+    --color-sidebar-primary: oklch(0.985 0 0);
+    --color-sidebar-primary-foreground: oklch(0.22 0.018 25);
+    --color-sidebar-accent: oklch(0.22 0.018 25);
+    --color-sidebar-accent-foreground: oklch(0.985 0 0);
+    --color-sidebar-border: oklch(0.28 0.018 25);
+    --color-sidebar-ring: oklch(0.577 0.245 27);
   }
 }
 
-/* Canvas container styles */
+/* Canvas container */
 .canvas-container {
   position: relative;
   width: 100%;
@@ -63,14 +118,20 @@
   overflow: hidden;
 }
 
-/* Three.js viewer container */
+/* Three.js viewer */
 .viewer-3d-container {
   position: relative;
   width: 100%;
   height: 100%;
 }
 
-/* Scrollbar customization */
+/* Fix Radix ScrollArea display:table overflow */
+[data-radix-scroll-area-viewport] > div {
+  display: block !important;
+  min-width: 0 !important;
+}
+
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -81,10 +142,29 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: oklch(0.7 0.05 280);
+  background: oklch(0.72 0.018 25);
   border-radius: 3px;
 }
 
+.dark ::-webkit-scrollbar-thumb {
+  background: oklch(0.35 0.018 25);
+}
+
 ::-webkit-scrollbar-thumb:hover {
-  background: oklch(0.5 0.1 280);
+  background: oklch(0.52 0.015 25);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.45 0.018 25);
+}
+
+/* Workflow step highlight animation */
+@keyframes workflow-highlight {
+  0% { background-color: oklch(0.85 0.15 145); }
+  30% { background-color: oklch(0.92 0.08 145); }
+  60% { background-color: oklch(0.85 0.15 145); }
+  100% { background-color: transparent; }
+}
+.animate-workflow-highlight {
+  animation: workflow-highlight 1.8s ease-out;
 }

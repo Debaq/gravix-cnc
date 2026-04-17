@@ -1,0 +1,15 @@
+{
+  "title": "Activate Gravix",
+  "trialEnded": "Your free trial has ended.",
+  "trialActive": "Free trial: {{days}} days remaining",
+  "enterKey": "Enter your license key:",
+  "placeholder": "eyJhbGciOiJFUzI1NiJ9...",
+  "activate": "Activate",
+  "buy": "Buy",
+  "activating": "Activating...",
+  "success": "License activated successfully",
+  "invalidKey": "Invalid key",
+  "licensedTo": "Licensed to: {{email}}",
+  "removeLicense": "Deactivate license",
+  "exportBlocked": "Activate a license to export G-code"
+}

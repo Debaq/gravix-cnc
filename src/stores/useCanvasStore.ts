@@ -66,6 +66,10 @@ interface CanvasState {
   nodeEditSelectedNode: number   // índice del nodo seleccionado, -1 = ninguno
   nodeConstraints: { id: string; type: string; nodeIndex: number }[]
 
+  // Toolbar layout
+  toolbarColumns: 1 | 2 | 3
+  cycleToolbarColumns: () => void
+
   // Layers
   layers: Layer[]
   activeLayerId: string
@@ -218,6 +222,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   // Raster data
   rasterData: null,
+
+  // Toolbar layout
+  toolbarColumns: 1 as 1 | 2 | 3,
+  cycleToolbarColumns: () => set((state) => ({
+    toolbarColumns: (state.toolbarColumns === 1 ? 2 : state.toolbarColumns === 2 ? 3 : 1) as 1 | 2 | 3,
+  })),
 
   // Snap
   snapToGrid: true,

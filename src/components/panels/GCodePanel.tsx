@@ -57,7 +57,7 @@ export function GCodePanel() {
     const uniqueTools = new Set(jobs.map(j => j.config.tool).filter(Boolean)).size
     addConsoleLine(`G-code generado: ${lineCount} lineas, ${jobs.length} elementos, ${uniqueTools} herramientas`)
 
-    setWorkspace('preview')
+    setWorkspace('cam')
   }
 
   const handleDownload = () => {
@@ -74,15 +74,13 @@ export function GCodePanel() {
   const handleDryRun = () => {
     if (!connected || sending) return
     const jobs = getJobsForGCode()
-    const bbox = computeBBox(jobs)
-    if (!bbox) {
-      addConsoleLine(t('dryRunNoElements'))
-      return
-    }
+    const elementBBox = computeBBox(jobs)
+    const { workArea } = useCanvasStore.getState()
+    const bbox = elementBBox ?? { minX: 0, minY: 0, maxX: workArea.width, maxY: workArea.height }
     const isLaser = globalConfig.operationType === 'laser'
     const gcode = generateBoundaryGCode(bbox, isLaser ? 'laser' : 'cnc', 5, 10)
     serial.sendGCode(gcode)
-    addConsoleLine(t('dryRunStarted'))
+    addConsoleLine(elementBBox ? t('dryRunStarted') : t('dryRunWorkArea'))
   }
 
   const handleSendToWorkflow = () => {
@@ -95,6 +93,7 @@ export function GCodePanel() {
       status: 'pending',
     })
     addConsoleLine(t('sentToWorkflow'))
+    setWorkspace('cnc')
   }
 
   const handleCancelSend = () => {

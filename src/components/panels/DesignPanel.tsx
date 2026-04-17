@@ -54,6 +54,7 @@ export function DesignPanel() {
   const handleBoxGenerator = () => openModal('boxGenerator')
   const canvasManager = useCanvasManager()
   const svgInputRef = useRef<HTMLInputElement>(null)
+  const dxfInputRef = useRef<HTMLInputElement>(null)
 
   // Resolve display names
   const toolName = tools.find((t) => t.id === globalConfig.tool)?.name
@@ -68,6 +69,18 @@ export function DesignPanel() {
     if (!file) return
     canvasManager.loadSVG(file)
     addConsoleLine(`SVG cargado: ${file.name}`)
+    e.target.value = ''
+  }
+
+  const handleLoadDXF = () => {
+    dxfInputRef.current?.click()
+  }
+
+  const handleDXFChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    canvasManager.loadDXF(file)
+    addConsoleLine(`DXF cargado: ${file.name}`)
     e.target.value = ''
   }
 
@@ -92,23 +105,28 @@ export function DesignPanel() {
     }
     addConsoleLine(`Copiado: ${el.name}`)
   }
+return (
+  <div className="space-y-3">
+    <input
+      ref={svgInputRef}
+      type="file"
+      accept=".svg"
+      className="hidden"
+      onChange={handleSVGChange}
+    />
+    <input
+      ref={dxfInputRef}
+      type="file"
+      accept=".dxf"
+      className="hidden"
+      onChange={handleDXFChange}
+    />
 
-  return (
-    <div className="space-y-3">
-      <input
-        ref={svgInputRef}
-        type="file"
-        accept=".svg"
-        className="hidden"
-        onChange={handleSVGChange}
-      />
-
-      {/* Work Area Summary */}
-      <button
-        className="w-full text-left rounded-md border bg-muted/30 px-3 py-2 hover:bg-muted/60 transition-colors"
-        onClick={() => openModal('workArea')}
-      >
-        <div className="flex items-center justify-between mb-1">
+    {/* Work Area Summary */}
+    <button
+      className="w-full text-left rounded-md border bg-muted/30 px-3 py-2 hover:bg-muted/60 transition-colors"
+      onClick={() => openModal('workArea')}
+    >        <div className="flex items-center justify-between mb-1">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
             <Grid3X3 className="h-3 w-3" />
             {ts('workArea.title')}
@@ -175,6 +193,9 @@ export function DesignPanel() {
             <DropdownMenuContent align="end">
               <DropdownMenuItem onSelect={handleLoadSVG}>
                 {t('loadSVG')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleLoadDXF}>
+                {t('loadDXF') || 'Cargar DXF'}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={handleLoadImage}>
                 {t('loadImage')}

@@ -16,10 +16,19 @@ export interface GCodeSegment {
   type: SegmentType
   lineNumber: number
   color?: string  // hex color from plotter color groups or laser color mapping
+  operationId?: string  // element name + work type from generator comments
+}
+
+export interface GCodePausePoint {
+  lineNumber: number
+  type: 'pause' | 'tool-change' | 'message'
+  message: string
+  segmentIndex: number // index in segments array at this point
 }
 
 export interface GCodeParseResult {
   segments: GCodeSegment[]
+  pausePoints: GCodePausePoint[]
   stats: {
     totalDistance: number
     maxDepth: number
@@ -72,6 +81,7 @@ function estimateSegmentTime(dist: number, feedRate: number): number {
  */
 export function parseGCode(gcodeStr: string): GCodeParseResult {
   const segments: GCodeSegment[] = []
+  const pausePoints: GCodePausePoint[] = []
   let totalDistance = 0
   let rapidDistance = 0
   let cutDistance = 0
@@ -89,11 +99,30 @@ export function parseGCode(gcodeStr: string): GCodeParseResult {
   let currentFeedRate = 1000 // mm/min default
   const rapidFeedRate = 5000 // mm/min assumed for G0
   let currentColor: string | undefined
+  let currentOperationId: string | undefined
 
   const lines = gcodeStr.split('\n')
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i]
+
+    // Parse operation boundary: "; Element: Name (workType)"
+    const opMatch = raw.match(/^;\s*Element:\s*(.+?)\s*\((\w+)\)\s*$/)
+    if (opMatch) {
+      currentOperationId = `${opMatch[1]}:${opMatch[2]}`
+    }
+
+    // Parse CAM markers: "; @PAUSE: msg", "; @TOOL-CHANGE: msg", "; @MSG: msg"
+    const markerMatch = raw.match(/^;\s*@(PAUSE|TOOL-CHANGE|MSG):\s*(.*)$/)
+    if (markerMatch) {
+      const mType = markerMatch[1] === 'PAUSE' ? 'pause' : markerMatch[1] === 'TOOL-CHANGE' ? 'tool-change' : 'message'
+      pausePoints.push({
+        lineNumber: i + 1,
+        type: mType,
+        message: markerMatch[2].trim(),
+        segmentIndex: segments.length,
+      })
+    }
 
     // Parse color from comments: "; --- Color group: #rrggbb ..." or "; --- #rrggbb ..."
     const colorMatch = raw.match(/;\s*---.*?(#[0-9a-fA-F]{6})/)
@@ -160,7 +189,7 @@ export function parseGCode(gcodeStr: string): GCodeParseResult {
         segType = 'cut'
       }
 
-      segments.push({ from, to, type: segType, lineNumber: i + 1, color: currentColor })
+      segments.push({ from, to, type: segType, lineNumber: i + 1, color: currentColor, operationId: currentOperationId })
 
       const dist = distance3D(from, to)
       totalDistance += dist
@@ -185,6 +214,7 @@ export function parseGCode(gcodeStr: string): GCodeParseResult {
 
   return {
     segments,
+    pausePoints,
     stats: {
       totalDistance,
       maxDepth,

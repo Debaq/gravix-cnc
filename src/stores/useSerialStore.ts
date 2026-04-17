@@ -29,6 +29,14 @@ interface SerialState {
   sending: boolean
   sendProgress: number
 
+  // Laser power control
+  laserPower: number
+  laserTestDuration: number
+
+  // Error tracking
+  lastError: string | null
+  lastErrorTime: number | null
+
   // Actions
   setConnected: (connected: boolean) => void
   setPort: (port: string) => void
@@ -43,6 +51,10 @@ interface SerialState {
   setMaxTravel: (travel: { x: number; y: number; z: number }) => void
   setSoftLimitsEnabled: (enabled: boolean) => void
   setActiveWorkspace: (ws: string) => void
+  setLaserPower: (power: number) => void
+  setLaserTestDuration: (ms: number) => void
+  setLastError: (error: string | null) => void
+  clearLastError: () => void
   setSending: (sending: boolean) => void
   setSendProgress: (progress: number) => void
 }
@@ -75,6 +87,14 @@ export const useSerialStore = create<SerialState>((set) => ({
   sending: false,
   sendProgress: 0,
 
+  // Laser power control
+  laserPower: 0,
+  laserTestDuration: 500,
+
+  // Error tracking
+  lastError: null,
+  lastErrorTime: null,
+
   // Actions
   setConnected: (connected) => set({ connected }),
   setPort: (port) => set({ port }),
@@ -95,6 +115,10 @@ export const useSerialStore = create<SerialState>((set) => ({
   setMaxTravel: (travel) => set({ maxTravel: travel }),
   setSoftLimitsEnabled: (enabled) => set({ softLimitsEnabled: enabled }),
   setActiveWorkspace: (ws) => set({ activeWorkspace: ws }),
+  setLaserPower: (power) => set({ laserPower: Math.max(0, Math.min(1000, power)) }),
+  setLaserTestDuration: (ms) => set({ laserTestDuration: Math.max(100, Math.min(5000, ms)) }),
+  setLastError: (error) => set({ lastError: error, lastErrorTime: error ? Date.now() : null }),
+  clearLastError: () => set({ lastError: null, lastErrorTime: null }),
   setSending: (sending) => set({ sending }),
   setSendProgress: (progress) => set({ sendProgress: progress }),
 }))

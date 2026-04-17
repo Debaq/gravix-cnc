@@ -4,6 +4,7 @@ import { useGCodeStore } from '@/stores/useGCodeStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useAppStore } from '@/stores/useAppStore'
 import { useSerialStore } from '@/stores/useSerialStore'
+import { useWorkflowStore } from '@/stores/useWorkflowStore'
 import { useSerial } from '@/hooks/useSerial'
 import { useProject } from '@/hooks/useProject'
 import { useCanvasManager } from '@/hooks/useCanvasManager'
@@ -16,11 +17,13 @@ import {
   AlertTriangle,
   Copy,
   Download,
-  Send,
   Square,
   Box,
+  ListPlus,
+  Scan,
 } from 'lucide-react'
 import { GCodeGenerator } from '@/lib/gcode-generator'
+import { generateBoundaryGCode, computeBBox } from '@/components/modals/SetupWizardModal'
 
 function GCodeLineViewer() {
   const { t } = useTranslation('gcode')
@@ -51,7 +54,7 @@ function GCodeLineViewer() {
       </div>
       <div
         ref={containerRef}
-        className="max-h-[50vh] overflow-auto rounded-md border bg-muted/50 font-mono text-xs"
+        className="max-h-[40vh] overflow-auto rounded-md border bg-muted/50 font-mono text-xs max-w-full"
       >
         {lines.map((line, i) => {
           const lineNum = i + 1
@@ -73,7 +76,7 @@ function GCodeLineViewer() {
               >
                 {lineNum}
               </span>
-              <span className="whitespace-pre">{line}</span>
+              <span className="whitespace-pre overflow-hidden text-ellipsis">{line}</span>
             </div>
           )
         })}
@@ -97,9 +100,10 @@ export function PreviewPanel() {
   } = useGCodeStore()
 
   const { globalConfig, rasterData } = useCanvasStore()
-  const { addConsoleLine } = useAppStore()
+  const { addConsoleLine, setWorkspace } = useAppStore()
   const { setGCode, setEstimates } = useGCodeStore()
   const { connected, sending, sendProgress } = useSerialStore()
+  const { addStep } = useWorkflowStore()
   const serial = useSerial()
   const project = useProject()
   const { getJobsForGCode } = useCanvasManager()
@@ -118,19 +122,16 @@ export function PreviewPanel() {
       return
     }
 
-    // Validate: CNC jobs need a tool or at least a toolDiameter > 0
+    // Validate: CNC jobs MUST have a tool selected
     const cncJobsNoTool = jobs.filter(
-      (j) => j.config.operationType === 'cnc' && !j.config.tool && j.config.toolDiameter <= 0,
+      (j) => j.config.operationType === 'cnc' && !j.config.tool,
     )
     if (cncJobsNoTool.length > 0) {
-      addConsoleLine(`ERROR: ${cncJobsNoTool.length} elemento(s) CNC sin herramienta ni diametro configurado`)
+      for (const j of cncJobsNoTool) {
+        addConsoleLine(`ERROR: "${j.elementName}" no tiene herramienta asignada`)
+      }
+      addConsoleLine('Selecciona una herramienta para cada elemento CNC antes de generar')
       return
-    }
-
-    // Warn about jobs without tool (but with default diameter)
-    const jobsNoTool = jobs.filter((j) => !j.config.tool)
-    if (jobsNoTool.length > 0) {
-      addConsoleLine(`AVISO: ${jobsNoTool.length} elemento(s) sin herramienta asignada - usando diametro por defecto (${jobsNoTool[0].config.toolDiameter}mm)`)
     }
 
     addConsoleLine('Generando G-code...')
@@ -161,9 +162,29 @@ export function PreviewPanel() {
     addConsoleLine('G-code copiado al portapapeles')
   }
 
-  const handleSend = () => {
-    if (!gcodeGenerated || !connected || sending) return
-    serial.sendGCode(gcode)
+  const handleDryRun = () => {
+    if (!connected || sending) return
+    const jobs = getJobsForGCode()
+    const elementBBox = computeBBox(jobs)
+    const { workArea } = useCanvasStore.getState()
+    const bbox = elementBBox ?? { minX: 0, minY: 0, maxX: workArea.width, maxY: workArea.height }
+    const isLaser = globalConfig.operationType === 'laser'
+    const dryGCode = generateBoundaryGCode(bbox, isLaser ? 'laser' : 'cnc', 5, 10)
+    serial.sendGCode(dryGCode)
+    addConsoleLine(elementBBox ? t('dryRunStarted') : t('dryRunWorkArea'))
+  }
+
+  const handleSendToWorkflow = () => {
+    if (!gcodeGenerated) return
+    addStep({
+      id: `step-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      type: 'gcode',
+      name: `G-Code (${gcodeLines} ${t('lines')})`,
+      data: gcode,
+      status: 'pending',
+    })
+    addConsoleLine(t('sentToWorkflow'))
+    setWorkspace('cnc')
   }
 
   if (!gcodeGenerated) {
@@ -188,37 +209,46 @@ export function PreviewPanel() {
   }
 
   return (
-    <div className="space-y-3">
-      {/* Action buttons */}
-      <div className="flex items-center gap-1">
-        <Button
-          variant={gcodeNeedsRegeneration ? 'destructive' : 'default'}
-          size="sm"
-          className="flex-1 gap-1"
-          onClick={handleGenerate}
-        >
-          {gcodeNeedsRegeneration ? (
-            <AlertTriangle className="h-3 w-3" />
+    <div className="space-y-3 min-w-0 overflow-hidden">
+      {/* Action buttons - 2 filas */}
+      <div className="flex flex-col gap-1 min-w-0">
+        <div className="flex items-center gap-1 min-w-0">
+          <Button
+            variant={gcodeNeedsRegeneration ? 'destructive' : 'default'}
+            size="sm"
+            className="flex-1 min-w-0 gap-1 truncate"
+            onClick={handleGenerate}
+          >
+            {gcodeNeedsRegeneration ? (
+              <AlertTriangle className="h-3 w-3 shrink-0" />
+            ) : (
+              <Cog className="h-3 w-3 shrink-0" />
+            )}
+            <span className="truncate">{t('generate')}</span>
+          </Button>
+          <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={handleCopy} title={t('copy')}>
+            <Copy className="h-3 w-3" />
+          </Button>
+          <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={handleDownload} title={t('download')}>
+            <Download className="h-3 w-3" />
+          </Button>
+        </div>
+        <div className="flex items-center gap-1 min-w-0">
+          {sending ? (
+            <Button variant="destructive" size="sm" className="flex-1 min-w-0 gap-1 truncate" onClick={() => serial.cancelSend()}>
+              <Square className="h-3 w-3 shrink-0" />
+              <span className="truncate">{t('stop')}</span>
+            </Button>
           ) : (
-            <Cog className="h-3 w-3" />
+            <Button variant="outline" size="sm" className="flex-1 min-w-0 gap-1 truncate" onClick={handleSendToWorkflow}>
+              <ListPlus className="h-3 w-3 shrink-0" />
+              <span className="truncate">{t('sendToWorkflow')}</span>
+            </Button>
           )}
-          {t('generate')}
-        </Button>
-        <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleCopy} title={t('copy')}>
-          <Copy className="h-3 w-3" />
-        </Button>
-        <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleDownload} title={t('download')}>
-          <Download className="h-3 w-3" />
-        </Button>
-        {sending ? (
-          <Button variant="destructive" size="icon" className="h-8 w-8" onClick={() => serial.cancelSend()} title={t('stop')}>
-            <Square className="h-3 w-3" />
+          <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={handleDryRun} disabled={!connected || sending} title={t('dryRun')}>
+            <Scan className="h-3 w-3" />
           </Button>
-        ) : (
-          <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleSend} disabled={!connected} title={t('sendToGRBL')}>
-            <Send className="h-3 w-3" />
-          </Button>
-        )}
+        </div>
       </div>
 
       {/* Send progress */}

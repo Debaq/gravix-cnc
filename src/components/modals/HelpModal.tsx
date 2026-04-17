@@ -19,7 +19,7 @@ export function HelpModal() {
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && closeModal()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <HelpCircle className="h-5 w-5" />
@@ -51,9 +51,9 @@ export function HelpModal() {
                 {t('workspacesTitle')}
               </h3>
               <ul className="text-sm text-muted-foreground mt-1 space-y-1">
-                <li><strong>{t('design')}:</strong> {t('designDesc')}</li>
-                <li><strong>{t('preview')}:</strong> {t('previewDesc')}</li>
-                <li><strong>{t('control')}:</strong> {t('controlDesc')}</li>
+                <li><strong>{t('cad')}:</strong> {t('cadDesc')}</li>
+                <li><strong>{t('cam')}:</strong> {t('camDesc')}</li>
+                <li><strong>{t('cnc')}:</strong> {t('cncDesc')}</li>
               </ul>
             </div>
 

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Gravix</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 400px;
+      height: 300px;
+      background: #1a1210;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      font-family: Inter, system-ui, sans-serif;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* A grande como marca de agua de fondo */
+    .watermark {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -55%);
+      opacity: 0.06;
+      animation: watermarkIn 0.8s ease both;
+    }
+
+    /* Wordmark central */
+    .wordmark {
+      font-size: 36px;
+      font-weight: 500;
+      letter-spacing: -0.03em;
+      color: #fafafa;
+      z-index: 1;
+      animation: fadeIn 0.4s ease 0.15s both;
+    }
+
+    .wordmark span {
+      color: #E24B4A;
+    }
+
+    .bottom {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      z-index: 1;
+    }
+
+    .bar-track {
+      width: 120px;
+      height: 2px;
+      background: #2e2826;
+      border-radius: 2px;
+      overflow: hidden;
+      animation: fadeIn 0.4s ease 0.3s both;
+    }
+
+    .bar-fill {
+      height: 2px;
+      background: #E24B4A;
+      border-radius: 2px;
+      animation: load 1.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    }
+
+    .version {
+      font-size: 11px;
+      color: #4a4543;
+      letter-spacing: 0.04em;
+      animation: fadeIn 0.4s ease 0.4s both;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes watermarkIn {
+      from { opacity: 0; transform: translate(-50%, -55%) scale(0.9); }
+      to   { opacity: 0.06; transform: translate(-50%, -55%) scale(1); }
+    }
+
+    @keyframes load {
+      0%   { width: 0; }
+      40%  { width: 55%; }
+      70%  { width: 75%; }
+      100% { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <!-- A watermark background -->
+  <svg class="watermark" width="200" height="200" viewBox="0 0 48 48" fill="none">
+    <path d="M12 36 L24 12 L36 36"
+      stroke="#E24B4A" stroke-width="2.5"
+      stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M17 28 L31 28"
+      stroke="#E24B4A" stroke-width="2.5" stroke-linecap="round"/>
+    <circle cx="24" cy="12" r="2.5" fill="#E24B4A"/>
+  </svg>
+
+  <span class="wordmark">grav<span>ix</span></span>
+
+  <div class="bottom">
+    <div class="bar-track">
+      <div class="bar-fill"></div>
+    </div>
+    <span class="version">v1.0.0</span>
+  </div>
+</body>
+</html>

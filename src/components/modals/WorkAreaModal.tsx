@@ -66,7 +66,7 @@ export function WorkAreaModal() {
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t('workArea.title')}</DialogTitle>
           <DialogDescription>

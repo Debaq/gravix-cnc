@@ -40,13 +40,16 @@ import {
   Scaling,
   Combine,
   MinusSquare,
-  Intersect,
+  SquaresIntersect,
   SquareAsterisk,
   PlusSquare,
   SquareSlash,
   Group,
   Ungroup,
   ArrowRightToLine,
+  Columns2,
+  Columns3,
+  GripVertical,
 } from 'lucide-react'
 
 function ToolbarButton({
@@ -56,6 +59,7 @@ function ToolbarButton({
   disabled,
   shortcut,
   active,
+  compact,
 }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
@@ -63,19 +67,33 @@ function ToolbarButton({
   disabled?: boolean
   shortcut?: string
   active?: boolean
+  compact?: boolean
 }) {
+  const size = compact ? 'h-7 w-7' : 'h-8 w-8'
+  const iconSize = compact ? 'h-3.5 w-3.5' : 'h-4 w-4'
+
+  const button = (
+    <Button
+      variant={active ? 'secondary' : 'ghost'}
+      size="icon"
+      className={size}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      <Icon className={iconSize} />
+    </Button>
+  )
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button
-          variant={active ? 'secondary' : 'ghost'}
-          size="icon"
-          className="h-8 w-8"
-          onClick={onClick}
-          disabled={disabled}
-        >
-          <Icon className="h-4 w-4" />
-        </Button>
+        {disabled ? (
+          <span className="inline-flex" tabIndex={0}>
+            {button}
+          </span>
+        ) : (
+          button
+        )}
       </TooltipTrigger>
       <TooltipContent side="right">
         {label}
@@ -111,6 +129,14 @@ function AlignButton({
   )
 }
 
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="col-span-full text-[9px] font-medium text-muted-foreground uppercase tracking-wider px-0.5 pt-1.5 pb-0">
+      {children}
+    </p>
+  )
+}
+
 export function CanvasToolbar() {
   const { t } = useTranslation('canvas')
   const { t: tg } = useTranslation('gcode')
@@ -132,6 +158,8 @@ export function CanvasToolbar() {
     setTrimMode,
     extendMode,
     setExtendMode,
+    toolbarColumns,
+    cycleToolbarColumns,
   } = useCanvasStore()
   const { setGCode, setEstimates } = useGCodeStore()
   const { addConsoleLine, setWorkspace } = useAppStore()
@@ -161,238 +189,300 @@ export function CanvasToolbar() {
 
     const lineCount = result.split('\n').length
     addConsoleLine(`G-code generado: ${lineCount} lineas, ${jobs.length} elementos`)
-    setWorkspace('preview')
+    setWorkspace('cam')
   }
 
-  return (
-    <div className="absolute top-2 left-2 z-10 flex flex-col items-center gap-1 bg-background/90 backdrop-blur-sm border rounded-lg p-1 shadow-sm max-h-[calc(100%-3rem)] overflow-y-auto">
-      {/* Undo / Redo */}
-      <ToolbarButton icon={Undo2} label={t('undo')} onClick={cm.undo} shortcut="Ctrl+Z" />
-      <ToolbarButton icon={Redo2} label={t('redo')} onClick={cm.redo} shortcut="Ctrl+Shift+Z" />
+  const cols = toolbarColumns
+  const compact = cols === 1
+  const showTitles = cols === 3
+  const columnsIcon = cols === 1 ? GripVertical : cols === 2 ? Columns2 : Columns3
 
-      <Separator className="w-5" />
+  const sep = showTitles ? null : (
+    <Separator className="col-span-full w-4/5 mx-auto" />
+  )
 
-      {/* Zoom */}
-      <ToolbarButton icon={ZoomIn} label={t('zoomIn')} onClick={cm.zoomIn} />
-      <ToolbarButton icon={ZoomOut} label={t('zoomOut')} onClick={cm.zoomOut} />
-      <ToolbarButton icon={Maximize} label={t('fitView')} onClick={cm.fitView} />
-
-      <Separator className="w-5" />
-
-      {/* Measurement Tools */}
-      <ToolbarButton
-        icon={Ruler}
-        label={t('measure')}
-        onClick={() => setMeasuringMode(measuringMode === 'distance' ? false : 'distance')}
-        active={measuringMode === 'distance'}
-      />
-      <ToolbarButton
-        icon={Scaling}
-        label={t('measureAngle')}
-        onClick={() => setMeasuringMode(measuringMode === 'angle' ? false : 'angle')}
-        active={measuringMode === 'angle'}
-      />
-
-      <ToolbarButton 
-        icon={ArrowLeftRight} 
-        label={t('addCota') || 'Agregar Cota'} 
-        onClick={() => setDrawingMode(drawingMode === 'cota' ? null : 'cota')} 
-        active={drawingMode === 'cota'}
-      />
-
-      <ToolbarButton
-        icon={Scissors}
-        label={t('trim') || 'Recortar (Trim)'}
-        onClick={() => setTrimMode(!trimMode)}
-        active={trimMode}
-      />
-
-      <ToolbarButton
-        icon={ArrowRightToLine}
-        label={t('extend') || 'Extender hasta interseccion'}
-        onClick={() => setExtendMode(!extendMode)}
-        active={extendMode}
-      />
-
-      <Separator className="w-5" />
-
-      {/* Transform */}
-      <ToolbarButton icon={FlipHorizontal2} label={t('flipH')} onClick={cm.flipH} disabled={!hasSelection} />
-      <ToolbarButton icon={FlipVertical2} label={t('flipV')} onClick={cm.flipV} disabled={!hasSelection} />
-      
-      <Separator className="w-5" />
-
-      {/* Mirror with copy */}
-      <ToolbarButton icon={FlipHorizontal} label={t('mirrorH')} onClick={() => cm.mirrorSelected('h')} disabled={!hasSelection} />
-      <ToolbarButton icon={FlipVertical} label={t('mirrorV')} onClick={() => cm.mirrorSelected('v')} disabled={!hasSelection} />
-
-      <Separator className="w-5" />
-
-      {/* Align & Distribute */}
-      <Popover>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                disabled={!hasSelection}
-              >
-                <AlignCenterVertical className="h-4 w-4" />
-              </Button>
-            </PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent side="right">{t('align')}</TooltipContent>
-        </Tooltip>
-        <PopoverContent side="right" className="w-auto p-2" align="start">
-          <div className="flex flex-col gap-2">
-            {/* Align to work area */}
-            <div>
-              <p className="text-xs font-medium text-muted-foreground mb-1 px-1">{t('alignToWorkArea')}</p>
-              <div className="flex gap-0.5">
-                <AlignButton icon={AlignStartVertical} label={t('alignLeft')} onClick={() => cm.alignToWorkArea('left')} />
-                <AlignButton icon={AlignCenterVertical} label={t('alignCenterH')} onClick={() => cm.alignToWorkArea('centerH')} />
-                <AlignButton icon={AlignEndVertical} label={t('alignRight')} onClick={() => cm.alignToWorkArea('right')} />
-                <AlignButton icon={AlignStartHorizontal} label={t('alignTop')} onClick={() => cm.alignToWorkArea('top')} />
-                <AlignButton icon={AlignCenterHorizontal} label={t('alignCenterV')} onClick={() => cm.alignToWorkArea('centerV')} />
-                <AlignButton icon={AlignEndHorizontal} label={t('alignBottom')} onClick={() => cm.alignToWorkArea('bottom')} />
-              </div>
-            </div>
-
-            {/* Align to first selected */}
-            {hasMultipleSelection && (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-1 px-1">{t('alignToFirst')}</p>
-                <div className="flex gap-0.5">
-                  <AlignButton icon={AlignStartVertical} label={t('alignLeft')} onClick={() => cm.alignToFirst('left')} />
-                  <AlignButton icon={AlignCenterVertical} label={t('alignCenterH')} onClick={() => cm.alignToFirst('centerH')} />
-                  <AlignButton icon={AlignEndVertical} label={t('alignRight')} onClick={() => cm.alignToFirst('right')} />
-                  <AlignButton icon={AlignStartHorizontal} label={t('alignTop')} onClick={() => cm.alignToFirst('top')} />
-                  <AlignButton icon={AlignCenterHorizontal} label={t('alignCenterV')} onClick={() => cm.alignToFirst('centerV')} />
-                  <AlignButton icon={AlignEndHorizontal} label={t('alignBottom')} onClick={() => cm.alignToFirst('bottom')} />
-                </div>
-              </div>
-            )}
-
-            {/* Distribute */}
-            {hasMultipleSelection && (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-1 px-1">{t('distribute')}</p>
-                <div className="flex gap-0.5">
-                  <AlignButton icon={AlignHorizontalSpaceAround} label={t('distributeH')} onClick={() => cm.distribute('horizontal')} />
-                  <AlignButton icon={AlignVerticalSpaceAround} label={t('distributeV')} onClick={() => cm.distribute('vertical')} />
-                </div>
-              </div>
-            )}
-          </div>
-        </PopoverContent>
-      </Popover>
-
-      <Separator className="w-5" />
-
-      {/* Snap */}
-      <ToolbarButton icon={Grid3x3} label={t('snapToGrid')} onClick={toggleSnapToGrid} active={snapToGrid} />
-      <ToolbarButton icon={Magnet} label={t('snapToObjects')} onClick={toggleSnapToObjects} active={snapToObjects} />
-
-      <Separator className="w-5" />
-
-      {/* Group / Ungroup */}
-      <ToolbarButton icon={Group} label={t('group')} onClick={cm.groupSelected} disabled={!hasMultipleSelection} shortcut="Ctrl+G" />
-      <ToolbarButton icon={Ungroup} label={t('ungroup')} onClick={cm.ungroupSelected} disabled={!hasSelection} shortcut="Ctrl+Shift+G" />
-
-      <Separator className="w-5" />
-
-      {/* Boolean Operations */}
-      <ToolbarButton icon={PlusSquare} label={t('boolUnion')} onClick={() => cm.booleanOperationSelected('union')} disabled={!hasMultipleSelection} />
-      <ToolbarButton icon={MinusSquare} label={t('boolDifference')} onClick={() => cm.booleanOperationSelected('difference')} disabled={!hasMultipleSelection} />
-      <ToolbarButton icon={SquareSlash} label={t('boolIntersection')} onClick={() => cm.booleanOperationSelected('intersection')} disabled={!hasMultipleSelection} />
-      <ToolbarButton icon={SquareAsterisk} label={t('boolXor')} onClick={() => cm.booleanOperationSelected('xor')} disabled={!hasMultipleSelection} />
-
-      <Separator className="w-5" />
-
-      {/* Offset */}
-      <Popover>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!hasSelection}>
-                <Scaling className="h-4 w-4" />
-              </Button>
-            </PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent side="right">{t('offset')}</TooltipContent>
-        </Tooltip>
-        <PopoverContent className="w-48 p-3" side="right" align="start">
-          <div className="space-y-2">
-            <label className="text-xs font-medium">{t('offset')} (mm)</label>
-            <div className="flex gap-2">
-              <input
-                type="number"
-                step="0.1"
-                className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                defaultValue="2.0"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    const val = parseFloat((e.target as HTMLInputElement).value)
-                    if (!isNaN(val)) cm.offsetSelected(val)
-                  }
-                }}
-              />
-              <Button size="sm" className="h-8 px-2" onClick={(e) => {
-                const input = e.currentTarget.previousElementSibling as HTMLInputElement
-                const val = parseFloat(input.value)
-                if (!isNaN(val)) cm.offsetSelected(val)
-              }}>
-                OK
-              </Button>
-            </div>
-            <p className="text-[10px] text-muted-foreground italic">
-              {t('offsetHint')}
-            </p>
-          </div>
-        </PopoverContent>
-      </Popover>
-
-      <Separator className="w-5" />
-
-      {/* Pattern / Array */}
-      <ToolbarButton 
-        icon={LayoutGrid} 
-        label={t('array.title') || 'Patrón (Array)'} 
-        onClick={() => useAppStore.getState().openModal('array')} 
-        disabled={!hasSelection} 
-      />
-
-      <Separator className="w-5" />
-
-      {/* Edit */}
-      <ToolbarButton icon={Copy} label={t('duplicate')} onClick={cm.duplicateSelected} disabled={!hasSelection} shortcut="Ctrl+D" />
-      <ToolbarButton icon={Trash2} label={t('delete')} onClick={cm.deleteSelected} disabled={!hasSelection} shortcut="Supr" />
-
-      <Separator className="w-5" />
-
-      {/* Z-Order */}
-      <ToolbarButton icon={ChevronUp} label={t('bringForward')} onClick={cm.bringForward} disabled={!hasSelection} shortcut="Ctrl+]" />
-      <ToolbarButton icon={ChevronDown} label={t('sendBackward')} onClick={cm.sendBackward} disabled={!hasSelection} shortcut="Ctrl+[" />
-
-      <Separator className="w-5" />
-
-      {/* Generate G-code */}
+  const alignPopover = (
+    <Popover>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button
-            variant="default"
-            size="icon"
-            className="h-8 w-8"
-            onClick={handleGenerate}
-          >
-            <Cog className="h-4 w-4" />
-          </Button>
+          <PopoverTrigger asChild>
+            {hasSelection ? (
+              <Button variant="ghost" size="icon" className={compact ? 'h-7 w-7' : 'h-8 w-8'}>
+                <AlignCenterVertical className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+              </Button>
+            ) : (
+              <span className="inline-flex" tabIndex={0}>
+                <Button variant="ghost" size="icon" className={compact ? 'h-7 w-7' : 'h-8 w-8'} disabled>
+                  <AlignCenterVertical className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+                </Button>
+              </span>
+            )}
+          </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent side="right">{tg('generate')}</TooltipContent>
+        <TooltipContent side="right">{t('align')}</TooltipContent>
       </Tooltip>
+      <PopoverContent side="right" className="w-auto p-2" align="start">
+        <div className="flex flex-col gap-2">
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-1 px-1">{t('alignToWorkArea')}</p>
+            <div className="flex gap-0.5">
+              <AlignButton icon={AlignStartVertical} label={t('alignLeft')} onClick={() => cm.alignToWorkArea('left')} />
+              <AlignButton icon={AlignCenterVertical} label={t('alignCenterH')} onClick={() => cm.alignToWorkArea('centerH')} />
+              <AlignButton icon={AlignEndVertical} label={t('alignRight')} onClick={() => cm.alignToWorkArea('right')} />
+              <AlignButton icon={AlignStartHorizontal} label={t('alignTop')} onClick={() => cm.alignToWorkArea('top')} />
+              <AlignButton icon={AlignCenterHorizontal} label={t('alignCenterV')} onClick={() => cm.alignToWorkArea('centerV')} />
+              <AlignButton icon={AlignEndHorizontal} label={t('alignBottom')} onClick={() => cm.alignToWorkArea('bottom')} />
+            </div>
+          </div>
+          {hasMultipleSelection && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1 px-1">{t('alignToFirst')}</p>
+              <div className="flex gap-0.5">
+                <AlignButton icon={AlignStartVertical} label={t('alignLeft')} onClick={() => cm.alignToFirst('left')} />
+                <AlignButton icon={AlignCenterVertical} label={t('alignCenterH')} onClick={() => cm.alignToFirst('centerH')} />
+                <AlignButton icon={AlignEndVertical} label={t('alignRight')} onClick={() => cm.alignToFirst('right')} />
+                <AlignButton icon={AlignStartHorizontal} label={t('alignTop')} onClick={() => cm.alignToFirst('top')} />
+                <AlignButton icon={AlignCenterHorizontal} label={t('alignCenterV')} onClick={() => cm.alignToFirst('centerV')} />
+                <AlignButton icon={AlignEndHorizontal} label={t('alignBottom')} onClick={() => cm.alignToFirst('bottom')} />
+              </div>
+            </div>
+          )}
+          {hasMultipleSelection && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1 px-1">{t('distribute')}</p>
+              <div className="flex gap-0.5">
+                <AlignButton icon={AlignHorizontalSpaceAround} label={t('distributeH')} onClick={() => cm.distribute('horizontal')} />
+                <AlignButton icon={AlignVerticalSpaceAround} label={t('distributeV')} onClick={() => cm.distribute('vertical')} />
+              </div>
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+
+  const offsetPopover = (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            {hasSelection ? (
+              <Button variant="ghost" size="icon" className={compact ? 'h-7 w-7' : 'h-8 w-8'}>
+                <Scaling className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+              </Button>
+            ) : (
+              <span className="inline-flex" tabIndex={0}>
+                <Button variant="ghost" size="icon" className={compact ? 'h-7 w-7' : 'h-8 w-8'} disabled>
+                  <Scaling className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+                </Button>
+              </span>
+            )}
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="right">{t('offset')}</TooltipContent>
+      </Tooltip>
+      <PopoverContent className="w-48 p-3" side="right" align="start">
+        <div className="space-y-2">
+          <label className="text-xs font-medium">{t('offset')} (mm)</label>
+          <div className="flex gap-2">
+            <input
+              type="number"
+              step="0.1"
+              className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              defaultValue="2.0"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const val = parseFloat((e.target as HTMLInputElement).value)
+                  if (!isNaN(val)) cm.offsetSelected(val)
+                }
+              }}
+            />
+            <Button size="sm" className="h-8 px-2" onClick={(e) => {
+              const input = e.currentTarget.previousElementSibling as HTMLInputElement
+              const val = parseFloat(input.value)
+              if (!isNaN(val)) cm.offsetSelected(val)
+            }}>
+              OK
+            </Button>
+          </div>
+          <p className="text-[10px] text-muted-foreground italic">
+            {t('offsetHint')}
+          </p>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+
+  const colWidth = compact ? '1.75rem' : '2rem'
+
+  return (
+    <div className="absolute top-2 left-2 z-10 bg-background/90 backdrop-blur-sm border rounded-lg p-1 shadow-sm max-h-[calc(100%-3rem)] overflow-y-auto">
+      {/* Column toggle */}
+      <div className="flex justify-center">
+        <ToolbarButton
+          icon={columnsIcon}
+          label={`${cols} ${cols === 1 ? 'columna' : 'columnas'}`}
+          onClick={cycleToolbarColumns}
+          compact={compact}
+        />
+      </div>
+
+      {!compact && <Separator className="w-full my-0.5" />}
+
+      <div
+        className="grid"
+        style={{
+          gridTemplateColumns: `repeat(${cols}, ${colWidth})`,
+          justifyItems: 'center',
+          gap: compact ? '1px' : '0.25rem',
+        }}
+      >
+        {/* ── Undo / Redo ── */}
+        {showTitles && <SectionTitle>{t('sectionHistory')}</SectionTitle>}
+        <ToolbarButton icon={Undo2} label={t('undo')} onClick={cm.undo} shortcut="Ctrl+Z" compact={compact} />
+        <ToolbarButton icon={Redo2} label={t('redo')} onClick={cm.redo} shortcut="Ctrl+Shift+Z" compact={compact} />
+
+        {sep}
+
+        {/* ── Zoom ── */}
+        {showTitles && <SectionTitle>{t('sectionZoom')}</SectionTitle>}
+        <ToolbarButton icon={ZoomIn} label={t('zoomIn')} onClick={cm.zoomIn} compact={compact} />
+        <ToolbarButton icon={ZoomOut} label={t('zoomOut')} onClick={cm.zoomOut} compact={compact} />
+        <ToolbarButton icon={Maximize} label={t('fitView')} onClick={cm.fitView} compact={compact} />
+
+        {sep}
+
+        {/* ── Measurement & Edit Tools ── */}
+        {showTitles && <SectionTitle>{t('sectionMeasure')}</SectionTitle>}
+        <ToolbarButton
+          icon={Ruler}
+          label={t('measure')}
+          onClick={() => setMeasuringMode(measuringMode === 'distance' ? false : 'distance')}
+          active={measuringMode === 'distance'}
+          compact={compact}
+        />
+        <ToolbarButton
+          icon={Scaling}
+          label={t('measureAngle')}
+          onClick={() => setMeasuringMode(measuringMode === 'angle' ? false : 'angle')}
+          active={measuringMode === 'angle'}
+          compact={compact}
+        />
+        <ToolbarButton
+          icon={ArrowLeftRight}
+          label={t('addCota') || 'Agregar Cota'}
+          onClick={() => setDrawingMode(drawingMode === 'cota' ? null : 'cota')}
+          active={drawingMode === 'cota'}
+          compact={compact}
+        />
+        <ToolbarButton
+          icon={Scissors}
+          label={t('trim') || 'Recortar (Trim)'}
+          onClick={() => setTrimMode(!trimMode)}
+          active={trimMode}
+          compact={compact}
+        />
+        <ToolbarButton
+          icon={ArrowRightToLine}
+          label={t('extend') || 'Extender hasta interseccion'}
+          onClick={() => setExtendMode(!extendMode)}
+          active={extendMode}
+          compact={compact}
+        />
+
+        {sep}
+
+        {/* ── Transform ── */}
+        {showTitles && <SectionTitle>{t('sectionTransform')}</SectionTitle>}
+        <ToolbarButton icon={FlipHorizontal2} label={t('flipH')} onClick={cm.flipH} disabled={!hasSelection} compact={compact} />
+        <ToolbarButton icon={FlipVertical2} label={t('flipV')} onClick={cm.flipV} disabled={!hasSelection} compact={compact} />
+
+        {sep}
+
+        {/* ── Mirror ── */}
+        {showTitles && <SectionTitle>{t('sectionMirror')}</SectionTitle>}
+        <ToolbarButton icon={FlipHorizontal} label={t('mirrorH')} onClick={() => cm.mirrorSelected('h')} disabled={!hasSelection} compact={compact} />
+        <ToolbarButton icon={FlipVertical} label={t('mirrorV')} onClick={() => cm.mirrorSelected('v')} disabled={!hasSelection} compact={compact} />
+
+        {sep}
+
+        {/* ── Align ── */}
+        {showTitles && <SectionTitle>{t('align')}</SectionTitle>}
+        {alignPopover}
+
+        {sep}
+
+        {/* ── Snap ── */}
+        {showTitles && <SectionTitle>{t('sectionSnap')}</SectionTitle>}
+        <ToolbarButton icon={Grid3x3} label={t('snapToGrid')} onClick={toggleSnapToGrid} active={snapToGrid} compact={compact} />
+        <ToolbarButton icon={Magnet} label={t('snapToObjects')} onClick={toggleSnapToObjects} active={snapToObjects} compact={compact} />
+
+        {sep}
+
+        {/* ── Group / Ungroup ── */}
+        {showTitles && <SectionTitle>{t('sectionGroup')}</SectionTitle>}
+        <ToolbarButton icon={Group} label={t('group')} onClick={cm.groupSelected} disabled={!hasMultipleSelection} shortcut="Ctrl+G" compact={compact} />
+        <ToolbarButton icon={Ungroup} label={t('ungroup')} onClick={cm.ungroupSelected} disabled={!hasSelection} shortcut="Ctrl+Shift+G" compact={compact} />
+
+        {sep}
+
+        {/* ── Boolean Operations ── */}
+        {showTitles && <SectionTitle>{t('sectionBoolean')}</SectionTitle>}
+        <ToolbarButton icon={PlusSquare} label={t('boolUnion')} onClick={() => cm.booleanOperationSelected('union')} disabled={!hasMultipleSelection} compact={compact} />
+        <ToolbarButton icon={MinusSquare} label={t('boolDifference')} onClick={() => cm.booleanOperationSelected('difference')} disabled={!hasMultipleSelection} compact={compact} />
+        <ToolbarButton icon={SquareSlash} label={t('boolIntersection')} onClick={() => cm.booleanOperationSelected('intersection')} disabled={!hasMultipleSelection} compact={compact} />
+        <ToolbarButton icon={SquareAsterisk} label={t('boolXor')} onClick={() => cm.booleanOperationSelected('xor')} disabled={!hasMultipleSelection} compact={compact} />
+
+        {sep}
+
+        {/* ── Offset ── */}
+        {offsetPopover}
+
+        {sep}
+
+        {/* ── Pattern / Array ── */}
+        <ToolbarButton
+          icon={LayoutGrid}
+          label={t('array.title') || 'Patron (Array)'}
+          onClick={() => useAppStore.getState().openModal('array')}
+          disabled={!hasSelection}
+          compact={compact}
+        />
+
+        {sep}
+
+        {/* ── Edit ── */}
+        {showTitles && <SectionTitle>{t('sectionEdit')}</SectionTitle>}
+        <ToolbarButton icon={Copy} label={t('duplicate')} onClick={cm.duplicateSelected} disabled={!hasSelection} shortcut="Ctrl+D" compact={compact} />
+        <ToolbarButton icon={Trash2} label={t('delete')} onClick={cm.deleteSelected} disabled={!hasSelection} shortcut="Supr" compact={compact} />
+
+        {sep}
+
+        {/* ── Z-Order ── */}
+        {showTitles && <SectionTitle>{t('sectionZOrder')}</SectionTitle>}
+        <ToolbarButton icon={ChevronUp} label={t('bringForward')} onClick={cm.bringForward} disabled={!hasSelection} shortcut="Ctrl+]" compact={compact} />
+        <ToolbarButton icon={ChevronDown} label={t('sendBackward')} onClick={cm.sendBackward} disabled={!hasSelection} shortcut="Ctrl+[" compact={compact} />
+
+        {sep}
+
+        {/* ── Generate G-code ── */}
+        <div className="col-span-full flex justify-center pt-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="default"
+                size="icon"
+                className={compact ? 'h-7 w-7' : 'h-8 w-8'}
+                onClick={handleGenerate}
+              >
+                <Cog className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">{tg('generate')}</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
     </div>
   )
 }

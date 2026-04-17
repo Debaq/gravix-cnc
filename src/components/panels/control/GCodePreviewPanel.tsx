@@ -1,16 +1,51 @@
 import { useTranslation } from 'react-i18next'
 import { useWorkflowStore } from '@/stores/useWorkflowStore'
 import { useSerialStore } from '@/stores/useSerialStore'
+import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { FileCode, Eye } from 'lucide-react'
+import {
+  FileCode,
+  Eye,
+  Play,
+  Pause,
+  Square,
+  SkipBack,
+  ChevronsRight,
+  ChevronsLeft,
+} from 'lucide-react'
+
+const SIM_SPEEDS = [
+  { label: '0.25x', ms: 200 },
+  { label: '0.5x', ms: 100 },
+  { label: '1x', ms: 50 },
+  { label: '2x', ms: 25 },
+  { label: '5x', ms: 10 },
+  { label: '10x', ms: 5 },
+]
 
 export function GCodePreviewPanel() {
   const { t } = useTranslation('serial')
-  const { activeGCode, activeGCodeName, activeGCodeLine, activeGCodeTotal } = useWorkflowStore()
+  const {
+    activeGCode, activeGCodeName, activeGCodeLine, activeGCodeTotal,
+    simulating, simPaused, simSpeed, simulatedPos,
+    setSimPaused, setSimSpeed,
+  } = useWorkflowStore()
   const { sending, sendProgress, machineState } = useSerialStore()
+
+  const currentSpeedIdx = SIM_SPEEDS.findIndex(s => s.ms === simSpeed)
+  const currentSpeedLabel = SIM_SPEEDS.find(s => s.ms === simSpeed)?.label ?? '1x'
+
+  const handleSpeedUp = () => {
+    const next = Math.min((currentSpeedIdx >= 0 ? currentSpeedIdx : 2) + 1, SIM_SPEEDS.length - 1)
+    setSimSpeed(SIM_SPEEDS[next].ms)
+  }
+  const handleSpeedDown = () => {
+    const next = Math.max((currentSpeedIdx >= 0 ? currentSpeedIdx : 2) - 1, 0)
+    setSimSpeed(SIM_SPEEDS[next].ms)
+  }
 
   const lines = activeGCode ? activeGCode.split('\n') : []
   const progressPercent = sending ? sendProgress : (activeGCodeTotal > 0 ? (activeGCodeLine / activeGCodeTotal) * 100 : 0)
@@ -64,6 +99,49 @@ export function GCodePreviewPanel() {
             <p className="text-xs text-muted-foreground">{t('noActiveGcode')}</p>
           </div>
         )}
+
+        {/* Controles flotantes simulación */}
+        {simulating && (
+          <div className="px-2 py-1.5 border-t bg-muted/50 flex items-center justify-center gap-1">
+            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={handleSpeedDown} title="Más lento">
+              <ChevronsLeft className="h-3 w-3" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => {
+                // Retroceder — emitimos evento custom que MacrosWorkflowPanel escucha
+                window.dispatchEvent(new CustomEvent('sim-rewind'))
+              }}
+              title="Retroceder"
+            >
+              <SkipBack className="h-3 w-3" />
+            </Button>
+            <Button
+              variant={simPaused ? 'default' : 'outline'}
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => setSimPaused(!simPaused)}
+              title={simPaused ? 'Reanudar' : 'Pausar'}
+            >
+              {simPaused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => window.dispatchEvent(new CustomEvent('sim-stop'))}
+              title="Detener"
+            >
+              <Square className="h-3 w-3 text-destructive" />
+            </Button>
+            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={handleSpeedUp} title="Más rápido">
+              <ChevronsRight className="h-3 w-3" />
+            </Button>
+            <Badge variant="outline" className="text-[9px] h-4 ml-1">{currentSpeedLabel}</Badge>
+          </div>
+        )}
       </div>
 
       <Separator />
@@ -86,6 +164,20 @@ export function GCodePreviewPanel() {
           </div>
         </div>
 
+        {/* Coordenadas simuladas */}
+        {simulating && (
+          <div className="px-3 py-1.5 border-t flex items-center justify-between">
+            <Badge variant="outline" className="text-[9px] h-4 gap-1 text-blue-500 border-blue-500/30">
+              SIM
+            </Badge>
+            <div className="flex gap-3 font-mono text-[11px]">
+              <span><span className="text-red-400">X</span>{simulatedPos.x.toFixed(2)}</span>
+              <span><span className="text-green-400">Y</span>{simulatedPos.y.toFixed(2)}</span>
+              <span><span className="text-blue-400">Z</span>{simulatedPos.z.toFixed(2)}</span>
+            </div>
+          </div>
+        )}
+
         {/* Timeline de progreso */}
         <div className="px-3 py-2 border-t space-y-1.5">
           <div className="flex items-center justify-between text-[10px] text-muted-foreground">
@@ -97,10 +189,10 @@ export function GCodePreviewPanel() {
           <Progress value={progressPercent} className="h-2" />
           <div className="flex items-center justify-between text-[10px]">
             <Badge
-              variant={machineState === 'Run' ? 'default' : machineState === 'Alarm' ? 'destructive' : 'secondary'}
+              variant={simulating ? 'default' : machineState === 'Run' ? 'default' : machineState === 'Alarm' ? 'destructive' : 'secondary'}
               className="text-[9px] h-4"
             >
-              {machineState}
+              {simulating ? 'Simulando' : machineState}
             </Badge>
             <span className="text-muted-foreground font-mono">{Math.round(progressPercent)}%</span>
           </div>
@@ -113,11 +205,17 @@ export function GCodePreviewPanel() {
 /** Mini preview 2D del toolpath */
 function MiniToolpathPreview({ gcode, currentLine }: { gcode: string; currentLine: number }) {
   const lines = gcode.split('\n')
-  const points: { x: number; y: number; rapid: boolean }[] = []
-  let cx = 0, cy = 0
+  const points: { x: number; y: number; rapid: boolean; lineNum: number; step: number }[] = []
+  let cx = 0, cy = 0, currentStep = 0
 
-  for (const line of lines) {
-    const trimmed = line.trim().toUpperCase()
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i].trim()
+    // Detectar cambio de paso workflow
+    if (raw.startsWith('; ── Paso')) {
+      currentStep++
+      continue
+    }
+    const trimmed = raw.toUpperCase()
     if (!trimmed || trimmed.startsWith('(') || trimmed.startsWith(';')) continue
 
     const isRapid = trimmed.startsWith('G0 ') || trimmed.startsWith('G00 ')
@@ -127,7 +225,7 @@ function MiniToolpathPreview({ gcode, currentLine }: { gcode: string; currentLin
     if (xMatch) cx = parseFloat(xMatch[1])
     if (yMatch) cy = parseFloat(yMatch[1])
     if (xMatch || yMatch) {
-      points.push({ x: cx, y: cy, rapid: isRapid })
+      points.push({ x: cx, y: cy, rapid: isRapid, lineNum: i + 1, step: currentStep })
     }
   }
 
@@ -139,45 +237,73 @@ function MiniToolpathPreview({ gcode, currentLine }: { gcode: string; currentLin
   const ys = points.map((p) => p.y)
   const minX = Math.min(...xs), maxX = Math.max(...xs)
   const minY = Math.min(...ys), maxY = Math.max(...ys)
-  const rangeX = maxX - minX || 1
-  const rangeY = maxY - minY || 1
   const padding = 8
   const size = 100
 
-  const scale = (size - padding * 2) / Math.max(rangeX, rangeY)
+  const scale = (size - padding * 2) / Math.max(maxX - minX || 1, maxY - minY || 1)
   const toSvg = (x: number, y: number) => ({
     x: padding + (x - minX) * scale,
-    y: padding + (maxY - y) * scale, // flip Y
+    y: padding + (maxY - y) * scale,
   })
 
-  // Determinar cuántos puntos están "hechos" basándose en currentLine
-  const doneRatio = currentLine > 0 ? Math.min(currentLine / lines.length, 1) : 0
-  const donePoints = Math.floor(points.length * doneRatio)
+  // Encontrar punto actual y paso activo
+  let donePoints = 0
+  if (currentLine > 0) {
+    for (let i = 0; i < points.length; i++) {
+      if (points[i].lineNum <= currentLine) donePoints = i + 1
+      else break
+    }
+  }
+  const activeStep = donePoints > 0 ? points[donePoints - 1].step : -1
 
   return (
     <svg viewBox={`0 0 ${size} ${size}`} className="w-full h-full">
+      {/* Pendiente — gris tenue */}
       {points.map((pt, i) => {
-        if (i === 0) return null
+        if (i === 0 || pt.rapid || i < donePoints) return null
         const from = toSvg(points[i - 1].x, points[i - 1].y)
         const to = toSvg(pt.x, pt.y)
-        const done = i < donePoints
         return (
-          <line
-            key={i}
-            x1={from.x}
-            y1={from.y}
-            x2={to.x}
-            y2={to.y}
-            stroke={pt.rapid ? 'transparent' : done ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))'}
-            strokeWidth={done ? 1.2 : 0.6}
-            strokeOpacity={done ? 1 : 0.3}
+          <line key={`p-${i}`}
+            x1={from.x} y1={from.y} x2={to.x} y2={to.y}
+            stroke="hsl(var(--muted-foreground))" strokeWidth={0.4} strokeOpacity={0.15}
+          />
+        )
+      })}
+      {/* Recorrido — pasos anteriores gris, paso actual rojo */}
+      {points.map((pt, i) => {
+        if (i === 0 || i >= donePoints) return null
+        const from = toSvg(points[i - 1].x, points[i - 1].y)
+        const to = toSvg(pt.x, pt.y)
+        const isActiveStep = pt.step === activeStep
+        if (pt.rapid) {
+          return (
+            <line key={`d-${i}`}
+              x1={from.x} y1={from.y} x2={to.x} y2={to.y}
+              stroke="hsl(var(--muted-foreground))" strokeWidth={0.3}
+              strokeOpacity={0.2} strokeDasharray="1.5 1"
+            />
+          )
+        }
+        return (
+          <line key={`d-${i}`}
+            x1={from.x} y1={from.y} x2={to.x} y2={to.y}
+            stroke={isActiveStep ? '#ef4444' : 'hsl(var(--muted-foreground))'}
+            strokeWidth={isActiveStep ? 1.2 : 0.8}
+            strokeOpacity={isActiveStep ? 1 : 0.4}
           />
         )
       })}
       {/* Punto actual */}
-      {donePoints > 0 && donePoints < points.length && (() => {
-        const cp = toSvg(points[donePoints].x, points[donePoints].y)
-        return <circle cx={cp.x} cy={cp.y} r={2.5} fill="hsl(var(--primary))" />
+      {donePoints > 0 && donePoints <= points.length && (() => {
+        const idx = Math.min(donePoints - 1, points.length - 1)
+        const cp = toSvg(points[idx].x, points[idx].y)
+        return (
+          <>
+            <circle cx={cp.x} cy={cp.y} r={4} fill="#ef4444" fillOpacity={0.25} />
+            <circle cx={cp.x} cy={cp.y} r={1.8} fill="#ef4444" />
+          </>
+        )
       })()}
     </svg>
   )

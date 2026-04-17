@@ -83,6 +83,32 @@ pub fn read_raster_pixels(pixels_path: String) -> Result<Vec<u8>, String> {
     std::fs::read(&pixels_path).map_err(|e| format!("Error leyendo pixeles: {}", e))
 }
 
+/// Función pública para procesar imagen desde base64 (usada por web_server)
+pub fn process_image_base64(
+    image_base64: &str,
+    width_mm: f64,
+    height_mm: f64,
+    dpi: f64,
+    dithering: DitheringMode,
+    threshold: u8,
+    invert: bool,
+) -> Result<RasterResult, String> {
+    let b64_data = if let Some(pos) = image_base64.find(",") {
+        &image_base64[pos + 1..]
+    } else {
+        image_base64
+    };
+
+    let bytes = STANDARD
+        .decode(b64_data)
+        .map_err(|e| format!("Error decodificando base64: {}", e))?;
+
+    let img = image::load_from_memory(&bytes)
+        .map_err(|e| format!("Error al cargar imagen desde bytes: {}", e))?;
+
+    process_image(img, width_mm, height_mm, dpi, dithering, threshold, invert)
+}
+
 fn process_image(
     img: DynamicImage,
     width_mm: f64,

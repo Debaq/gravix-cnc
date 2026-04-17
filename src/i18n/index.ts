@@ -13,6 +13,9 @@ import esMaterials from './locales/es/materials.json'
 import esSettings from './locales/es/settings.json'
 import esHelp from './locales/es/help.json'
 import esImageWizard from './locales/es/imageWizard.json'
+import esSetupWizard from './locales/es/setupWizard.json'
+import esProjects from './locales/es/projects.json'
+import esLicense from './locales/es/license.json'
 
 // EN
 import enCommon from './locales/en/common.json'
@@ -25,6 +28,9 @@ import enMaterials from './locales/en/materials.json'
 import enSettings from './locales/en/settings.json'
 import enHelp from './locales/en/help.json'
 import enImageWizard from './locales/en/imageWizard.json'
+import enSetupWizard from './locales/en/setupWizard.json'
+import enProjects from './locales/en/projects.json'
+import enLicense from './locales/en/license.json'
 
 i18n
   .use(LanguageDetector)
@@ -42,6 +48,9 @@ i18n
         settings: esSettings,
         help: esHelp,
         imageWizard: esImageWizard,
+        setupWizard: esSetupWizard,
+        projects: esProjects,
+        license: esLicense,
       },
       en: {
         common: enCommon,
@@ -54,11 +63,14 @@ i18n
         settings: enSettings,
         help: enHelp,
         imageWizard: enImageWizard,
+        setupWizard: enSetupWizard,
+        projects: enProjects,
+        license: enLicense,
       },
     },
     fallbackLng: 'es',
     defaultNS: 'common',
-    ns: ['common', 'header', 'canvas', 'gcode', 'serial', 'tools', 'materials', 'settings', 'help', 'imageWizard'],
+    ns: ['common', 'header', 'canvas', 'gcode', 'serial', 'tools', 'materials', 'settings', 'help', 'imageWizard', 'setupWizard', 'projects', 'license'],
     interpolation: {
       escapeValue: false,
     },

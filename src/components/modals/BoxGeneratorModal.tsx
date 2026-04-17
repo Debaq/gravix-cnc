@@ -89,7 +89,7 @@ export function BoxGeneratorModal() {
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && closeModal()}>
-      <DialogContent className="sm:max-w-[540px]">
+      <DialogContent className="sm:max-w-[540px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t('boxGenerator')}</DialogTitle>
         </DialogHeader>

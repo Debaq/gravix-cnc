@@ -92,7 +92,7 @@ export function PropertiesPanel() {
   }
 
   return (
-    <div className="absolute top-2 right-2 z-20 w-72 bg-background border rounded-lg shadow-lg max-h-[calc(100%-3rem)] flex flex-col">
+    <div className="absolute top-2 right-2 z-20 w-72 max-w-[calc(100%-1rem)] bg-background border rounded-lg shadow-lg max-h-[calc(100%-3.5rem)] flex flex-col">
       {/* Header */}
       <div className="px-3 py-2 border-b shrink-0">
         <span className="text-sm font-semibold truncate">{element.name}</span>
@@ -269,6 +269,8 @@ export function PropertiesPanel() {
                           value={config.depth}
                           onChange={(e) => updateConfig({ depth: parseFloat(e.target.value) || 0 })}
                           className="h-8"
+                          step="0.1"
+                          min="0.1"
                         />
                       </div>
                       <div>
@@ -276,8 +278,10 @@ export function PropertiesPanel() {
                         <Input
                           type="number"
                           value={config.depthStep}
-                          onChange={(e) => updateConfig({ depthStep: parseFloat(e.target.value) || 0 })}
+                          onChange={(e) => updateConfig({ depthStep: Math.max(0.1, parseFloat(e.target.value) || 0.1) })}
                           className="h-8"
+                          step="0.1"
+                          min="0.1"
                         />
                       </div>
                     </div>

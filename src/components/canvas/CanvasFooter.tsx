@@ -3,17 +3,36 @@ import { useCanvasStore } from '@/stores/useCanvasStore'
 
 export function CanvasFooter() {
   const { t } = useTranslation('canvas')
-  const { workArea, selectedObjectProps, drawingMode, selectedElementId, elements } = useCanvasStore()
+  const { workArea, selectedObjectProps, drawingMode, selectedElementId, elements, nodeEditingElementId, measuringMode, trimMode } = useCanvasStore()
 
   const selectedElement = selectedElementId
     ? elements.find((e) => e.id === selectedElementId)
+    : null
+  const nodeEditElement = nodeEditingElementId
+    ? elements.find((e) => e.id === nodeEditingElementId)
     : null
 
   return (
     <div className="absolute bottom-0 left-0 right-0 z-10 flex items-center justify-between px-3 py-1 bg-background/90 backdrop-blur-sm border-t text-xs h-7">
       {/* Left: contextual info */}
       <div className="flex items-center gap-3 text-muted-foreground min-w-0">
-        {drawingMode ? (
+        {nodeEditingElementId ? (
+          <span className="text-amber-500 font-medium truncate">
+            {t('nodeEditHint', { name: nodeEditElement?.name ?? '' })}
+          </span>
+        ) : measuringMode === 'distance' ? (
+          <span className="text-emerald-500 font-medium truncate">
+            {t('measuringHint')}
+          </span>
+        ) : measuringMode === 'angle' ? (
+          <span className="text-violet-500 font-medium truncate">
+            {t('measuringAngleHint')}
+          </span>
+        ) : trimMode ? (
+          <span className="text-red-500 font-medium truncate">
+            {t('trim')}
+          </span>
+        ) : drawingMode ? (
           <span className="text-sky-500 font-medium truncate">
             {t(`draw${drawingMode.charAt(0).toUpperCase() + drawingMode.slice(1)}Hint`)}
           </span>

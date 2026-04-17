@@ -21,7 +21,7 @@ export function useKeyboardJog() {
       }
 
       const { currentWorkspace } = useAppStore.getState()
-      if (currentWorkspace !== 'control') return
+      if (currentWorkspace !== 'cnc') return
 
       const { connected, jogDistance, jogSpeed } = useSerialStore.getState()
       if (!connected) return

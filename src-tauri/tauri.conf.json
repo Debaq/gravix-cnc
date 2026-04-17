@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicoya/tauri-v2/main/schemas/config.schema.json",
-  "productName": "GRBL Web Control Pro",
-  "version": "5.0.0",
-  "identifier": "com.grbl-control.pro",
+  "productName": "Gravix",
+  "version": "1.0.0",
+  "identifier": "com.gravix.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
@@ -12,12 +12,27 @@
   "app": {
     "windows": [
       {
-        "title": "GRBL Web Control Pro v5.0",
+        "label": "main",
+        "title": "Gravix",
         "width": 1280,
         "height": 800,
         "resizable": true,
         "fullscreen": false,
-        "decorations": false
+        "maximized": true,
+        "decorations": false,
+        "visible": false,
+        "center": true
+      },
+      {
+        "label": "splashscreen",
+        "title": "Gravix",
+        "width": 400,
+        "height": 300,
+        "decorations": false,
+        "resizable": false,
+        "center": true,
+        "url": "splashscreen.html",
+        "alwaysOnTop": true
       }
     ],
     "security": {
