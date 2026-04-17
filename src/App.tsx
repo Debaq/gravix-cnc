@@ -3,6 +3,7 @@ import { useAppStore } from '@/stores/useAppStore'
 import { useLibraryStore } from '@/stores/useLibraryStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
+import { useMachineStore } from '@/stores/useMachineStore'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { WorkspaceSelector } from '@/components/projects/WorkspaceSelector'
 import { ProjectsScreen } from '@/components/projects/ProjectsScreen'
@@ -15,6 +16,7 @@ import { NodeEditToolbar } from '@/components/canvas/NodeEditToolbar'
 import { GCodeViewer3D } from '@/components/viewer/GCodeViewer3D'
 import { PropertiesPanel } from '@/components/panels/PropertiesPanel'
 import { PreviewToolbar } from '@/components/viewer/PreviewToolbar'
+import { OperationEditor } from '@/components/panels/OperationEditor'
 import { ControlPanel } from '@/components/panels/ControlPanel'
 import { WorkAreaModal } from '@/components/modals/WorkAreaModal'
 import { GlobalConfigModal } from '@/components/modals/GlobalConfigModal'
@@ -29,6 +31,7 @@ import { SetupWizardModal } from '@/components/modals/SetupWizardModal'
 import { NetworkServerModal } from '@/components/modals/NetworkServerModal'
 import { LicenseModal } from '@/components/modals/LicenseModal'
 import { GrblSettingsModal } from '@/components/modals/GrblSettingsModal'
+import { MachinesModal } from '@/components/modals/MachinesModal'
 import { useLicense } from '@/hooks/useLicense'
 import { isTauri, tauriInvoke } from '@/lib/tauri'
 import type { Tool, Material } from '@/lib/types'
@@ -67,11 +70,21 @@ async function loadInitialData(): Promise<{ tools: Tool[]; materials: Material[]
 }
 
 function App() {
-  const { currentView, currentWorkspace } = useAppStore()
+  const { currentView, currentWorkspace, controlOnly } = useAppStore()
   const { setTools, setMaterials } = useLibraryStore()
   const { applyInitialDefaults } = useCanvasStore()
   const { path: workspacePath, isLoading: wsLoading, init: initWorkspace } = useWorkspaceStore()
+  const { load: loadMachines } = useMachineStore()
+  const activeMachineId = useMachineStore((s) => s.activeMachineId)
+  const { setWorkArea } = useCanvasStore()
   const { check: checkLicense } = useLicense()
+
+  // Sincroniza workArea del canvas con la máquina activa.
+  useEffect(() => {
+    if (!activeMachineId) return
+    const active = useMachineStore.getState().getActive()
+    if (active) setWorkArea(active.workArea)
+  }, [activeMachineId, setWorkArea])
 
   useEffect(() => {
     Promise.all([
@@ -81,6 +94,7 @@ function App() {
         applyInitialDefaults(tools, materials)
       }),
       initWorkspace(),
+      isTauri() ? loadMachines() : Promise.resolve(),
       isTauri() ? checkLicense() : Promise.resolve(),
     ]).finally(() => {
       if (isTauri()) {
@@ -109,6 +123,11 @@ function App() {
         <ProjectsScreen />
         <HelpModal />
         <LicenseModal />
+        <NetworkServerModal />
+        <ToolsModal />
+        <MaterialsModal />
+        <SetupWizardModal />
+        <MachinesModal />
       </TooltipProvider>
     )
   }
@@ -118,31 +137,39 @@ function App() {
     <TooltipProvider>
       <div className="flex flex-col h-screen overflow-hidden">
         <Header />
-        <WorkspaceLayout>
-          <div
-            className="relative w-full h-full"
-            style={{ display: currentWorkspace === 'design' ? 'block' : 'none' }}
-          >
-            <DesignCanvas />
-            <CanvasToolbar />
-            <NodeEditToolbar />
-            <CanvasFooter />
-            <PropertiesPanel />
+
+        {controlOnly ? (
+          <div className="flex-1 overflow-auto p-4 bg-muted/20">
+            <ControlPanel />
           </div>
-
-          {currentWorkspace === 'preview' && (
-            <div className="relative w-full h-full">
-              <GCodeViewer3D />
-              <PreviewToolbar />
+        ) : (
+          <WorkspaceLayout>
+            <div
+              className="relative w-full h-full"
+              style={{ display: currentWorkspace === 'cad' ? 'block' : 'none' }}
+            >
+              <DesignCanvas />
+              <CanvasToolbar />
+              <NodeEditToolbar />
+              <CanvasFooter />
+              <PropertiesPanel />
             </div>
-          )}
 
-          {currentWorkspace === 'control' && (
-            <div className="h-full overflow-auto p-4 bg-muted/20">
-              <ControlPanel />
-            </div>
-          )}
-        </WorkspaceLayout>
+            {currentWorkspace === 'cam' && (
+              <div className="relative w-full h-full">
+                <GCodeViewer3D />
+                <PreviewToolbar />
+                <OperationEditor />
+              </div>
+            )}
+
+            {currentWorkspace === 'cnc' && (
+              <div className="h-full overflow-auto p-4 bg-muted/20">
+                <ControlPanel />
+              </div>
+            )}
+          </WorkspaceLayout>
+        )}
 
         <WorkAreaModal />
         <GlobalConfigModal />
@@ -156,6 +183,7 @@ function App() {
         <SetupWizardModal />
         <NetworkServerModal />
         <GrblSettingsModal />
+        <MachinesModal />
         <LicenseModal />
       </div>
     </TooltipProvider>

@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/stores/useAppStore'
 import { useSerialStore } from '@/stores/useSerialStore'
+import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useSerial } from '@/hooks/useSerial'
 import { useProject } from '@/hooks/useProject'
+import { useCanvasManager } from '@/hooks/useCanvasManager'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
@@ -19,8 +21,9 @@ import {
   FilePlus,
   FolderOpen,
   Save,
+  Download,
   Pencil,
-  Eye,
+  Cog,
   Gamepad2,
   Wrench,
   Layers,
@@ -32,32 +35,79 @@ import {
   Minus,
   Square,
   X,
+  Globe,
+  KeyRound,
+  ShieldCheck,
+  Play,
+  Wand2,
+  Cpu,
 } from 'lucide-react'
-import { getCurrentWindow } from '@tauri-apps/api/window'
+import { useMachineStore } from '@/stores/useMachineStore'
+import type { PortInfo } from '@/lib/generated/PortInfo'
+import { isTauri } from '@/lib/tauri'
+import { getClientRole } from '@/lib/client-role'
+import { useLicense } from '@/hooks/useLicense'
+import { getTrialDaysLeft, isTrialActive } from '@/lib/trial'
+import { GravixMark, GravixWordmark } from '@/components/brand/GravixLogo'
+import { computeBBox, generateBoundaryGCode } from '@/components/modals/SetupWizardModal'
 import type { Workspace } from '@/lib/types'
 
 export function Header() {
   const { t } = useTranslation('header')
   const { t: ts } = useTranslation('serial')
+  const { t: tl } = useTranslation('license')
 
   const {
     currentWorkspace,
     setWorkspace,
+    setView,
     projectName,
     projectModified,
     openModal,
     language,
     setLanguage,
+    addConsoleLine,
+    controlOnly,
+    setControlOnly,
   } = useAppStore()
 
-  const { connected, baudRate, setBaudRate } = useSerialStore()
+  const { connected, sending, baudRate, setBaudRate } = useSerialStore()
+  const activeMachine = useMachineStore((s) =>
+    s.machines.find((m) => m.id === s.activeMachineId) ?? null,
+  )
+  const { globalConfig } = useCanvasStore()
   const serial = useSerial()
   const project = useProject()
+  const cm = useCanvasManager()
 
-  const [ports, setPorts] = useState<{ name: string; port_type: string }[]>([])
+  const handleDryRun = useCallback(() => {
+    if (!connected || sending) return
+    const jobs = cm.getJobsForGCode()
+    const elementBBox = computeBBox(jobs)
+    const { workArea } = useCanvasStore.getState()
+    const bbox = elementBBox ?? { minX: 0, minY: 0, maxX: workArea.width, maxY: workArea.height }
+    const isLaser = globalConfig.operationType === 'laser'
+    const gcode = generateBoundaryGCode(bbox, isLaser ? 'laser' : 'cnc', 5, 10)
+    serial.sendGCode(gcode)
+    addConsoleLine(elementBBox ? 'Prueba de area iniciada' : 'Prueba de area iniciada (area de trabajo completa)')
+  }, [connected, sending, cm, globalConfig, serial, addConsoleLine])
+
+  const [ports, setPorts] = useState<PortInfo[]>([])
   const [selectedPort, setSelectedPort] = useState('')
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [loadingPorts, setLoadingPorts] = useState(false)
+  const [appWindow, setAppWindow] = useState<{ minimize: () => void; toggleMaximize: () => void; close: () => void } | null>(null)
+  const role = getClientRole()
+  const { status: licenseStatus } = useLicense()
+  const daysLeft = getTrialDaysLeft()
+  const trialActive = isTrialActive()
+  const isLicensed = licenseStatus?.is_valid ?? false
+
+  useEffect(() => {
+    if (isTauri()) {
+      import('@tauri-apps/api/window').then((m) => setAppWindow(m.getCurrentWindow()))
+    }
+  }, [])
 
   const refreshPorts = useCallback(async () => {
     setLoadingPorts(true)
@@ -85,9 +135,9 @@ export function Header() {
   }
 
   const workspaceButtons: { id: Workspace; icon: React.ReactNode; label: string }[] = [
-    { id: 'design', icon: <Pencil className="h-4 w-4" />, label: t('design') },
-    { id: 'preview', icon: <Eye className="h-4 w-4" />, label: t('preview') },
-    { id: 'control', icon: <Gamepad2 className="h-4 w-4" />, label: t('control') },
+    { id: 'cad', icon: <Pencil className="h-4 w-4" />, label: t('cad') },
+    { id: 'cam', icon: <Cog className="h-4 w-4" />, label: t('cam') },
+    { id: 'cnc', icon: <Gamepad2 className="h-4 w-4" />, label: t('cnc') },
   ]
 
   const handleLanguageChange = (lang: string) => {
@@ -97,98 +147,221 @@ export function Header() {
     })
   }
 
-  const appWindow = getCurrentWindow()
-
   return (
-    <header className="flex items-center justify-between h-12 px-3 bg-primary text-primary-foreground border-b select-none" data-tauri-drag-region>
+    <header className="flex items-center justify-between h-12 px-3 bg-primary text-primary-foreground border-b select-none overflow-x-auto overflow-y-hidden" {...(isTauri() ? { 'data-tauri-drag-region': true } : {})}>
       {/* Left: Project actions */}
-      <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-primary-foreground hover:bg-primary/80"
-          title={t('newProject')}
-          onClick={project.newProject}
+      <div className="flex items-center gap-1 shrink-0">
+        <button
+          className="flex items-center gap-1.5 px-1.5 py-1 rounded-md hover:bg-white/10 transition-colors"
+          title={t('backToProjects')}
+          onClick={() => { setControlOnly(false); setView('projects') }}
         >
-          <FilePlus className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-primary-foreground hover:bg-primary/80"
-          title={t('openProject')}
-          onClick={project.loadProject}
-        >
-          <FolderOpen className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-primary-foreground hover:bg-primary/80"
-          title={t('saveProject')}
-          onClick={project.saveProject}
-        >
-          <Save className="h-4 w-4" />
-        </Button>
+          <GravixMark size={22} />
+          <GravixWordmark size={14} variant="dark" />
+        </button>
 
-        <Separator orientation="vertical" className="h-6 bg-primary-foreground/30 mx-1" />
+        {!controlOnly && (
+          <>
+            <Separator orientation="vertical" className="h-6 bg-primary-foreground/30 mx-0.5" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-primary-foreground hover:bg-primary/80"
+              title={t('newProject')}
+              onClick={project.newProject}
+            >
+              <FilePlus className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-primary-foreground hover:bg-primary/80"
+              title={t('openProject')}
+              onClick={project.loadProject}
+            >
+              <FolderOpen className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-primary-foreground hover:bg-primary/80"
+              title={t('saveProject')}
+              onClick={project.saveProject}
+            >
+              <Save className="h-4 w-4" />
+            </Button>
 
-        <span className="text-sm font-medium truncate max-w-[180px]">
-          {projectName}
-          {projectModified && <span className="ml-1 text-yellow-300">*</span>}
-        </span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-primary-foreground hover:bg-primary/80"
+                  title={t('export') || 'Exportar'}
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={() => cm.exportSVG()}>
+                  Exportar SVG
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => cm.exportDXF()}>
+                  Exportar DXF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <Separator orientation="vertical" className="h-6 bg-primary-foreground/30 mx-1" />
+
+            <span className="text-sm font-medium truncate max-w-[180px]">
+              {projectName}
+              {projectModified && <span className="ml-1 text-yellow-300">*</span>}
+            </span>
+          </>
+        )}
       </div>
 
       {/* Center: Workspace tabs */}
-      <div className="flex items-center gap-1 bg-primary/60 rounded-lg p-0.5">
-        {workspaceButtons.map((ws) => (
+      <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1 bg-primary/60 rounded-lg p-0.5">
+          {controlOnly ? (
+            <Button variant="secondary" size="sm" className="gap-1.5">
+              <Gamepad2 className="h-4 w-4" />
+              {t('cnc')}
+            </Button>
+          ) : (
+            workspaceButtons.map((ws) => (
+              <Button
+                key={ws.id}
+                variant={currentWorkspace === ws.id ? 'secondary' : 'ghost'}
+                size="sm"
+                className={
+                  currentWorkspace === ws.id
+                    ? 'gap-1.5'
+                    : 'gap-1.5 text-primary-foreground hover:bg-primary/80'
+                }
+                onClick={() => setWorkspace(ws.id)}
+              >
+                {ws.icon}
+                {ws.label}
+              </Button>
+            ))
+          )}
+        </div>
+        {controlOnly && (
           <Button
-            key={ws.id}
-            variant={currentWorkspace === ws.id ? 'secondary' : 'ghost'}
+            variant="ghost"
             size="sm"
-            className={
-              currentWorkspace === ws.id
-                ? 'gap-1.5'
-                : 'gap-1.5 text-primary-foreground hover:bg-primary/80'
-            }
-            onClick={() => setWorkspace(ws.id)}
+            className="gap-1.5 text-primary-foreground hover:bg-primary/80"
+            onClick={() => {
+              setControlOnly(false)
+              setView('projects')
+              openModal('newProject')
+            }}
           >
-            {ws.icon}
-            {ws.label}
+            <FilePlus className="h-4 w-4" />
+            {t('newProject')}
           </Button>
-        ))}
+        )}
       </div>
 
-      {/* Right: Config + Connection + Language */}
-      <div className="flex items-center gap-1">
+      {/* Right: Library + Connection + Language */}
+      <div className="flex items-center gap-1 shrink-0">
+        {/* Biblioteca: Herramientas + Materiales */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-primary-foreground hover:bg-primary/80"
+              title={t('library')}
+            >
+              <Layers className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => openModal('tools')}>
+              <Wrench className="h-4 w-4 mr-2" />
+              {t('tools')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openModal('materials')}>
+              <Layers className="h-4 w-4 mr-2" />
+              {t('materials')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openModal('machines')}>
+              <Cpu className="h-4 w-4 mr-2" />
+              Máquinas
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Preparar máquina */}
         <Button
           variant="ghost"
-          size="sm"
+          size="icon"
           className="text-primary-foreground hover:bg-primary/80"
-          onClick={() => openModal('tools')}
+          onClick={() => openModal('setupWizard')}
+          title={t('setupWizard')}
         >
-          <Wrench className="h-4 w-4" />
-          <span className="hidden lg:inline">{t('tools')}</span>
+          <Wand2 className="h-4 w-4" />
         </Button>
+
+        {/* Probar area */}
         <Button
           variant="ghost"
-          size="sm"
-          className="text-primary-foreground hover:bg-primary/80"
-          onClick={() => openModal('materials')}
+          size="icon"
+          className={`hover:bg-primary/80 ${connected ? 'text-primary-foreground' : 'text-primary-foreground/40'}`}
+          onClick={handleDryRun}
+          disabled={!connected || sending}
+          title={t('dryRun')}
         >
-          <Layers className="h-4 w-4" />
-          <span className="hidden lg:inline">{t('materials')}</span>
+          <Play className="h-4 w-4" />
         </Button>
+
+        {/* Red: solo icono */}
+        {isTauri() && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-primary-foreground hover:bg-primary/80"
+            onClick={() => openModal('networkServer')}
+            title={t('networkServer')}
+          >
+            <Globe className="h-4 w-4" />
+          </Button>
+        )}
 
         <Separator orientation="vertical" className="h-6 bg-primary-foreground/30 mx-1" />
 
-        {/* Connection status with popover */}
+        {/* Badge máquina activa */}
+        <button
+          onClick={() => openModal('machines')}
+          className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium hover:bg-primary/80 transition-colors max-w-[180px]"
+          title={activeMachine ? `${activeMachine.name} · ${activeMachine.firmware}` : 'Configurar máquinas'}
+        >
+          <Cpu className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">
+            {activeMachine?.name ?? 'Sin máquina'}
+          </span>
+          {activeMachine && (
+            <span className="text-[10px] uppercase opacity-70 shrink-0">
+              {activeMachine.firmware}
+            </span>
+          )}
+        </button>
+
+        {/* Conexión máquina: solo icono */}
         <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
           <PopoverTrigger asChild>
-            <Badge variant={connected ? 'success' : 'destructive'} className="gap-1 cursor-pointer">
-              {connected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-              {connected ? ts('connected') : ts('disconnected')}
-            </Badge>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`${connected ? 'text-green-400' : 'text-red-400'} hover:bg-primary/80`}
+              title={connected ? ts('connected') : ts('disconnected')}
+            >
+              {connected ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
+            </Button>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-64">
             <div className="space-y-3">
@@ -265,6 +438,31 @@ export function Header() {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {/* License status */}
+        <button
+          onClick={() => openModal('license')}
+          className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+            isLicensed
+              ? 'text-green-300 hover:bg-green-500/20'
+              : trialActive
+                ? 'text-yellow-300 hover:bg-yellow-500/20'
+                : 'text-red-300 hover:bg-red-500/20'
+          }`}
+          title={isLicensed ? tl('licensedTo', { email: licenseStatus?.email }) : tl('trialActive', { days: daysLeft })}
+        >
+          {isLicensed ? (
+            <>
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Pro
+            </>
+          ) : (
+            <>
+              <KeyRound className="h-3.5 w-3.5" />
+              {trialActive ? `${daysLeft}d` : tl('activate')}
+            </>
+          )}
+        </button>
+
         <Button
           variant="ghost"
           size="icon"
@@ -275,33 +473,41 @@ export function Header() {
           <HelpCircle className="h-4 w-4" />
         </Button>
 
-        <Separator orientation="vertical" className="h-6 bg-primary-foreground/30 mx-1" />
+        {appWindow && (
+          <>
+            <Separator orientation="vertical" className="h-6 bg-primary-foreground/30 mx-1" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-primary-foreground hover:bg-primary/80"
+              onClick={() => appWindow.minimize()}
+            >
+              <Minus className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-primary-foreground hover:bg-primary/80"
+              onClick={() => appWindow.toggleMaximize()}
+            >
+              <Square className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-primary-foreground hover:bg-destructive/80"
+              onClick={() => appWindow.close()}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </>
+        )}
 
-        {/* Window controls */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-primary-foreground hover:bg-primary/80"
-          onClick={() => appWindow.minimize()}
-        >
-          <Minus className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-primary-foreground hover:bg-primary/80"
-          onClick={() => appWindow.toggleMaximize()}
-        >
-          <Square className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-primary-foreground hover:bg-destructive/80"
-          onClick={() => appWindow.close()}
-        >
-          <X className="h-4 w-4" />
-        </Button>
+        {role === 'remote' && (
+          <Badge variant="outline" className="ml-1 text-xs text-yellow-300 border-yellow-300/50">
+            Remoto
+          </Badge>
+        )}
       </div>
     </header>
   )

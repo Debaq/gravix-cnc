@@ -1,40 +1,73 @@
-use serde::Serialize;
+use crate::shared_state::{AppState, ServerEvent};
+use serde::{Deserialize, Serialize};
 use serialport::SerialPort;
 use std::io::{BufRead, BufReader, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+use ts_rs::TS;
 
-// --- Types ---
+// --- Types (exportados a TS via ts-rs) ---
 
-#[derive(Debug, Serialize, Clone)]
+// Dialectos de protocolo soportados.
+// 'grbl' cubre GRBL 1.1, GRBLHAL y FluidNC (mismo parser).
+// 'marlin' usa M114 pull y respuestas echo:/Error:.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[ts(export, export_to = "../../src/lib/generated/")]
+#[serde(rename_all = "lowercase")]
+pub enum Dialect {
+    #[default]
+    Grbl,
+    Marlin,
+}
+
+// Clasificación de cada línea leída del puerto serie.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../src/lib/generated/")]
+#[serde(rename_all = "lowercase")]
+pub enum DataKind {
+    Ok,
+    Error,
+    Alarm,
+    Msg,
+    Startup,
+    Status,
+    Unknown,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, TS)]
+#[ts(export, export_to = "../../src/lib/generated/")]
 pub struct PortInfo {
     pub name: String,
     pub port_type: String,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, TS)]
+#[ts(export, export_to = "../../src/lib/generated/")]
 pub struct GrblPosition {
     pub x: String,
     pub y: String,
     pub z: String,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, TS)]
+#[ts(export, export_to = "../../src/lib/generated/")]
 pub struct GrblStatus {
     pub state: String,
     pub mpos: GrblPosition,
     pub wpos: GrblPosition,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, TS)]
+#[ts(export, export_to = "../../src/lib/generated/")]
 pub struct GrblData {
     pub line: String,
-    pub data_type: String, // "ok", "error", "alarm", "msg", "startup", "status", "unknown"
+    pub data_type: DataKind,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, TS)]
+#[ts(export, export_to = "../../src/lib/generated/")]
 pub struct SendProgress {
     pub current: usize,
     pub total: usize,
@@ -48,6 +81,8 @@ pub struct SerialState {
     reader_running: Arc<AtomicBool>,
     sending: Arc<AtomicBool>,
     cancel_send: Arc<AtomicBool>,
+    // Dialecto activo de la conexión. Se fija en serial_connect y los threads lo snapshotean.
+    dialect: Mutex<Dialect>,
 }
 
 impl SerialState {
@@ -57,14 +92,62 @@ impl SerialState {
             reader_running: Arc::new(AtomicBool::new(false)),
             sending: Arc::new(AtomicBool::new(false)),
             cancel_send: Arc::new(AtomicBool::new(false)),
+            dialect: Mutex::new(Dialect::default()),
         }
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.port.lock().map(|p| p.is_some()).unwrap_or(false)
+    }
+
+    pub fn current_dialect(&self) -> Dialect {
+        self.dialect.lock().map(|d| *d).unwrap_or_default()
     }
 }
 
-// --- GRBL Parsing ---
+// --- Bridge: emite a Tauri + broadcast para WebSocket ---
 
-fn parse_status_report(line: &str) -> Option<GrblStatus> {
-    // Format: <Idle|MPos:0.000,0.000,0.000|WPos:0.000,0.000,0.000|...>
+fn broadcast(app: &AppHandle, event: ServerEvent) {
+    if let Some(shared) = app.try_state::<Arc<AppState>>() {
+        let _ = shared.event_tx.send(event);
+    }
+}
+
+fn emit_data(app: &AppHandle, data: GrblData) {
+    let _ = app.emit("serial:data", data.clone());
+    broadcast(app, ServerEvent::SerialData(data));
+}
+
+fn emit_status(app: &AppHandle, status: GrblStatus) {
+    let _ = app.emit("serial:status", status.clone());
+    broadcast(app, ServerEvent::SerialStatus(status));
+}
+
+fn emit_progress(app: &AppHandle, progress: SendProgress) {
+    let _ = app.emit("serial:progress", progress.clone());
+    broadcast(app, ServerEvent::SerialProgress(progress));
+}
+
+fn emit_complete(app: &AppHandle, result: &str) {
+    let _ = app.emit("serial:complete", result);
+    broadcast(app, ServerEvent::SerialComplete(result.to_string()));
+}
+
+fn emit_disconnected(app: &AppHandle, reason: &str) {
+    let _ = app.emit("serial:disconnected", reason);
+    broadcast(app, ServerEvent::SerialDisconnected(reason.to_string()));
+}
+
+// --- Parsing por dialecto ---
+
+fn parse_status_report(line: &str, dialect: Dialect) -> Option<GrblStatus> {
+    match dialect {
+        Dialect::Grbl => parse_grbl_status(line),
+        Dialect::Marlin => parse_marlin_status(line),
+    }
+}
+
+fn parse_grbl_status(line: &str) -> Option<GrblStatus> {
     let trimmed = line.trim_start_matches('<').trim_end_matches('>');
     let parts: Vec<&str> = trimmed.split('|').collect();
 
@@ -105,33 +188,102 @@ fn parse_status_report(line: &str) -> Option<GrblStatus> {
     Some(GrblStatus { state, mpos, wpos })
 }
 
-fn classify_line(line: &str) -> String {
+// Marlin M114: "X:0.00 Y:0.00 Z:0.00 E:0.00 Count X:0 Y:0 Z:0"
+// Primera ocurrencia de X:/Y:/Z: es la posición lógica; "Count X/Y/Z" es pasos.
+// Marlin no distingue MPos/WPos ni reporta estado en M114 → state="Idle", ambos iguales.
+fn parse_marlin_status(line: &str) -> Option<GrblStatus> {
+    let mut x: Option<String> = None;
+    let mut y: Option<String> = None;
+    let mut z: Option<String> = None;
+    for token in line.split_whitespace() {
+        if x.is_none() {
+            if let Some(v) = token.strip_prefix("X:") {
+                x = Some(v.to_string());
+                continue;
+            }
+        }
+        if y.is_none() {
+            if let Some(v) = token.strip_prefix("Y:") {
+                y = Some(v.to_string());
+                continue;
+            }
+        }
+        if z.is_none() {
+            if let Some(v) = token.strip_prefix("Z:") {
+                z = Some(v.to_string());
+                continue;
+            }
+        }
+        if x.is_some() && y.is_some() && z.is_some() {
+            break;
+        }
+    }
+    let pos = GrblPosition {
+        x: x?,
+        y: y?,
+        z: z?,
+    };
+    Some(GrblStatus {
+        state: "Idle".to_string(),
+        mpos: pos.clone(),
+        wpos: pos,
+    })
+}
+
+fn classify_line(line: &str, dialect: Dialect) -> DataKind {
     let trimmed = line.trim();
-    if trimmed == "ok" {
-        "ok".to_string()
-    } else if trimmed.starts_with("error:") {
-        "error".to_string()
-    } else if trimmed.starts_with("ALARM:") {
-        "alarm".to_string()
-    } else if trimmed.starts_with("[MSG:") {
-        "msg".to_string()
-    } else if trimmed.starts_with("Grbl ") {
-        "startup".to_string()
-    } else if trimmed.starts_with('<') && trimmed.ends_with('>') {
-        "status".to_string()
-    } else {
-        "unknown".to_string()
+    match dialect {
+        Dialect::Grbl => {
+            if trimmed == "ok" {
+                DataKind::Ok
+            } else if trimmed.starts_with("error:") {
+                DataKind::Error
+            } else if trimmed.starts_with("ALARM:") {
+                DataKind::Alarm
+            } else if trimmed.starts_with("[MSG:") {
+                DataKind::Msg
+            } else if trimmed.starts_with("Grbl ") {
+                DataKind::Startup
+            } else if trimmed.starts_with('<') && trimmed.ends_with('>') {
+                DataKind::Status
+            } else {
+                DataKind::Unknown
+            }
+        }
+        Dialect::Marlin => {
+            if trimmed == "ok" || trimmed.starts_with("ok ") {
+                DataKind::Ok
+            } else if trimmed.starts_with("Error:") || trimmed.starts_with("error:") {
+                DataKind::Error
+            } else if trimmed.starts_with("echo:") || trimmed.starts_with("//") {
+                DataKind::Msg
+            } else if trimmed.starts_with("FIRMWARE_NAME") || trimmed.starts_with("start") {
+                DataKind::Startup
+            } else if looks_like_m114(trimmed) {
+                DataKind::Status
+            } else {
+                DataKind::Unknown
+            }
+        }
     }
 }
 
-// --- Commands ---
+fn looks_like_m114(line: &str) -> bool {
+    line.starts_with("X:") && line.contains(" Y:") && line.contains(" Z:")
+}
 
-#[tauri::command]
-pub fn serial_list_ports() -> Result<Vec<PortInfo>, String> {
-    let ports = serialport::available_ports().map_err(|e| format!("Error listando puertos: {}", e))?;
+// --- Funciones desacopladas (usadas por web_server) ---
+
+pub fn serial_list_ports_inner() -> Result<Vec<PortInfo>, String> {
+    let ports =
+        serialport::available_ports().map_err(|e| format!("Error listando puertos: {}", e))?;
 
     Ok(ports
         .into_iter()
+        .filter(|p| {
+            // Linux: ocultar puertos seriales legacy /dev/ttyS* (suelen ser virtuales/no conectados)
+            !p.port_name.starts_with("/dev/ttyS")
+        })
         .map(|p| {
             let port_type = match &p.port_type {
                 serialport::SerialPortType::UsbPort(info) => {
@@ -156,40 +308,55 @@ pub fn serial_list_ports() -> Result<Vec<PortInfo>, String> {
         .collect())
 }
 
+// --- Comandos Tauri ---
+
+#[tauri::command]
+pub fn serial_list_ports() -> Result<Vec<PortInfo>, String> {
+    serial_list_ports_inner()
+}
+
 #[tauri::command]
 pub fn serial_connect(
     app: AppHandle,
-    state: State<'_, SerialState>,
+    state: State<'_, Arc<SerialState>>,
     port: String,
     baud_rate: u32,
+    dialect: Option<Dialect>,
 ) -> Result<(), String> {
-    // Check if already connected
     {
-        let current = state.port.lock().map_err(|e| format!("Error de lock: {}", e))?;
+        let current = state
+            .port
+            .lock()
+            .map_err(|e| format!("Error de lock: {}", e))?;
         if current.is_some() {
             return Err("Ya hay un puerto conectado. Desconecte primero.".to_string());
         }
     }
 
-    // Open serial port
+    let active_dialect = dialect.unwrap_or_default();
+    if let Ok(mut d) = state.dialect.lock() {
+        *d = active_dialect;
+    }
+
     let serial_port = serialport::new(&port, baud_rate)
         .timeout(Duration::from_millis(100))
         .open()
         .map_err(|e| format!("Error abriendo puerto {}: {}", port, e))?;
 
-    // Clone for the reader thread
     let reader_port = serial_port
         .try_clone()
         .map_err(|e| format!("Error clonando puerto: {}", e))?;
 
-    // Store the port
     {
-        let mut current = state.port.lock().map_err(|e| format!("Error de lock: {}", e))?;
+        let mut current = state
+            .port
+            .lock()
+            .map_err(|e| format!("Error de lock: {}", e))?;
         *current = Some(serial_port);
     }
 
-    // Start reader thread
     let reader_running = Arc::clone(&state.reader_running);
+    let sending_flag = Arc::clone(&state.sending);
     reader_running.store(true, Ordering::SeqCst);
 
     let app_clone = app.clone();
@@ -200,47 +367,43 @@ pub fn serial_connect(
         let mut line_buf = String::new();
 
         while reader_running.load(Ordering::SeqCst) {
+            if sending_flag.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            }
+
             line_buf.clear();
             match reader.read_line(&mut line_buf) {
-                Ok(0) => {
-                    // EOF - port closed
-                    break;
-                }
+                Ok(0) => break,
                 Ok(_) => {
                     let line = line_buf.trim().to_string();
                     if line.is_empty() {
                         continue;
                     }
 
-                    let data_type = classify_line(&line);
+                    let data_type = classify_line(&line, active_dialect);
 
-                    // Emit raw data event
-                    let _ = app_clone.emit(
-                        "serial:data",
+                    emit_data(
+                        &app_clone,
                         GrblData {
                             line: line.clone(),
-                            data_type: data_type.clone(),
+                            data_type,
                         },
                     );
 
-                    // If it's a status report, parse and emit structured data
-                    if data_type == "status" {
-                        if let Some(status) = parse_status_report(&line) {
-                            let _ = app_clone.emit("serial:status", status);
+                    if data_type == DataKind::Status {
+                        if let Some(status) = parse_status_report(&line, active_dialect) {
+                            emit_status(&app_clone, status);
                         }
                     }
                 }
-                Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {
-                    // Normal timeout, continue reading
-                    continue;
-                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
                 Err(e) => {
-                    // Unexpected error (USB disconnected, etc.)
-                    let _ = app_clone.emit(
-                        "serial:data",
+                    emit_data(
+                        &app_clone,
                         GrblData {
                             line: format!("Error de lectura: {}", e),
-                            data_type: "error".to_string(),
+                            data_type: DataKind::Error,
                         },
                     );
                     break;
@@ -248,15 +411,14 @@ pub fn serial_connect(
             }
         }
 
-        // Notify disconnection
-        let _ = app_clone.emit("serial:disconnected", port_name);
+        emit_disconnected(&app_clone, &port_name);
     });
 
-    let _ = app.emit(
-        "serial:data",
+    emit_data(
+        &app,
         GrblData {
             line: format!("Conectado a {} @ {} baud", port, baud_rate),
-            data_type: "msg".to_string(),
+            data_type: DataKind::Msg,
         },
     );
 
@@ -264,35 +426,31 @@ pub fn serial_connect(
 }
 
 #[tauri::command]
-pub fn serial_disconnect(
-    app: AppHandle,
-    state: State<'_, SerialState>,
-) -> Result<(), String> {
-    // Stop reader thread
+pub fn serial_disconnect(app: AppHandle, state: State<'_, Arc<SerialState>>) -> Result<(), String> {
     state.reader_running.store(false, Ordering::SeqCst);
-
-    // Cancel any ongoing send
     state.cancel_send.store(true, Ordering::SeqCst);
 
-    // Close the port
     {
-        let mut port = state.port.lock().map_err(|e| format!("Error de lock: {}", e))?;
+        let mut port = state
+            .port
+            .lock()
+            .map_err(|e| format!("Error de lock: {}", e))?;
         if port.is_none() {
             return Err("No hay puerto conectado.".to_string());
         }
-        *port = None; // Drop closes the port
+        *port = None;
     }
 
-    let _ = app.emit("serial:disconnected", "manual");
+    emit_disconnected(&app, "manual");
     Ok(())
 }
 
 #[tauri::command]
-pub fn serial_send(
-    state: State<'_, SerialState>,
-    command: String,
-) -> Result<(), String> {
-    let mut port_guard = state.port.lock().map_err(|e| format!("Error de lock: {}", e))?;
+pub fn serial_send(state: State<'_, Arc<SerialState>>, command: String) -> Result<(), String> {
+    let mut port_guard = state
+        .port
+        .lock()
+        .map_err(|e| format!("Error de lock: {}", e))?;
     let port = port_guard
         .as_mut()
         .ok_or_else(|| "No hay puerto conectado.".to_string())?;
@@ -314,15 +472,13 @@ pub fn serial_send(
 #[tauri::command]
 pub fn serial_send_gcode(
     app: AppHandle,
-    state: State<'_, SerialState>,
+    state: State<'_, Arc<SerialState>>,
     gcode: String,
 ) -> Result<(), String> {
-    // Check if already sending
     if state.sending.load(Ordering::SeqCst) {
         return Err("Ya hay un envio de G-code en progreso.".to_string());
     }
 
-    // Prepare lines: filter empty and comments-only lines
     let lines: Vec<String> = gcode
         .lines()
         .map(|l| l.trim().to_string())
@@ -334,9 +490,11 @@ pub fn serial_send_gcode(
         return Err("No hay lineas de G-code para enviar.".to_string());
     }
 
-    // Clone the port for the sending thread
     let port_clone = {
-        let port_guard = state.port.lock().map_err(|e| format!("Error de lock: {}", e))?;
+        let port_guard = state
+            .port
+            .lock()
+            .map_err(|e| format!("Error de lock: {}", e))?;
         let port = port_guard
             .as_ref()
             .ok_or_else(|| "No hay puerto conectado.".to_string())?;
@@ -346,6 +504,7 @@ pub fn serial_send_gcode(
 
     let sending = Arc::clone(&state.sending);
     let cancel_send = Arc::clone(&state.cancel_send);
+    let active_dialect = state.current_dialect();
 
     sending.store(true, Ordering::SeqCst);
     cancel_send.store(false, Ordering::SeqCst);
@@ -354,15 +513,14 @@ pub fn serial_send_gcode(
 
     std::thread::spawn(move || {
         let mut port = port_clone;
-        // Create a reader from a cloned port for reading responses
         let reader_port = match port.try_clone() {
             Ok(p) => p,
             Err(e) => {
-                let _ = app_clone.emit(
-                    "serial:data",
+                emit_data(
+                    &app_clone,
                     GrblData {
                         line: format!("Error clonando puerto para lectura: {}", e),
-                        data_type: "error".to_string(),
+                        data_type: DataKind::Error,
                     },
                 );
                 sending.store(false, Ordering::SeqCst);
@@ -373,31 +531,29 @@ pub fn serial_send_gcode(
 
         for (i, line) in lines.iter().enumerate() {
             if cancel_send.load(Ordering::SeqCst) {
-                let _ = app_clone.emit(
-                    "serial:data",
+                emit_data(
+                    &app_clone,
                     GrblData {
                         line: "Envio cancelado por el usuario.".to_string(),
-                        data_type: "msg".to_string(),
+                        data_type: DataKind::Msg,
                     },
                 );
                 break;
             }
 
-            // Send the line
             let cmd = format!("{}\r\n", line);
             if let Err(e) = port.write_all(cmd.as_bytes()) {
-                let _ = app_clone.emit(
-                    "serial:data",
+                emit_data(
+                    &app_clone,
                     GrblData {
                         line: format!("Error enviando linea {}: {}", i + 1, e),
-                        data_type: "error".to_string(),
+                        data_type: DataKind::Error,
                     },
                 );
                 break;
             }
             let _ = port.flush();
 
-            // Wait for "ok" or "error" from GRBL
             let mut response_buf = String::new();
             loop {
                 if cancel_send.load(Ordering::SeqCst) {
@@ -406,29 +562,39 @@ pub fn serial_send_gcode(
 
                 response_buf.clear();
                 match reader.read_line(&mut response_buf) {
-                    Ok(0) => {
-                        // EOF
-                        break;
-                    }
+                    Ok(0) => break,
                     Ok(_) => {
-                        let resp = response_buf.trim();
+                        let resp = response_buf.trim().to_string();
                         if resp.is_empty() {
                             continue;
                         }
-                        if resp == "ok" || resp.starts_with("error:") {
+
+                        let resp_type = classify_line(&resp, active_dialect);
+                        emit_data(
+                            &app_clone,
+                            GrblData {
+                                line: resp.clone(),
+                                data_type: resp_type,
+                            },
+                        );
+
+                        if resp_type == DataKind::Status {
+                            if let Some(status) = parse_status_report(&resp, active_dialect) {
+                                emit_status(&app_clone, status);
+                            }
+                        }
+
+                        if resp_type == DataKind::Ok || resp_type == DataKind::Error {
                             break;
                         }
-                        // Other responses (status reports, etc.) - just continue waiting
                     }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {
-                        continue;
-                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
                     Err(e) => {
-                        let _ = app_clone.emit(
-                            "serial:data",
+                        emit_data(
+                            &app_clone,
                             GrblData {
                                 line: format!("Error leyendo respuesta: {}", e),
-                                data_type: "error".to_string(),
+                                data_type: DataKind::Error,
                             },
                         );
                         cancel_send.store(true, Ordering::SeqCst);
@@ -437,11 +603,10 @@ pub fn serial_send_gcode(
                 }
             }
 
-            // Emit progress
             let current = i + 1;
             let percent = (current as f32 / total as f32) * 100.0;
-            let _ = app_clone.emit(
-                "serial:progress",
+            emit_progress(
+                &app_clone,
                 SendProgress {
                     current,
                     total,
@@ -453,9 +618,9 @@ pub fn serial_send_gcode(
         sending.store(false, Ordering::SeqCst);
 
         if cancel_send.load(Ordering::SeqCst) {
-            let _ = app_clone.emit("serial:complete", "cancelled");
+            emit_complete(&app_clone, "cancelled");
         } else {
-            let _ = app_clone.emit("serial:complete", "done");
+            emit_complete(&app_clone, "done");
         }
     });
 
@@ -463,9 +628,7 @@ pub fn serial_send_gcode(
 }
 
 #[tauri::command]
-pub fn serial_cancel_send(
-    state: State<'_, SerialState>,
-) -> Result<(), String> {
+pub fn serial_cancel_send(state: State<'_, Arc<SerialState>>) -> Result<(), String> {
     if !state.sending.load(Ordering::SeqCst) {
         return Err("No hay envio en progreso.".to_string());
     }

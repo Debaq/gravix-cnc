@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Tool, Material } from '@/lib/types'
+import { useMachineStore } from '@/stores/useMachineStore'
 
 interface LibraryState {
   // Data
@@ -84,6 +85,13 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
     const category = categoryMap[operationType]
     if (!category) return []
-    return get().tools.filter((t) => t.category === category)
+    const byCategory = get().tools.filter((t) => t.category === category)
+    // Filtrar por toolIds de máquina activa si está definido (non-empty = whitelist).
+    const active = useMachineStore.getState().getActive()
+    if (active && active.toolIds.length > 0) {
+      const allowed = new Set(active.toolIds)
+      return byCategory.filter((t) => allowed.has(t.id))
+    }
+    return byCategory
   },
 }))

@@ -3,7 +3,7 @@
 // ============================================
 
 // Workspaces
-export type Workspace = 'design' | 'preview' | 'control'
+export type Workspace = 'cad' | 'cam' | 'cnc'
 
 // Tipos de operación
 export type OperationType = 'cnc' | 'laser' | 'plotter' | 'pencil'
@@ -152,57 +152,15 @@ export interface Layer {
   config: GlobalConfig | null // Override de operación para toda la capa
 }
 
-// Herramienta
-export interface Tool {
-  id: string
-  category: 'cnc' | 'laser' | 'plotter' | 'pencil'
-  name: string
-  type: string
-  diameter?: number
-  angle?: number
-  feedRate?: number
-  plungeRate?: number
-  rpm?: number
-  pressure?: number
-  speed?: number
-  offset?: number
-  lengthOffset?: number  // Tool length offset Z (mm) para G43
-  thickness?: number
-  color?: string
-  notes?: string
-}
-
-// Material
-export interface Material {
-  id: string
-  name: string
-  category: string
-  thickness: number
-  description?: string
-  color: string
-  cnc?: {
-    feedRate: number
-    plungeRate: number
-    rpm: number
-    depthPerPass: number
-    recommended?: string
-  }
-  laser?: {
-    cutPower: number
-    cutSpeed: number
-    engravePower: number
-    engraveSpeed: number
-    passes?: number
-    warning?: string
-  }
-  plotter?: {
-    pressure: number
-    speed: number
-    passes: number
-    blade: string
-    offset?: number
-  }
-}
+// Tool y Material se generan desde Rust via ts-rs.
+// Re-exportados acá para que los callers existentes (import from '@/lib/types')
+// sigan funcionando sin cambiar rutas.
+export type { Tool } from '@/lib/generated/Tool'
+export type { ToolCategory } from '@/lib/generated/ToolCategory'
+export type { Material } from '@/lib/generated/Material'
+export type { CncSettings } from '@/lib/generated/CncSettings'
+export type { LaserSettings } from '@/lib/generated/LaserSettings'
+export type { PlotterSettings } from '@/lib/generated/PlotterSettings'
 
 // Configuración GRBL
 export interface GRBLSetting {
@@ -244,6 +202,23 @@ export interface ColorMapping {
   speed: number        // mm/min
   passes: number
   enabled: boolean
+}
+
+// Marcadores CAM insertados entre jobs
+export interface GCodeMarker {
+  type: 'pause' | 'tool-change' | 'message'
+  message: string
+  afterJobIndex: number // insert after this job index in the jobs array
+  parkPosition?: { x: number; y: number; z: number } // where tool parks during pause
+}
+
+// Clamp rectangle for collision avoidance in rapids
+export interface ClampRect {
+  x: number
+  y: number
+  width: number
+  height: number
+  zHeight: number // physical height in mm (0 = infinite)
 }
 
 // Estimaciones de mecanizado
@@ -306,6 +281,7 @@ export interface SavedMacro {
   name: string
   gcode: string
   icon?: string
+  builtin?: boolean
 }
 
 // Posición guardada

@@ -1,6 +1,10 @@
 pub mod tools;
 pub mod materials;
+pub mod machines;
 pub mod files;
 pub mod auth;
 pub mod serial;
 pub mod image_processing;
+pub mod web_server_cmd;
+pub mod workspace_cmd;
+pub mod license_cmd;

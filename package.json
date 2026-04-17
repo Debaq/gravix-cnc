@@ -8,7 +8,11 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "types:gen": "cd src-tauri && cargo test --quiet export_bindings",
+    "predev": "npm run types:gen",
+    "prebuild": "npm run types:gen",
+    "pretauri": "npm run types:gen"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

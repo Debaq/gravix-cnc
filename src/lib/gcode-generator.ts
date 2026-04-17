@@ -1,17 +1,147 @@
-import type { Point2D, GCodePath, GCodeJob, GlobalConfig, RasterData, ColorMapping } from './types'
-import { offsetPolygon, generatePocketContours, orderPaths, orderPathsInsideFirst, generateHatchLines } from './geometry'
+import type { Point2D, GCodePath, GCodeJob, GlobalConfig, RasterData, ColorMapping, GCodeMarker, ClampRect } from './types'
+import type { MachineProfile } from './profiles'
+import { offsetPolygon, generatePocketContours, orderPaths, orderPathsInsideFirst, generateHatchLines, validateToolVsPaths } from './geometry'
+import { useMachineStore } from '@/stores/useMachineStore'
 
 const SAFE_Z = 5
 const FINAL_RETRACT_Z = 10
 
+/**
+ * Check if a 2D line segment (x1,y1)→(x2,y2) intersects a rectangle.
+ * Uses Liang-Barsky algorithm.
+ */
+function lineIntersectsRect(x1: number, y1: number, x2: number, y2: number, rect: ClampRect): boolean {
+  const { x: rx, y: ry, width: rw, height: rh } = rect
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const p = [-dx, dx, -dy, dy]
+  const q = [x1 - rx, rx + rw - x1, y1 - ry, ry + rh - y1]
+
+  let u1 = 0
+  let u2 = 1
+
+  for (let i = 0; i < 4; i++) {
+    if (p[i] === 0) {
+      if (q[i] < 0) return false
+    } else {
+      const t = q[i] / p[i]
+      if (p[i] < 0) {
+        if (t > u2) return false
+        if (t > u1) u1 = t
+      } else {
+        if (t < u1) return false
+        if (t < u2) u2 = t
+      }
+    }
+  }
+  return u1 <= u2
+}
+
+/**
+ * Check if a point (x,y) is inside a rectangle.
+ */
+function pointInRect(x: number, y: number, rect: ClampRect): boolean {
+  return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
+}
+
 export class GCodeGenerator {
   private totalDistance = 0
   private totalTime = 0
+  private machine: MachineProfile | null
+  private clamps: ClampRect[] = []
+
+  constructor(machine?: MachineProfile | null) {
+    // Si no se provee, lee la máquina activa del store.
+    this.machine = machine !== undefined
+      ? machine
+      : (typeof window !== 'undefined' ? useMachineStore.getState().getActive() : null)
+  }
+
+  // --- Helpers dialecto (fallback a GRBL si no hay máquina activa) ---
+
+  private get dialect() {
+    return this.machine?.gcodeDialect
+  }
+
+  private isMarlin(): boolean {
+    return this.machine?.firmware === 'marlin'
+  }
+
+  programHeader(): string[] {
+    const d = this.dialect
+    const units = (d?.unitsMm ?? 'G21')
+    const abs = (d?.absolutePositioning ?? 'G90')
+    // Si el perfil trae header custom, usarlo tal cual; si no, fallback mínimo.
+    if (d?.header && d.header.length > 0) {
+      return d.header.map((l) => l)
+    }
+    return [`${abs} ; Absolute positioning`, `${units} ; Millimeters`]
+  }
+
+  programFooter(): string[] {
+    const d = this.dialect
+    const retract = `G0 Z${FINAL_RETRACT_Z} ; Final retract`
+    const home = 'G0 X0 Y0 ; Return to origin'
+    if (d?.footer && d.footer.length > 0) {
+      // Retract + footer custom, evita duplicar home si el perfil ya trae algo equivalente.
+      return [retract, ...d.footer]
+    }
+    return [retract, `${d?.spindleOff ?? 'M5'} ; All OFF`, home, 'M2 ; Program end']
+  }
+
+  spindleOn(rpm: number, comment = 'Spindle ON'): string {
+    return `${this.dialect?.spindleOn ?? 'M3'} S${rpm} ; ${comment}`
+  }
+
+  spindleOff(comment = 'Spindle OFF'): string {
+    return `${this.dialect?.spindleOff ?? 'M5'} ; ${comment}`
+  }
+
+  laserOn(power: number, dynamic: boolean): string {
+    const cmd = dynamic
+      ? (this.dialect?.spindleOnDynamic ?? 'M4')
+      : (this.dialect?.spindleOn ?? 'M3')
+    return `${cmd} S${power}`
+  }
+
+  laserOff(comment?: string): string {
+    const base = `${this.dialect?.spindleOff ?? 'M5'} S0`
+    return comment ? `${base} ; ${comment}` : base
+  }
+
+  // Dwell en segundos. GRBL: G4 P{sec}. Marlin: G4 S{sec}.
+  dwell(seconds: number, comment?: string): string {
+    const template = this.dialect?.dwell ?? 'G4 P{sec}'
+    const line = template.replace('{sec}', String(seconds))
+    return comment ? `${line} ; ${comment}` : line
+  }
+
+  // Retorna null si la máquina no soporta TLO (Marlin básico).
+  tlo(z: number): string | null {
+    const mode = this.dialect?.tloMode ?? 'g43.1'
+    if (mode === 'none' || !this.machine?.capabilities.tlo) return null
+    if (mode === 'g43') return `G43 H1 ; Tool length offset (Z ref ${z.toFixed(3)})`
+    return `G43.1 Z${z.toFixed(3)} ; Tool length offset`
+  }
+
+  // Retorna null si la máquina no soporta cambio de herramienta.
+  toolChange(num: number): string | null {
+    const template = this.dialect?.toolChange ?? 'M6 T{n}'
+    if (!template) return null
+    return template.replace('{n}', String(num)) + ' ; Tool change'
+  }
+
+  pause(msg?: string): string {
+    const template = this.dialect?.pause || 'M0'
+    return msg ? `${template} ; ${msg}` : template
+  }
 
   /**
    * Generate G-code from per-element jobs (new API with tool changes)
    */
-  async generateFromJobs(jobs: GCodeJob[], rasterData?: RasterData | null): Promise<string> {
+
+  async generateFromJobs(jobs: GCodeJob[], rasterData?: RasterData | null, markers?: GCodeMarker[], clamps?: ClampRect[]): Promise<string> {
+    this.clamps = clamps ?? []
     this.totalDistance = 0
     this.totalTime = 0
 
@@ -57,8 +187,7 @@ export class GCodeGenerator {
     lines.push(`; Tool groups: ${toolGroups.length}`)
     lines.push('; ====================================')
     lines.push('')
-    lines.push('G90 ; Absolute positioning')
-    lines.push('G21 ; Millimeters')
+    lines.push(...this.programHeader())
     lines.push('')
 
     let toolNumber = 0
@@ -76,9 +205,9 @@ export class GCodeGenerator {
           const isPlotter = firstJob.config.operationType === 'plotter' || firstJob.config.operationType === 'pencil'
           // Stop current tool before changing
           if (isCNC) {
-            lines.push('M5 ; Spindle OFF')
+            lines.push(this.spindleOff())
           } else if (isLaser) {
-            lines.push('M5 S0 ; Laser OFF')
+            lines.push(this.laserOff('Laser OFF'))
           }
           lines.push(`G0 Z${SAFE_Z} ; Safe height`)
           if (isPlotter) {
@@ -88,26 +217,44 @@ export class GCodeGenerator {
         }
 
         if (group.toolId !== '__none__') {
-          lines.push('; ====================================')
-          lines.push(`; TOOL ${toolNumber}: ${this.getToolComment(firstJob.config)}`)
-          lines.push('; ====================================')
-          lines.push(`M6 T${toolNumber} ; Tool change`)
-          lines.push('')
+          const tc = this.toolChange(toolNumber)
+          if (tc) {
+            lines.push('; ====================================')
+            lines.push(`; TOOL ${toolNumber}: ${this.getToolComment(firstJob.config)}`)
+            lines.push('; ====================================')
+            lines.push(tc)
+            lines.push('')
+          } else {
+            lines.push(`; Tool ${toolNumber}: ${this.getToolComment(firstJob.config)} (tool change no soportado; cambio manual requerido)`)
+            lines.push(this.pause(`Cambiar a herramienta ${toolNumber}`))
+            lines.push('')
+          }
         }
       }
 
       // Tool setup
       if (isCNC) {
-        // Tool length offset (G43)
         const tlo = firstJob.config.toolLengthOffset || 0
         if (tlo !== 0) {
-          lines.push(`G43.1 Z${tlo.toFixed(3)} ; Tool length offset`)
+          const tloLine = this.tlo(tlo)
+          if (tloLine) lines.push(tloLine)
+          else lines.push(`; TLO ${tlo.toFixed(3)} omitido (no soportado por ${this.machine?.firmware ?? 'firmware'})`)
         }
         const rpm = parseFloat(String(firstJob.config.spindleRPM))
-        lines.push(`M3 S${rpm} ; Spindle ON`)
-        lines.push('G4 P2 ; Dwell for spindle startup')
+        lines.push(this.spindleOn(rpm))
+        lines.push(this.dwell(2, 'Dwell for spindle startup'))
         lines.push(`G0 Z${SAFE_Z} ; Safe height`)
         lines.push('')
+      }
+
+      // Build marker lookup: afterJobIndex → markers[]
+      const markersByJob = new Map<number, GCodeMarker[]>()
+      if (markers) {
+        for (const m of markers) {
+          const list = markersByJob.get(m.afterJobIndex) ?? []
+          list.push(m)
+          markersByJob.set(m.afterJobIndex, list)
+        }
       }
 
       // Process each job in this tool group
@@ -129,6 +276,42 @@ export class GCodeGenerator {
         }
 
         lines.push('')
+
+        // Emit markers after this job
+        const jobIdx = validJobs.indexOf(job)
+        const jobMarkers = markersByJob.get(jobIdx)
+        if (jobMarkers) {
+          for (const m of jobMarkers) {
+            const park = m.parkPosition
+            lines.push('; ------------------------------------')
+            if (m.type === 'tool-change') {
+              lines.push(`; @TOOL-CHANGE: ${m.message}`)
+              lines.push(this.spindleOff('Stop spindle/laser'))
+              if (park) {
+                lines.push(`G0 Z${park.z} ; Park height`)
+                lines.push(`G0 X${park.x} Y${park.y} ; Park position`)
+              } else {
+                lines.push(`G0 Z${SAFE_Z} ; Safe height`)
+              }
+              lines.push(`M0 ; ${m.message}`)
+              lines.push('; Resume after tool change')
+            } else if (m.type === 'pause') {
+              lines.push(`; @PAUSE: ${m.message}`)
+              if (park) {
+                lines.push(`G0 Z${park.z} ; Park height`)
+                lines.push(`G0 X${park.x} Y${park.y} ; Park position`)
+              } else {
+                lines.push(`G0 Z${SAFE_Z} ; Safe height`)
+              }
+              lines.push(`M0 ; ${m.message}`)
+            } else {
+              lines.push(`; @MSG: ${m.message}`)
+              lines.push(`M0 ; ${m.message}`)
+            }
+            lines.push('; ------------------------------------')
+            lines.push('')
+          }
+        }
       }
 
       isFirstGroup = false
@@ -136,12 +319,179 @@ export class GCodeGenerator {
 
     // Program footer
     lines.push('; ====================================')
-    lines.push(`G0 Z${FINAL_RETRACT_Z} ; Final retract`)
-    lines.push('M5 ; All OFF')
-    lines.push('G0 X0 Y0 ; Return to origin')
-    lines.push('M2 ; Program end')
+    lines.push(...this.programFooter())
+
+    // Post-process: add clamp avoidance on rapids
+    if (this.clamps.length > 0) {
+      return this.avoidClampsOnRapids(lines).join('\n')
+    }
 
     return lines.join('\n')
+  }
+
+  /**
+   * Post-process G-code: if a G0 XY rapid crosses a clamp zone while Z is low,
+   * insert Z-retract before and Z-descend after to fly over the clamp.
+   */
+  /**
+   * Find shortest XY path from A to B avoiding ALL clamp rectangles.
+   * Uses visibility graph + Dijkstra over expanded clamp corners.
+   */
+  private findPathAroundClamps(
+    fromX: number, fromY: number, toX: number, toY: number,
+    obstacles: ClampRect[], margin: number,
+  ): { x: number; y: number }[] {
+    // If direct path is clear, no detour needed
+    if (!obstacles.some((c) => lineIntersectsRect(fromX, fromY, toX, toY, c))) {
+      return []
+    }
+
+    type Node = { x: number; y: number }
+
+    // Build nodes: start + end + 4 corners of each expanded obstacle
+    const nodes: Node[] = [{ x: fromX, y: fromY }, { x: toX, y: toY }]
+    for (const c of obstacles) {
+      const ex = c.x - margin
+      const ey = c.y - margin
+      const ew = c.width + margin * 2
+      const eh = c.height + margin * 2
+      nodes.push(
+        { x: ex, y: ey },
+        { x: ex + ew, y: ey },
+        { x: ex + ew, y: ey + eh },
+        { x: ex, y: ey + eh },
+      )
+    }
+
+    // Filter out corners that are inside another obstacle
+    const validNodes = nodes.filter((n, i) => {
+      if (i < 2) return true // start/end always valid
+      return !obstacles.some((c) => pointInRect(n.x, n.y, c))
+    })
+
+    const n = validNodes.length
+    if (n < 2) return []
+
+    // Visibility: two nodes can see each other if line doesn't cross any obstacle
+    const canSee = (a: Node, b: Node) =>
+      !obstacles.some((c) => lineIntersectsRect(a.x, a.y, b.x, b.y, c))
+
+    // Dijkstra shortest path from node 0 (start) to node 1 (end)
+    const dist = new Float64Array(n).fill(Infinity)
+    const prev = new Int32Array(n).fill(-1)
+    const visited = new Uint8Array(n)
+    dist[0] = 0
+
+    for (let step = 0; step < n; step++) {
+      // Find unvisited node with smallest distance
+      let u = -1
+      let minD = Infinity
+      for (let i = 0; i < n; i++) {
+        if (!visited[i] && dist[i] < minD) {
+          minD = dist[i]
+          u = i
+        }
+      }
+      if (u === -1 || u === 1) break // done or unreachable
+      visited[u] = 1
+
+      for (let v = 0; v < n; v++) {
+        if (visited[v]) continue
+        if (!canSee(validNodes[u], validNodes[v])) continue
+        const d = dist[u] + Math.hypot(validNodes[v].x - validNodes[u].x, validNodes[v].y - validNodes[u].y)
+        if (d < dist[v]) {
+          dist[v] = d
+          prev[v] = u
+        }
+      }
+    }
+
+    // Reconstruct path (exclude start and end)
+    if (dist[1] === Infinity) return [] // no path found, fallback
+    const path: Node[] = []
+    let cur = 1
+    while (cur !== 0 && cur !== -1) {
+      if (cur !== 1) path.unshift(validNodes[cur])
+      cur = prev[cur]
+    }
+
+    return path
+  }
+
+  private avoidClampsOnRapids(lines: string[]): string[] {
+    const result: string[] = []
+    let curX = 0
+    let curY = 0
+    let curZ = SAFE_Z
+    let currentMode: 'G0' | 'G1' | '' = ''
+    const MARGIN = 3 // mm clearance around clamps
+
+    // Separate clamp types
+    const infiniteClamps = this.clamps.filter((c) => c.zHeight === 0)
+    const finiteClamps = this.clamps.filter((c) => c.zHeight > 0)
+
+    for (const line of lines) {
+      const stripped = line.split(';')[0].trim()
+
+      // Track modal G-code mode
+      if (/^G0\b/i.test(stripped)) currentMode = 'G0'
+      else if (/^G1\b/i.test(stripped)) currentMode = 'G1'
+
+      const xm = stripped.match(/X([+-]?\d*\.?\d+)/i)
+      const ym = stripped.match(/Y([+-]?\d*\.?\d+)/i)
+      const zm = stripped.match(/Z([+-]?\d*\.?\d+)/i)
+
+      // A rapid is explicit G0 or any XY move while in G0 modal mode
+      const isRapid = /^G0\b/i.test(stripped) || (currentMode === 'G0' && !(/^[GM]/i.test(stripped)))
+      const hasXY = xm || ym
+
+      if (isRapid && hasXY) {
+        const nx = xm ? parseFloat(xm[1]) : curX
+        const ny = ym ? parseFloat(ym[1]) : curY
+
+        // Check infinite clamps (need XY reroute)
+        const hitsInfinite = infiniteClamps.some(
+          (c) => lineIntersectsRect(curX, curY, nx, ny, c),
+        )
+
+        // Check finite clamps (need Z lift)
+        const finiteHits = finiteClamps.filter(
+          (c) => curZ < c.zHeight && lineIntersectsRect(curX, curY, nx, ny, c),
+        )
+
+        if (hitsInfinite) {
+          // Route XY around ALL infinite clamps using visibility graph
+          result.push(`G0 Z${SAFE_Z} ; Clamp avoidance`)
+          const waypoints = this.findPathAroundClamps(curX, curY, nx, ny, infiniteClamps, MARGIN)
+          for (const wp of waypoints) {
+            result.push(`G0 X${wp.x.toFixed(3)} Y${wp.y.toFixed(3)} ; Clamp detour`)
+          }
+          result.push(line)
+          curX = nx
+          curY = ny
+          if (zm) curZ = parseFloat(zm[1])
+          continue
+        }
+
+        if (finiteHits.length > 0) {
+          const maxH = finiteHits.reduce((m, c) => Math.max(m, c.zHeight), 0)
+          result.push(`G0 Z${maxH + 5} ; Clamp avoidance - lift`)
+          result.push(line)
+          curX = nx
+          curY = ny
+          if (zm) curZ = parseFloat(zm[1])
+          continue
+        }
+      }
+
+      if (xm) curX = parseFloat(xm[1])
+      if (ym) curY = parseFloat(ym[1])
+      if (zm) curZ = parseFloat(zm[1])
+
+      result.push(line)
+    }
+
+    return result
   }
 
   /**
@@ -184,6 +534,18 @@ export class GCodeGenerator {
     lines.push(`; Feed: ${feedRate} | Plunge: ${plungeRate}`)
     if (workType === 'pocket') {
       lines.push(`; Stepover: ${Math.round(stepover * 100)}% (${(toolDiameter * stepover).toFixed(2)}mm)`)
+    }
+
+    // Tool vs geometry validation — emit warnings in G-code
+    if (toolDiameter > 0 && workType !== 'drill') {
+      const pathData = paths.map(p => ({ points: p.points, closed: p.closed }))
+      const validation = validateToolVsPaths(pathData, toolDiameter, workType)
+      for (const err of validation.errors) {
+        lines.push(`; *** ERROR: ${err}`)
+      }
+      for (const w of validation.warnings) {
+        lines.push(`; *** WARNING: ${w}`)
+      }
     }
 
     if (workType === 'drill') {
@@ -269,11 +631,11 @@ export class GCodeGenerator {
         lines.push('')
         lines.push('; ---- REST MACHINING ----')
         lines.push(`; Finishing tool: ${config.restToolDiameter}mm`)
-        lines.push('M5 ; Spindle OFF for tool change')
+        lines.push(this.spindleOff('Spindle OFF for tool change'))
         lines.push(`G0 Z${SAFE_Z}`)
-        lines.push('M0 ; Pause for tool change')
-        lines.push(`M3 S${parseFloat(String(config.spindleRPM))} ; Spindle ON`)
-        lines.push('G4 P2')
+        lines.push(this.pause('Pause for tool change'))
+        lines.push(this.spindleOn(parseFloat(String(config.spindleRPM))))
+        lines.push(this.dwell(2))
         lines.push('')
 
         await this.generatePocketGCode(paths, lines, {
@@ -1071,8 +1433,7 @@ export class GCodeGenerator {
     if (overscan > 0) lines.push(`; Overscan: ${overscan}mm`)
     lines.push('; ====================================')
     lines.push('')
-    lines.push('G90 ; Absolute positioning')
-    lines.push('G21 ; Millimeters')
+    lines.push(...this.programHeader())
     lines.push('')
 
     for (let pass = 1; pass <= passes; pass++) {
@@ -1163,9 +1524,10 @@ export class GCodeGenerator {
     }
 
     lines.push('')
-    lines.push('M5 S0 ; Laser OFF (safety)')
+    lines.push(this.laserOff('Laser OFF (safety)'))
     lines.push('G0 X0 Y0 ; Return to origin')
-    lines.push('M2 ; Program end')
+    const footerEnd = this.dialect?.footer?.[this.dialect.footer.length - 1] ?? 'M2 ; Program end'
+    lines.push(footerEnd.includes('M2') || footerEnd.includes('M30') ? footerEnd : 'M2 ; Program end')
 
     return lines
   }
