@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/nicoya/tauri-v2/main/schemas/config.schema.json",
   "productName": "Gravix",
   "version": "1.0.0",
-  "identifier": "com.gravix.app",
+  "identifier": "com.gravix.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",

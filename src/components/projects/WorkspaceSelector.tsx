@@ -9,7 +9,7 @@ import { FolderOpen, ChevronRight, Languages, Minus, Square, X } from 'lucide-re
 import { isTauri } from '@/lib/tauri'
 
 export function WorkspaceSelector() {
-  const { t } = useTranslation('projects')
+  const { t, i18n } = useTranslation('projects')
   const { pick, setPath, recentWorkspaces } = useWorkspaceStore()
   const { language, setLanguage } = useAppStore()
 
@@ -27,9 +27,7 @@ export function WorkspaceSelector() {
 
   const handleLanguageChange = (lang: string) => {
     setLanguage(lang)
-    import('@/i18n/index').then((i18nModule) => {
-      i18nModule.default.changeLanguage(lang)
-    })
+    i18n.changeLanguage(lang)
   }
 
   const folderName = (path: string) => {

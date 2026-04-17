@@ -111,7 +111,7 @@ function sanitizeFilename(name: string): string {
 }
 
 export function ProjectsScreen() {
-  const { t } = useTranslation('projects')
+  const { t, i18n } = useTranslation('projects')
   const { t: tl } = useTranslation('license')
 
   const {
@@ -261,9 +261,7 @@ export function ProjectsScreen() {
 
   const handleLanguageChange = (lang: string) => {
     setLanguage(lang)
-    import('@/i18n/index').then((i18nModule) => {
-      i18nModule.default.changeLanguage(lang)
-    })
+    i18n.changeLanguage(lang)
   }
 
   const openNewDialog = () => {

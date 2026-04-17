@@ -24,37 +24,37 @@ pub struct Tool {
     #[serde(rename = "type")]
     #[ts(rename = "type")]
     pub tool_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub diameter: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub angle: Option<f64>,
-    #[serde(rename = "feedRate", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "feedRate")]
     #[ts(rename = "feedRate", optional)]
     pub feed_rate: Option<f64>,
-    #[serde(rename = "plungeRate", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "plungeRate")]
     #[ts(rename = "plungeRate", optional)]
     pub plunge_rate: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub rpm: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub pressure: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub speed: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub offset: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub thickness: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub color: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub notes: Option<String>,
 }

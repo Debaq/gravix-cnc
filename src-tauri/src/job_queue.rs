@@ -11,13 +11,13 @@ pub struct Job {
     pub status: JobStatus,
     pub created_by: String,
     pub created_at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     pub tool: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     pub material: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     pub estimated_time: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     pub notes: Option<String>,
 }
 

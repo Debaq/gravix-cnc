@@ -2,6 +2,7 @@ import type { Point2D, GCodePath, GCodeJob, GlobalConfig, RasterData, ColorMappi
 import type { MachineProfile } from './profiles'
 import { offsetPolygon, generatePocketContours, orderPaths, orderPathsInsideFirst, generateHatchLines, validateToolVsPaths } from './geometry'
 import { useMachineStore } from '@/stores/useMachineStore'
+import { tauriInvoke } from './tauri'
 
 const SAFE_Z = 5
 const FINAL_RETRACT_Z = 10
@@ -1402,7 +1403,6 @@ export class GCodeGenerator {
   // ============================================
 
   private async generateLaserRaster(raster: RasterData, config: GlobalConfig): Promise<string[]> {
-    const { tauriInvoke } = await import('./tauri')
     const pixels: number[] = await tauriInvoke<number[]>('read_raster_pixels', {
       pixelsPath: raster.pixels_path,
     })

@@ -1,4 +1,5 @@
 import type { GlobalConfig, WorkArea, OriginPosition } from './types'
+export type { OriginPosition } from './types'
 
 // ============================================
 // Machine Profiles — modelo multi-firmware

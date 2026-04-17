@@ -12,7 +12,7 @@ use tauri::AppHandle;
 pub struct MachinesFile {
     #[serde(default)]
     pub machines: Vec<Value>,
-    #[serde(rename = "activeMachineId", default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "activeMachineId", default)]
     pub active_machine_id: Option<String>,
 }
 

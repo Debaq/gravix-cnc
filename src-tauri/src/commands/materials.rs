@@ -18,7 +18,7 @@ pub struct CncSettings {
     #[serde(rename = "depthPerPass")]
     #[ts(rename = "depthPerPass")]
     pub depth_per_pass: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub recommended: Option<String>,
 }
@@ -38,10 +38,10 @@ pub struct LaserSettings {
     #[serde(rename = "engraveSpeed")]
     #[ts(rename = "engraveSpeed")]
     pub engrave_speed: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub passes: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub warning: Option<String>,
 }
@@ -53,7 +53,7 @@ pub struct PlotterSettings {
     pub speed: f64,
     pub passes: u32,
     pub blade: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub offset: Option<f64>,
 }
@@ -65,17 +65,17 @@ pub struct Material {
     pub name: String,
     pub category: String,
     pub thickness: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub description: Option<String>,
     pub color: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub cnc: Option<CncSettings>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub laser: Option<LaserSettings>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    
     #[ts(optional)]
     pub plotter: Option<PlotterSettings>,
 }

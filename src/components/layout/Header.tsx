@@ -53,7 +53,7 @@ import { computeBBox, generateBoundaryGCode } from '@/components/modals/SetupWiz
 import type { Workspace } from '@/lib/types'
 
 export function Header() {
-  const { t } = useTranslation('header')
+  const { t, i18n } = useTranslation('header')
   const { t: ts } = useTranslation('serial')
   const { t: tl } = useTranslation('license')
 
@@ -142,9 +142,7 @@ export function Header() {
 
   const handleLanguageChange = (lang: string) => {
     setLanguage(lang)
-    import('@/i18n/index').then((i18nModule) => {
-      i18nModule.default.changeLanguage(lang)
-    })
+    i18n.changeLanguage(lang)
   }
 
   return (
