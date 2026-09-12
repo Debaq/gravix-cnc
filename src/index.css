@@ -51,6 +51,9 @@
   --color-info-bg: oklch(0.95 0.03 240);
   --color-info-fg: oklch(0.38 0.1 240);
 
+  /* Animations */
+  --animate-toast-in: toast-in 160ms ease-out;
+
   /* Radii — design system */
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -107,6 +110,33 @@
     --color-sidebar-accent-foreground: oklch(0.985 0 0);
     --color-sidebar-border: oklch(0.28 0.018 25);
     --color-sidebar-ring: oklch(0.577 0.245 27);
+
+    /* Semantic state colors — dark */
+    --color-success-bg: oklch(0.26 0.05 160);
+    --color-success-fg: oklch(0.84 0.12 160);
+    --color-warning-bg: oklch(0.28 0.06 80);
+    --color-warning-fg: oklch(0.87 0.13 85);
+    --color-error-bg: oklch(0.27 0.07 27);
+    --color-error-fg: oklch(0.83 0.13 27);
+    --color-info-bg: oklch(0.26 0.05 240);
+    --color-info-fg: oklch(0.84 0.1 240);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-toast-in {
+    animation: none;
   }
 }
 

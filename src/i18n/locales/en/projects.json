@@ -50,5 +50,11 @@
   "setupWizard": "Machine Setup",
   "setupWizardDesc": "Configure machine type, limits and parameters",
   "controlMachine": "Control Machine",
-  "controlMachineDesc": "Jog, homing, diagnostics — no project needed"
+  "controlMachineDesc": "Jog, homing, diagnostics — no project needed",
+  "projectCreated": "Project created",
+  "projectDeleted": "Project deleted",
+  "projectSaveFailed": "Could not create project",
+  "projectDeleteFailed": "Could not delete project",
+  "projectLoadFallback": "Project opened without its content",
+  "projectLoadFallbackDetail": "The file could not be read; listing metadata was used instead"
 }

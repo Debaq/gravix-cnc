@@ -6,6 +6,7 @@ import { useGCodeStore } from '@/stores/useGCodeStore'
 import { useLibraryStore } from '@/stores/useLibraryStore'
 import { useWorkspaceStore, type ProjectMeta } from '@/stores/useWorkspaceStore'
 import { isTauri, tauriInvoke } from '@/lib/tauri'
+import { toast, errorDetail } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -209,8 +210,16 @@ export function ProjectsScreen() {
     }, null, 2)
 
     if (isTauri()) {
-      await tauriInvoke('save_gravix_project', { path: filePath, data: projectData }).catch(() => {})
+      try {
+        await tauriInvoke('save_gravix_project', { path: filePath, data: projectData })
+      } catch (err) {
+        // Si el .gravix no se escribió no hay proyecto: quedarse en el listado
+        // es menos dañino que abrir un editor sobre un archivo inexistente.
+        toast.error(t('projectSaveFailed'), { detail: errorDetail(err) })
+        return
+      }
       await refresh()
+      toast.success(t('projectCreated'), { detail: name })
     }
 
     // Guardar path activo para saber qué archivo estamos editando
@@ -238,8 +247,10 @@ export function ProjectsScreen() {
           const { setElements } = useCanvasStore.getState()
           setElements(data.elements)
         }
-      } catch {
-        // Fallback — abrir con metadata
+      } catch (err) {
+        // Fallback — abrir con metadata. Sin aviso, un archivo corrupto se ve
+        // igual que un proyecto vacío y el usuario le pasa por encima.
+        toast.warning(t('projectLoadFallback'), { detail: errorDetail(err) })
         setProjectName(proj.name)
         setProjectOperationType(proj.mode)
         setWorkArea({ width: proj.width || 300, height: proj.height || 300, origin: 'bottom-left' })
@@ -249,15 +260,20 @@ export function ProjectsScreen() {
 
     useAppStore.getState().setActiveProjectPath(proj.path)
     setView('workspace')
-  }, [setProjectName, setProjectOperationType, setWorkArea, setGlobalConfig, globalConfig, setView])
+  }, [setProjectName, setProjectOperationType, setWorkArea, setGlobalConfig, globalConfig, setView, t])
 
   const handleDeleteProject = useCallback(async (proj: ProjectMeta, e: React.MouseEvent) => {
     e.stopPropagation()
     if (isTauri()) {
-      await tauriInvoke('delete_gravix_project', { path: proj.path }).catch(() => {})
+      try {
+        await tauriInvoke('delete_gravix_project', { path: proj.path })
+        toast.success(t('projectDeleted'), { detail: proj.name })
+      } catch (err) {
+        toast.error(t('projectDeleteFailed'), { detail: errorDetail(err) })
+      }
       await refresh()
     }
-  }, [refresh])
+  }, [refresh, t])
 
   const handleLanguageChange = (lang: string) => {
     setLanguage(lang)

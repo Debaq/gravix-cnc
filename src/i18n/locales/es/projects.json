@@ -50,5 +50,11 @@
   "setupWizard": "Asistente de Maquina",
   "setupWizardDesc": "Configurar tipo de maquina, limites y parametros",
   "controlMachine": "Controlar Maquina",
-  "controlMachineDesc": "Jog, homing, diagnostico — sin proyecto"
+  "controlMachineDesc": "Jog, homing, diagnostico — sin proyecto",
+  "projectCreated": "Proyecto creado",
+  "projectDeleted": "Proyecto eliminado",
+  "projectSaveFailed": "No se pudo crear el proyecto",
+  "projectDeleteFailed": "No se pudo eliminar el proyecto",
+  "projectLoadFallback": "El proyecto se abrio sin su contenido",
+  "projectLoadFallbackDetail": "El archivo no se pudo leer; se uso la metadata del listado"
 }

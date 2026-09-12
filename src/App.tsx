@@ -5,6 +5,7 @@ import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
 import { useMachineStore } from '@/stores/useMachineStore'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { Toaster } from '@/components/ui/toaster'
 import { WorkspaceSelector } from '@/components/projects/WorkspaceSelector'
 import { ProjectsScreen } from '@/components/projects/ProjectsScreen'
 import { Header } from '@/components/layout/Header'
@@ -34,6 +35,8 @@ import { GrblSettingsModal } from '@/components/modals/GrblSettingsModal'
 import { MachinesModal } from '@/components/modals/MachinesModal'
 import { useLicense } from '@/hooks/useLicense'
 import { isTauri, tauriInvoke } from '@/lib/tauri'
+import { toast, errorDetail } from '@/lib/toast'
+import i18n from '@/i18n'
 import type { Tool, Material } from '@/lib/types'
 
 async function loadFromStatic(): Promise<{ tools: Tool[]; materials: Material[] }> {
@@ -55,11 +58,16 @@ async function loadInitialData(): Promise<{ tools: Tool[]; materials: Material[]
         return { tools, materials }
       }
       const defaults = await loadFromStatic()
-      for (const tool of defaults.tools) {
-        tauriInvoke('save_tool', { tool }).catch(() => {})
-      }
-      for (const material of defaults.materials) {
-        tauriInvoke('save_material', { material }).catch(() => {})
+      const seeded = await Promise.allSettled([
+        ...defaults.tools.map((tool) => tauriInvoke('save_tool', { tool })),
+        ...defaults.materials.map((material) => tauriInvoke('save_material', { material })),
+      ])
+      const failed = seeded.find((r) => r.status === 'rejected')
+      if (failed) {
+        toast.warning(i18n.t('toastDefaultsFailed'), {
+          detail: i18n.t('toastDefaultsFailedDetail'),
+        })
+        console.error('Error guardando librerias por defecto:', (failed as PromiseRejectedResult).reason)
       }
       return defaults
     } catch {
@@ -98,7 +106,9 @@ function App() {
       isTauri() ? checkLicense() : Promise.resolve(),
     ]).finally(() => {
       if (isTauri()) {
-        tauriInvoke('close_splashscreen').catch(() => {})
+        tauriInvoke('close_splashscreen').catch((err) => {
+          console.error('Error cerrando splashscreen:', errorDetail(err))
+        })
       }
     })
   }, [])
@@ -112,6 +122,7 @@ function App() {
       <TooltipProvider>
         <WorkspaceSelector />
         <HelpModal />
+        <Toaster />
       </TooltipProvider>
     )
   }
@@ -128,6 +139,7 @@ function App() {
         <MaterialsModal />
         <SetupWizardModal />
         <MachinesModal />
+        <Toaster />
       </TooltipProvider>
     )
   }
@@ -185,6 +197,7 @@ function App() {
         <GrblSettingsModal />
         <MachinesModal />
         <LicenseModal />
+        <Toaster />
       </div>
     </TooltipProvider>
   )

@@ -29,5 +29,16 @@
   "color": "Color",
   "description": "Descripcion",
   "appTitle": "Gravix",
-  "appVersion": "v1.0.0"
+  "appVersion": "v1.0.0",
+  "toastSaveFailed": "No se pudo guardar",
+  "toastDeleteFailed": "No se pudo eliminar",
+  "toastDefaultsFailed": "No se pudieron guardar las librerias por defecto",
+  "toastDefaultsFailedDetail": "Herramientas y materiales se cargaron solo en memoria",
+  "toastReconnecting": "Conexion perdida, reintentando",
+  "toastReconnectAttempt": "Reintento {{attempt}} de {{max}}",
+  "toastReconnected": "Reconectado a {{port}}",
+  "toastReconnectGaveUp": "No se pudo reconectar",
+  "toastReconnectGaveUpDetail": "Verifica el cable y el puerto, luego conecta manualmente",
+  "toastJobAbortedDisconnect": "Maquina desconectada durante el trabajo",
+  "toastJobAbortedDisconnectDetail": "El envio se aborto. Verifica la posicion antes de reanudar"
 }
