@@ -61,21 +61,31 @@ pub fn verify_license(token: &str) -> LicenseStatus {
     }
 }
 
-fn license_path(app: &tauri::AppHandle) -> PathBuf {
-    app.path().app_config_dir()
-        .unwrap()
-        .join("license.key")
+// `app_config_dir` puede fallar (HOME sin definir, perfil corrupto). Antes
+// hacía `.unwrap()` y tumbaba la app entera por no poder leer un archivo
+// opcional: ahora se degrada a "sin licencia".
+pub fn license_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    match app.path().app_config_dir() {
+        Ok(dir) => Some(dir.join("license.key")),
+        Err(e) => {
+            eprintln!("No se pudo resolver el directorio de configuracion: {}", e);
+            None
+        }
+    }
 }
 
 pub fn load_saved_license(app: &tauri::AppHandle) -> Option<String> {
-    let path = license_path(app);
+    let path = license_path(app)?;
     std::fs::read_to_string(path).ok()
 }
 
-pub fn save_license(app: &tauri::AppHandle, token: &str) {
-    let path = license_path(app);
+pub fn save_license(app: &tauri::AppHandle, token: &str) -> Result<(), String> {
+    let path = license_path(app)
+        .ok_or_else(|| "No se pudo resolver el directorio de configuracion".to_string())?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).ok();
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("No se pudo crear el directorio de configuracion: {}", e))?;
     }
-    std::fs::write(path, token).ok();
+    std::fs::write(path, token)
+        .map_err(|e| format!("No se pudo guardar la licencia: {}", e))
 }
