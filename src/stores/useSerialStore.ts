@@ -78,7 +78,7 @@ export const useSerialStore = create<SerialState>((set) => ({
 
   // Machine limits
   maxTravel: { x: 300, y: 300, z: 80 },
-  softLimitsEnabled: false,
+  softLimitsEnabled: true,
 
   // Coordinate system
   activeWorkspace: 'G54',

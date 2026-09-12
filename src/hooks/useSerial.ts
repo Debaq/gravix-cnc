@@ -3,21 +3,22 @@ import { useSerialStore } from '@/stores/useSerialStore'
 import { useWorkflowStore } from '@/stores/useWorkflowStore'
 import { useAppStore } from '@/stores/useAppStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
-import { useMachineStore } from '@/stores/useMachineStore'
 import { isTauri, isRemote, tauriInvoke, tauriListen } from '@/lib/tauri'
 import { getClientRole } from '@/lib/client-role'
+import { activeMachine, buildAxisLimits, buildSerialConfig } from '@/lib/machine-limits'
 import type { MachineState } from '@/lib/types'
-import type { MachineProfile } from '@/lib/profiles'
 import type { Dialect } from '@/lib/generated/Dialect'
 import type { PortInfo } from '@/lib/generated/PortInfo'
 import type { GrblStatus } from '@/lib/generated/GrblStatus'
 import type { GrblData } from '@/lib/generated/GrblData'
 import type { SendProgress } from '@/lib/generated/SendProgress'
+import type { RealtimeCmd } from '@/lib/generated/RealtimeCmd'
 import { firmwareToDialect } from '@/lib/firmware'
 
-function getActiveMachine(): MachineProfile | null {
-  return useMachineStore.getState().getActive()
-}
+// Estados en los que la máquina no puede aceptar un programa nuevo.
+// Arrancar un job en Alarm o Hold es la vía rápida a un choque o a un job que
+// se ejecuta a medias sin que el operador se entere.
+const BLOCKING_STATES: MachineState[] = ['Alarm', 'Hold', 'Run', 'Home', 'Jog']
 
 // Genera las líneas de jog incremental según dialecto.
 // GRBL: una sola línea $J=G91. Marlin: G91 / G0 / G90.
@@ -37,6 +38,11 @@ function buildJogCommands(
   return [`$J=G91 ${axisStr} F${feedRate}`]
 }
 
+function activeDialect(): Dialect {
+  const m = activeMachine()
+  return m ? firmwareToDialect(m.firmware) : 'grbl'
+}
+
 export function useSerial() {
   const store = useSerialStore()
   const { addConsoleLine } = useAppStore()
@@ -51,8 +57,9 @@ export function useSerial() {
 
     async function setupListeners() {
       const unlData = await tauriListen<GrblData>('serial:data', (payload) => {
+        // Los reportes de status ya no llegan por este canal, y los `ok` de un
+        // job los suprime el backend. Lo que queda es todo relevante.
         if (payload.data_type === 'status') return
-        if (payload.data_type === 'ok' && !useSerialStore.getState().sending) return
         addConsoleLine(payload.line)
         if (payload.data_type === 'error' || payload.data_type === 'alarm') {
           useSerialStore.getState().setLastError(payload.line)
@@ -72,7 +79,8 @@ export function useSerial() {
       unlisteners.push(unlStatus)
 
       const unlProgress = await tauriListen<SendProgress>('serial:progress', (payload) => {
-        const { setSendProgress } = useSerialStore.getState()
+        const { setSendProgress, setSending } = useSerialStore.getState()
+        setSending(true)
         setSendProgress(payload.percent)
         const wf = useWorkflowStore.getState()
         if (wf.activeGCode) {
@@ -81,19 +89,27 @@ export function useSerial() {
       })
       unlisteners.push(unlProgress)
 
-      const unlComplete = await tauriListen<Record<string, never>>('serial:complete', () => {
+      // El backend manda por qué terminó: done | cancelled | error | alarm | reset.
+      const unlComplete = await tauriListen<string>('serial:complete', (result) => {
         const { setSending, setSendProgress } = useSerialStore.getState()
         setSending(false)
-        setSendProgress(100)
-        addConsoleLine('Envio de G-code completado')
+        if (result === 'done') {
+          setSendProgress(100)
+          addConsoleLine('Envio de G-code completado')
+        } else {
+          setSendProgress(0)
+          addConsoleLine(`Envio interrumpido (${result ?? 'desconocido'})`)
+        }
       })
       unlisteners.push(unlComplete)
 
-      const unlDisconnected = await tauriListen<Record<string, never>>('serial:disconnected', () => {
-        const { setConnected, setMachineState } = useSerialStore.getState()
+      const unlDisconnected = await tauriListen<string>('serial:disconnected', (reason) => {
+        const { setConnected, setMachineState, setSending, setSendProgress } = useSerialStore.getState()
         setConnected(false)
+        setSending(false)
+        setSendProgress(0)
         setMachineState('Idle')
-        addConsoleLine('Conexion serial perdida')
+        addConsoleLine(`Conexion serial cerrada${reason ? `: ${reason}` : ''}`)
       })
       unlisteners.push(unlDisconnected)
     }
@@ -106,18 +122,10 @@ export function useSerial() {
     }
   }, [addConsoleLine])
 
-  // Polling de status según dialecto de la máquina activa.
-  useEffect(() => {
-    if (getClientRole() !== 'local') return
-    if (!isTauri() || !store.connected || store.sending) return
-    const active = getActiveMachine()
-    const statusCmd = active?.protocol.statusCommand ?? '?'
-    const intervalMs = active?.protocol.statusPollMs ?? 250
-    const interval = setInterval(() => {
-      tauriInvoke('serial_send', { command: statusCmd }).catch(() => {})
-    }, intervalMs)
-    return () => clearInterval(interval)
-  }, [store.connected, store.sending])
+  // El polling de status vive en el hilo serial del backend: `?` es un comando
+  // realtime que no consume buffer del firmware, así que sigue corriendo durante
+  // el job. Pollear desde JS agregaba un `\r\n` de más por cada `?`, y ese `ok`
+  // espurio desincronizaba el conteo del streaming.
 
   const isLocal = getClientRole() === 'local'
 
@@ -140,11 +148,16 @@ export function useSerial() {
       return
     }
     try {
-      const active = getActiveMachine()
-      const dialect = active ? firmwareToDialect(active.firmware) : 'grbl'
+      const active = activeMachine()
+      const dialect = activeDialect()
       const effectiveBaud = baudRate || active?.protocol.baudRate || 115200
       addConsoleLine(`Conectando a ${port} @ ${effectiveBaud} (${dialect})...`)
-      await tauriInvoke('serial_connect', { port, baudRate: effectiveBaud, dialect })
+      await tauriInvoke('serial_connect', {
+        port,
+        baudRate: effectiveBaud,
+        dialect,
+        config: buildSerialConfig(active),
+      })
       store.setConnected(true)
       store.setPort(port)
       store.setBaudRate(effectiveBaud)
@@ -158,9 +171,11 @@ export function useSerial() {
   const disconnect = useCallback(async () => {
     if (!isLocal) return
     try {
+      // El backend frena la máquina antes de cerrar si hay un job en vuelo.
       await tauriInvoke('serial_disconnect')
       store.setConnected(false)
       store.setPort('')
+      store.setSending(false)
       store.setMachineState('Idle')
       addConsoleLine('Desconectado')
     } catch (err) {
@@ -178,34 +193,74 @@ export function useSerial() {
     }
   }, [isLocal, store.connected, addConsoleLine])
 
+  // Comandos realtime: bytes crudos, sin terminador, saltan la cola.
+  // Es el camino que deben tomar parada, reanudar, reset y jog-cancel.
+  const sendRealtime = useCallback(async (cmd: RealtimeCmd) => {
+    if (!isLocal || !store.connected) return
+    try {
+      await tauriInvoke('serial_realtime', { cmd })
+    } catch (err) {
+      addConsoleLine(`Error realtime (${cmd}): ${err}`)
+    }
+  }, [isLocal, store.connected, addConsoleLine])
+
   const sendGCode = useCallback(async (gcode: string) => {
     if (!isLocal || !store.connected) return
+    const state = useSerialStore.getState().machineState
+    if (BLOCKING_STATES.includes(state)) {
+      addConsoleLine(`No se puede iniciar: la maquina esta en ${state}.`)
+      return
+    }
     try {
       store.setSending(true)
       store.setSendProgress(0)
-      await tauriInvoke('serial_send_gcode', { gcode })
+      // El backend valida la envolvente antes del primer byte y rechaza el job
+      // entero si alguna coordenada se sale.
+      await tauriInvoke('serial_send_gcode', {
+        gcode,
+        limits: buildAxisLimits(activeMachine()),
+      })
       addConsoleLine('Enviando G-code...')
     } catch (err) {
       store.setSending(false)
+      store.setSendProgress(0)
       addConsoleLine(`Error enviando G-code: ${err}`)
+      useSerialStore.getState().setLastError(String(err))
     }
   }, [isLocal, store, addConsoleLine])
 
+  // Valida sin enviar. Sirve para avisar antes de que el operador apriete start.
+  const checkBounds = useCallback(async (gcode: string): Promise<string | null> => {
+    const limits = buildAxisLimits(activeMachine())
+    if (!limits || !isLocal) return null
+    try {
+      await tauriInvoke('serial_check_bounds', { gcode, limits })
+      return null
+    } catch (err) {
+      return String(err)
+    }
+  }, [isLocal])
+
+  // Detiene de verdad: feed hold, deceleración y soft reset en el backend.
+  // Dejar de mandar líneas no alcanza — GRBL sigue con los bloques del planner.
   const cancelSend = useCallback(async () => {
     if (!isLocal) return
     try {
       await tauriInvoke('serial_cancel_send')
-      store.setSending(false)
-      addConsoleLine('Envio cancelado')
+      addConsoleLine('Parada solicitada')
     } catch (err) {
       addConsoleLine(`Error cancelando: ${err}`)
     }
-  }, [isLocal, store, addConsoleLine])
+  }, [isLocal, addConsoleLine])
 
   const home = useCallback(async () => {
-    const active = getActiveMachine()
+    const active = activeMachine()
     if (active && !active.homing.enabled) {
       addConsoleLine('Homing deshabilitado en el perfil de máquina activo.')
+      return
+    }
+    if (useSerialStore.getState().sending) {
+      addConsoleLine('No se puede hacer homing con un job en curso.')
       return
     }
     const pre = active?.homing.preSequence ?? []
@@ -218,48 +273,43 @@ export function useSerial() {
 
   // $X es GRBL-only (unlock alarm). Marlin no tiene equivalente.
   const unlock = useCallback(() => {
-    const active = getActiveMachine()
-    const dialect = active ? firmwareToDialect(active.firmware) : 'grbl'
-    if (dialect === 'marlin') {
+    if (activeDialect() === 'marlin') {
       addConsoleLine('Unlock no aplica en Marlin.')
       return Promise.resolve()
     }
     return sendCommand('$X')
   }, [sendCommand, addConsoleLine])
 
-  const reset = useCallback(() => sendCommand('\x18'), [sendCommand])
-  const stop = useCallback(() => sendCommand('!'), [sendCommand])
-  const resume = useCallback(() => sendCommand('~'), [sendCommand])
+  const reset = useCallback(() => sendRealtime('soft-reset'), [sendRealtime])
+  const stop = useCallback(() => sendRealtime('feed-hold'), [sendRealtime])
+  const resume = useCallback(() => sendRealtime('cycle-start'), [sendRealtime])
+  const jogCancel = useCallback(() => sendRealtime('jog-cancel'), [sendRealtime])
 
+  // Parada de emergencia. El backend hace feed hold → deceleración → soft reset
+  // en la secuencia y con los tiempos correctos; acá solo se dispara.
   const abort = useCallback(async () => {
     try {
-      await sendCommand('!')
+      await sendRealtime('feed-hold')
       if (isLocal) {
         try { await tauriInvoke('serial_cancel_send') } catch { /* ignore */ }
       }
-      await sendCommand('\x18')
-      await sendCommand('M5 S0')
       store.setSending(false)
-      addConsoleLine('ABORT: feed hold + cancel + reset + laser off')
+      addConsoleLine('ABORT: feed hold + parada + reset')
     } catch (err) {
       addConsoleLine(`Error abort: ${err}`)
     }
-  }, [sendCommand, isLocal, store, addConsoleLine])
+  }, [sendRealtime, isLocal, store, addConsoleLine])
 
-  const requestStatus = useCallback(() => {
-    const active = getActiveMachine()
-    return sendCommand(active?.protocol.statusCommand ?? '?')
-  }, [sendCommand])
+  const requestStatus = useCallback(() => sendRealtime('status-report'), [sendRealtime])
 
   const laserOff = useCallback(() => sendCommand('M5 S0'), [sendCommand])
 
   const jog = useCallback(
     async (axes: { x?: number; y?: number; z?: number }, feedRate: number) => {
+      if (useSerialStore.getState().sending) return
       const isLaser = useCanvasStore.getState().globalConfig.operationType === 'laser'
       if (isLaser) await sendCommand('M5 S0')
-      const active = getActiveMachine()
-      const dialect = active ? firmwareToDialect(active.firmware) : 'grbl'
-      for (const cmd of buildJogCommands(dialect, axes, feedRate)) {
+      for (const cmd of buildJogCommands(activeDialect(), axes, feedRate)) {
         await sendCommand(cmd)
       }
     },
@@ -296,7 +346,9 @@ export function useSerial() {
     connect,
     disconnect,
     sendCommand,
+    sendRealtime,
     sendGCode,
+    checkBounds,
     cancelSend,
     home,
     unlock,
@@ -304,6 +356,7 @@ export function useSerial() {
     stop,
     abort,
     resume,
+    jogCancel,
     requestStatus,
     laserOff,
     jogXY,

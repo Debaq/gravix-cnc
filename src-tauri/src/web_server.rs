@@ -206,8 +206,13 @@ async fn list_ports_handler() -> Result<Json<Vec<PortInfo>>, (StatusCode, String
 }
 
 async fn serial_status_handler(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
-    let connected = state.serial.is_connected();
-    Json(serde_json::json!({ "connected": connected }))
+    Json(serde_json::json!({
+        "connected": state.serial.is_connected(),
+        "sending": state.serial.is_sending(),
+        "port": state.serial.port_name(),
+        "dialect": state.serial.current_dialect(),
+        "status": state.serial.last_status(),
+    }))
 }
 
 // --- WebSocket handler ---
@@ -221,10 +226,15 @@ async fn ws_handler(
 
 async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>) {
     // Enviar estado actual al conectar
-    let connected = state.serial.is_connected();
+    // Snapshot inicial: el cliente remoto ve posicion y estado sin esperar al
+    // primer reporte periodico.
     let init = serde_json::json!({
         "type": "init",
-        "payload": { "connected": connected }
+        "payload": {
+            "connected": state.serial.is_connected(),
+            "sending": state.serial.is_sending(),
+            "status": state.serial.last_status(),
+        }
     });
     let _ = socket
         .send(Message::Text(serde_json::to_string(&init).unwrap().into()))
