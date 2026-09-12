@@ -131,6 +131,33 @@ Pre-hooks regeneran tipos Rust→TS antes de cada build.
 
 Ver `PLAN-PARIDAD.md` y `ROADMAP-CAD.md` para roadmap.
 
+## Distribución
+
+```bash
+npm run tauri build              # bundle para la plataforma actual
+node scripts/gen-third-party.mjs # regenera THIRD-PARTY-NOTICES.md
+```
+
+En Arch (y cualquier distro con glibc reciente) el AppImage necesita
+`NO_STRIP=true npm run tauri build`: el `strip` que trae `linuxdeploy` no
+entiende la sección `.relr.dyn` de las librerías actuales.
+
+Targets declarados en `src-tauri/tauri.conf.json` → `bundle.targets`:
+`deb`, `appimage`, `rpm` (Linux) · `nsis` (Windows) · `dmg`, `app` (macOS).
+
+El auto-updater consulta `https://github.com/Debaq/cnc/releases/latest/download/latest.json`.
+Publicar un release con el tag `vX.Y.Z` dispara `.github/workflows/release.yml`,
+que compila los tres SO, firma los artefactos y sube el `latest.json`.
+
+Firmar releases necesita dos secrets en GitHub — ver `docs/RELEASE.md`:
+`TAURI_SIGNING_PRIVATE_KEY` y `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+
 ## Licencia
 
-Propietaria. Claves firma en `gravix_private.pem` (gitignored) / `gravix_public.pem`.
+**Propietaria** — ver [`LICENSE`](LICENSE). El código es público para auditoría;
+eso no concede derecho de uso, redistribución ni de compilar binarios derivados.
+
+Avisos de dependencias de terceros: [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+
+Claves de firma de licencias: `gravix_private.pem` (gitignored) / `gravix_public.pem`.
+Las claves de firma de *updates* son distintas y viven solo en los secrets de CI.

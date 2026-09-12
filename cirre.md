@@ -1,6 +1,6 @@
 # Revisión — Gravix CNC para prototipo vendible
 
-> Revisión original: 2026-06-08 · **Reverificada y parcialmente ejecutada: 2026-09-12** · Branch: `feature/tauri-react-migration`
+> Revisión original: 2026-06-08 · **Reverificada y ejecutada: 2026-09-12** · Branch: `feature/tauri-react-migration`
 > Base: 30.2k líneas TS, 3.4k Rust, sin TODOs sueltos, i18n EN/ES, design system, 14 modales, CAD+CAM+control.
 > Desde la revisión original solo entraron 2 commits (`bf0af54`, `d4b884f` — ambos 2026-09-12), y cerraron el frente de seguridad de máquina.
 
@@ -94,39 +94,73 @@ Vacío: los puntos 6b, 7 y 8 se cerraron el 2026-09-12 (ver arriba).
 
 ## 🟡 Medio — pulido para vender
 
-### 10. Sin auto-updater
-`tauri.conf.json` tiene `plugins: {}` vacío. No hay `tauri-plugin-updater` ni config `updater`.
-- **Fix:** plugin + endpoint + pubkey de firma de updates.
-
-### 11. `bundle.targets: []` y CSP `null`
-Especificar targets (`deb`/`appimage`/`msi`/`dmg`) y definir CSP explícito. (targets vacío no bloquea el build, pero conviene ser explícito).
-
-### 12. Sin LICENSE / EULA
-README dice "propietaria" pero no existe el archivo legal en la raíz.
-
-### 13. Pulido UX / onboarding
-- Empty states sin contexto (`ProjectsScreen`, `GCodePreviewPanel`).
-- Sin spinner al generar GCode.
-- El wizard de setup existe pero sin accesibilidad básica: 0 hits de `aria-` o `role=` en `SetupWizardModal.tsx`.
+Vacío: los puntos 10 a 14 se cerraron el 2026-09-12 (ver abajo).
 
 > ⚠️ **Corrección a la revisión original:** `Badge variant="success"` **sí existe** — `src/components/ui/badge.tsx:14`. También hay `warning`. El uso en `SetupWizardModal` es correcto.
 
-### 14. Sin autosave
-Solo guardados manuales — un crash = trabajo perdido. 0 hits de `autosave`/`autoSave`.
+---
+
+## ✅ Packaging y pulido — cerrados el 2026-09-12
+
+### ~~10. Sin auto-updater~~ — **RESUELTO**
+`tauri-plugin-updater` + `tauri-plugin-process` instalados y registrados (`lib.rs:33-36`), permisos en `capabilities/default.json`.
+- `src/lib/updater.ts` — envoltorio del plugin: check, descarga con progreso, relaunch separado del install (reiniciar con un job en vuelo cortaría el envío a la máquina).
+- `src/stores/useUpdateStore.ts` + `src/components/modals/UpdateModal.tsx`.
+- Chequeo al arranque a los 4 s, **silencioso**: sin red no grita, y cuando hay versión nueva avisa con un toast en vez de abrir el modal encima de la app recién abierta. El modal se abre solo a pedido.
+- Endpoint: `https://github.com/Debaq/cnc/releases/latest/download/latest.json`.
+- `.github/workflows/release.yml` — tag `vX.Y.Z` → compila Linux/Windows/macOS (arm64 + x86_64), firma y sube el `latest.json` como release en borrador.
+- `docs/RELEASE.md` — proceso completo.
+
+> ⚠️ **Falta un paso manual:** `plugins.updater.pubkey` está **vacío**. Hay que generar el par de claves de firma (`npm run tauri signer generate -- -w ~/.tauri/gravix.key`) y cargar la privada como secret de GitHub. Con la pubkey vacía la app arranca y **sí detecta** updates, pero la instalación falla al verificar la firma.
+
+> `createUpdaterArtifacts` vive en `src-tauri/tauri.release.conf.json`, no en la config base, y el workflow lo agrega con `--config`. Activarlo en la base hace que **cualquier** `npm run tauri build` local aborte con `A public key has been found, but no private key` — comprobado.
+
+### ~~11. `bundle.targets: []` y CSP `null`~~ — **RESUELTO**
+- `targets`: `deb`, `rpm`, `appimage`, `nsis`, `app`, `dmg`.
+- CSP explícito en `app.security.csp`, más un `devCsp` aparte porque el HMR de Vite necesita `unsafe-eval` y el dev server en `connect-src` — cosas que no deben quedar en el binario distribuido.
+- El proyecto no carga nada externo (fuentes locales, 0 CDN, 0 `eval`), así que `default-src 'self'` alcanza; `style-src` lleva `'unsafe-inline'` por Tailwind y Radix.
+- Metadata de bundle: publisher, copyright, `licenseFile`, categoría, descripciones, `depends` de deb/rpm (`libudev1` y compañía).
+- **Verificado con un bundle real**: `deb`, `rpm` y `AppImage` se generan y el binario arranca. Los targets de Windows y macOS se saltan en Linux sin romper el build.
+- Hubo que subir el crate `tauri` de 2.10.3 a 2.11.3: los plugins nuevos traen `@tauri-apps/api` 2.11 y el CLI aborta si el crate y el paquete npm no van en la misma minor.
+- En Arch el AppImage necesita `NO_STRIP=true`: el `strip` que trae `linuxdeploy` no entiende la sección `.relr.dyn` de las librerías actuales. Documentado; CI en `ubuntu-22.04` no lo sufre.
+
+> Sobre el CSP y los nonces: Tauri inyecta `'nonce-…'` en `style-src`/`script-src` **solo** en los assets que traen `<style>` o `<script src="http…">`, y un nonce desactiva `'unsafe-inline'`. El `index.html` de Vite no tiene ninguno de los dos, así que la app conserva `'unsafe-inline'` y Radix/Fabric siguen funcionando. El `splashscreen.html` sí tiene un `<style>` y recibe nonce — pero ese `<style>` es el que lo lleva, y el splash no usa atributos `style=`. Verificado en `tauri-utils` y con la app compilada.
+
+### ~~12. Sin LICENSE / EULA~~ — **RESUELTO**
+- `LICENSE` — EULA propietario: concesión, trial, restricciones, **advertencia de seguridad de maquinaria**, garantías, límite de responsabilidad, ley chilena. Aclara que el repo público no concede licencia de uso.
+- `THIRD-PARTY-NOTICES.md` — generado por `scripts/gen-third-party.mjs` desde `package-lock.json` (prod) y `cargo metadata`: 147 paquetes npm y 642 crates con sus textos de licencia.
+- Auditoría de licencias: nada bloquea la venta. Todo copyleft encontrado es dual (`GPL-3.0/MIT`, `… OR LGPL-2.1`) y se ejerce la opción permisiva. `serialport` es MPL-2.0 — copyleft por archivo, permite enlazar desde propietario y no se modifica.
+
+### ~~13. Pulido UX / onboarding~~ — **RESUELTO**
+- **Empty states.** `ProjectsScreen`: icono, explicación de que lista los `.gravix` de la carpeta, la ruta a la vista, y dos botones (crear / cambiar carpeta). `GCodePreviewPanel`: dice de dónde sale el G-code; el "Preview" suelto del panel de ruteo pasó a explicar qué va a aparecer ahí, y distingue "no hay G-code" de "el G-code no tiene movimientos XY dibujables".
+- **Spinner de generación.** `generating` en `useGCodeStore`, los 4 sitios que generan pasan por `withGenerating()` (`src/lib/gcode-run.ts`), que cede un frame antes de arrancar — si no, React no llega a pintar el spinner antes de que la generación bloquee el hilo. Los 4 botones muestran `Loader2` + "Generando…" y quedan deshabilitados.
+- **Accesibilidad del wizard.** El indicador de pasos es un `tablist` real con `role="tab"`, `aria-selected`, roving `tabIndex` y flechas ←/→ (las barras son de 1.5 px: sin teclado no había forma de recorrerlas). El contenido es su `tabpanel`. Los botones de jog dicen qué eje mueven y cuántos mm; el selector de paso es un `radiogroup`. De 0 a 28 atributos ARIA.
+
+### ~~14. Sin autosave~~ — **RESUELTO**
+El `.gravix` se creaba vacío y **nunca se volvía a escribir**: `activeProjectPath` se seteaba y no lo usaba nadie. El botón Guardar abría un diálogo y escribía un `.json` aparte.
+- `src/lib/project-file.ts` — serializa el `.gravix` desde los stores. El formato suma `globalConfig` y `gcode`, conservando los campos que `list_projects` lee en Rust.
+- `src/lib/autosave.ts` — debounce de 2,5 s, tope de 60 s con edición continua, heartbeat de respaldo. Compara una huella de contenido antes de escribir: las suscripciones de zustand no tienen selector y disparan con selección o hover, y eso no debe ensuciar el proyecto ni generar escrituras.
+- **Escritura atómica** en `workspace_cmd.rs`: temporal + `sync_all` + `rename`. Un `fs::write` directo que se corta a mitad deja el archivo truncado — con autosave cada pocos segundos eso deja de ser hipotético. Tres tests cubren sobrescritura, temporales huérfanos y creación del directorio.
+- Guardar (botón y **Ctrl/Cmd+S**) escribe el `.gravix` activo; sin proyecto activo cae al diálogo de antes.
+- Indicador en el header: "Guardando…" / "Guardado hace N min" / "Sin guardar", con `aria-live`.
+- Abrir un proyecto ahora restaura también su `globalConfig` y su G-code — sin eso el autosave escribía la config por defecto encima de la guardada.
+- Un `.gravix` que no parsea se **respalda** (`backup_gravix_project`) antes de que el autosave lo pise.
+- Un fallo al guardar deja el asterisco de "modificado" y un toast persistente.
 
 ---
 
 ## Orden de ataque recomendado
 
-Estado al 2026-09-12: cerrados el frente de máquina (#5, #6, #6b) y el de calidad percibida (#7, #8, #9).
+Estado al 2026-09-12: cerrados el frente de máquina (#5, #6, #6b), el de calidad percibida (#7, #8, #9) y el de packaging y pulido (#10 a #14).
 
-Lo que queda:
+**Queda un solo frente: monetización (#1–4).** Es el único bloqueante real — sin esto no hay producto que vender, solo una app gratis muy completa.
 
-1. **Monetización** (#1–4) — único bloqueante real. Sin esto no hay producto que vender.
-   Orden dentro del frente: #3 (agregar `exp` al claim y firmarlo) → #1 (decidir qué se gatea) → #4 (mover el chequeo al backend) → #2 (sacar el trial de `localStorage`).
-   Hacer #1 antes que #3 obliga a rehacer el gating cuando aparezca la expiración.
-2. **Packaging** (#10, #11, #12) — necesario para distribuir, no para que funcione.
-3. **Pulido** (#13, #14).
+Orden dentro del frente: #3 (agregar `exp` al claim y firmarlo) → #1 (decidir qué se gatea) → #4 (mover el chequeo al backend) → #2 (sacar el trial de `localStorage`).
+Hacer #1 antes que #3 obliga a rehacer el gating cuando aparezca la expiración.
+
+Y un paso manual pendiente del #10: generar el par de claves de firma de updates y poner la pubkey en `tauri.conf.json` (ver `docs/RELEASE.md`).
+
+> ⚠️ El repo es **público** (`github.com/Debaq/cnc`). El EULA cubre lo legal, pero cualquiera puede leer el gating que se implemente en #1–#4 y compilar una versión sin él. Eso no se arregla con código; se decide: o el repo pasa a privado antes de vender, o el modelo asume que el binario firmado y el soporte son el producto.
 
 ---
 
@@ -135,5 +169,7 @@ Lo que queda:
 - Backend server: `src-tauri/src/web_server.rs`
 - Serial/máquina: `src-tauri/src/commands/serial.rs`, `src/hooks/useSerial.ts`, `src/lib/serial-reconnect.ts`, `src/lib/machine-limits.ts`
 - Notificaciones: `src/lib/toast.ts`, `src/stores/useToastStore.ts`, `src/components/ui/toaster.tsx`
-- Packaging: `src-tauri/tauri.conf.json`, `package.json`, `src-tauri/Cargo.toml`, `scripts/sync-version.mjs`
-- UX: `src/components/modals/SetupWizardModal.tsx`, `src/components/projects/ProjectsScreen.tsx`
+- Packaging: `src-tauri/tauri.conf.json`, `package.json`, `src-tauri/Cargo.toml`, `scripts/sync-version.mjs`, `scripts/gen-third-party.mjs`, `.github/workflows/release.yml`, `docs/RELEASE.md`, `LICENSE`
+- Updater: `src/lib/updater.ts`, `src/stores/useUpdateStore.ts`, `src/components/modals/UpdateModal.tsx`
+- Autosave: `src/lib/autosave.ts`, `src/lib/project-file.ts`, `src-tauri/src/commands/workspace_cmd.rs`
+- UX: `src/components/modals/SetupWizardModal.tsx`, `src/components/projects/ProjectsScreen.tsx`, `src/lib/gcode-run.ts`
