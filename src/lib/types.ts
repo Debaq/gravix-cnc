@@ -15,7 +15,16 @@ export type WorkType = 'outline' | 'inside' | 'outside' | 'pocket' | 'vcarve' | 
 export type LaserMode = 'cut' | 'engrave' | 'fill' | 'raster'
 
 // Modos de dithering para grabado ráster
-export type DitheringMode = 'threshold' | 'floydSteinberg' | 'ordered' | 'atkinson' | 'grayscale'
+export type DitheringMode =
+  | 'threshold'
+  | 'floydSteinberg'
+  | 'ordered'
+  | 'atkinson'
+  | 'jarvis'
+  | 'stucki'
+  | 'burkes'
+  | 'sierra'
+  | 'grayscale'
 
 // Datos de imagen ráster procesada
 export interface RasterData {
@@ -202,6 +211,14 @@ export interface ColorMapping {
   speed: number        // mm/min
   passes: number
   enabled: boolean
+}
+
+// Limpieza automatica de vectores antes de generar toolpaths
+export interface VectorCleanupConfig {
+  enabled: boolean            // Aplicar limpieza al extraer paths
+  joinTolerance: number       // Cerrar paths casi cerrados por debajo de este gap (mm)
+  tinySpanTolerance: number   // Descartar segmentos mas cortos que esto (mm)
+  removeDuplicates: boolean   // Eliminar paths superpuestos identicos
 }
 
 // Marcadores CAM insertados entre jobs

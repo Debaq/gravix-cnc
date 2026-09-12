@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useLibraryStore } from '@/stores/useLibraryStore'
@@ -14,16 +15,58 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Button } from '@/components/ui/button'
+import { Palette, Save, Download, Trash2 } from 'lucide-react'
 import type { OperationType, LaserMode, WorkType } from '@/lib/types'
+import {
+  createTemplate,
+  exportTemplates,
+  loadToolpathTemplates,
+  saveToolpathTemplates,
+  type ToolpathTemplate,
+} from '@/lib/profiles'
 
 export function GlobalConfigModal() {
   const { t } = useTranslation('settings')
-  const { activeModal, closeModal, addConsoleLine } = useAppStore()
+  const { activeModal, closeModal, addConsoleLine, openModal } = useAppStore()
   const { globalConfig, setGlobalConfig } = useCanvasStore()
+  const enabledMappings = useCanvasStore((s) => s.colorMappings.filter((m) => m.enabled).length)
   const { getFilteredTools, materials } = useLibraryStore()
 
   const isOpen = activeModal === 'globalConfig'
   const filteredTools = getFilteredTools(globalConfig.operationType)
+
+  // Plantillas de toolpath: persistidas en localStorage por `profiles.ts`.
+  const [templates, setTemplates] = useState<ToolpathTemplate[]>([])
+  const [templateName, setTemplateName] = useState('')
+
+  useEffect(() => {
+    if (isOpen) setTemplates(loadToolpathTemplates())
+  }, [isOpen])
+
+  const persistTemplates = (next: ToolpathTemplate[]) => {
+    saveToolpathTemplates(next)
+    setTemplates(next)
+  }
+
+  const handleSaveTemplate = () => {
+    const name = templateName.trim()
+    if (!name) return
+    persistTemplates([...templates, createTemplate(name, globalConfig)])
+    setTemplateName('')
+    addConsoleLine(`Plantilla guardada: ${name}`)
+  }
+
+  const handleApplyTemplate = (id: string) => {
+    const tpl = templates.find((x) => x.id === id)
+    if (!tpl) return
+    setGlobalConfig(tpl.config)
+    addConsoleLine(`Plantilla aplicada: ${tpl.name}`)
+  }
+
+  const handleDeleteTemplate = (id: string) => {
+    persistTemplates(templates.filter((x) => x.id !== id))
+  }
 
   const handleToolChange = (toolId: string) => {
     if (toolId === 'none') {
@@ -74,6 +117,68 @@ export function GlobalConfigModal() {
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Plantillas de toolpath */}
+          <div className="space-y-2 rounded-md border p-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-semibold">{t('templates.title')}</Label>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 gap-1 px-2 text-xs"
+                disabled={templates.length === 0}
+                onClick={() => exportTemplates(templates)}
+              >
+                <Download className="h-3 w-3" />
+                {t('templates.export')}
+              </Button>
+            </div>
+
+            {templates.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {templates.map((tpl) => (
+                  <span
+                    key={tpl.id}
+                    className="flex items-center gap-1 rounded-full border bg-muted/40 py-0.5 pl-2 pr-1 text-[11px]"
+                  >
+                    <button
+                      className="hover:underline"
+                      onClick={() => handleApplyTemplate(tpl.id)}
+                      title={tpl.operationType}
+                    >
+                      {tpl.name}
+                    </button>
+                    <button
+                      className="text-muted-foreground hover:text-destructive"
+                      onClick={() => handleDeleteTemplate(tpl.id)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Input
+                className="h-7 text-xs"
+                placeholder={t('templates.namePlaceholder')}
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSaveTemplate()}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1 text-xs"
+                disabled={!templateName.trim()}
+                onClick={handleSaveTemplate}
+              >
+                <Save className="h-3 w-3" />
+                {t('templates.save')}
+              </Button>
+            </div>
+          </div>
+
           {/* Operation type */}
           <div>
             <Label>{t('globalConfig.operationType')}</Label>
@@ -511,6 +616,26 @@ export function GlobalConfigModal() {
                     />
                   </div>
                 )}
+              </div>
+
+              {/* Capas por color: se editan aparte porque no son parte de
+                  GlobalConfig sino una tabla propia del store. */}
+              <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                <div>
+                  <Label className="text-xs">{t('colorMapping.title')}</Label>
+                  <p className="text-[10px] text-muted-foreground">
+                    {enabledMappings} {t('colorMapping.activeCount')}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1"
+                  onClick={() => openModal('colorMapping')}
+                >
+                  <Palette className="h-3.5 w-3.5" />
+                  {t('colorMapping.edit')}
+                </Button>
               </div>
 
               {/* Opciones de relleno (solo modo fill) */}

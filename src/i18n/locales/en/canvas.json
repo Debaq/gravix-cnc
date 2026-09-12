@@ -172,5 +172,6 @@
     "centerX": "Center X (mm)",
     "centerY": "Center Y (mm)",
     "polarHint": "Default center is the work area center"
-  }
+  },
+  "vectorDiagnostics": "Vector diagnostics"
 }

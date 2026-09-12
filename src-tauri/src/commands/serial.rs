@@ -172,6 +172,9 @@ pub struct GrblStatus {
     pub state: String,
     pub mpos: GrblPosition,
     pub wpos: GrblPosition,
+    /// Reporte crudo (`<Idle|MPos:...|Pn:XZ|Bf:15,128|Ov:100,100,100>`). La UI
+    /// lo parsea para pines, buffers y overrides; el backend solo mueve texto.
+    pub raw: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, TS)]
@@ -398,7 +401,12 @@ fn parse_grbl_status(line: &str, wco_cache: &mut Option<GrblPosition>) -> Option
         }
     };
 
-    Some(GrblStatus { state, mpos, wpos })
+    Some(GrblStatus {
+        state,
+        mpos,
+        wpos,
+        raw: line.trim().to_string(),
+    })
 }
 
 fn negate(p: &GrblPosition) -> GrblPosition {
@@ -449,6 +457,7 @@ fn parse_marlin_status(line: &str) -> Option<GrblStatus> {
         state: "Idle".to_string(),
         mpos: pos.clone(),
         wpos: pos,
+        raw: line.trim().to_string(),
     })
 }
 

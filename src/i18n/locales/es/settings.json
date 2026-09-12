@@ -111,5 +111,41 @@
     "description": "Descripcion",
     "value": "Valor",
     "help": "Ayuda"
+  },
+  "vectorDiagnostics": {
+    "title": "Diagnóstico de vectores",
+    "description": "Detecta problemas de geometría que rompen la generación de toolpaths.",
+    "paths": "Paths",
+    "reanalyze": "Reanalizar",
+    "clean": "Sin problemas detectados",
+    "noPaths": "No hay vectores en el diseño",
+    "autoCleanup": "Limpieza automática",
+    "autoCleanupHint": "Se aplica al generar G-code: une paths casi cerrados, descarta segmentos nulos y elimina duplicados.",
+    "joinTolerance": "Tolerancia de unión (mm)",
+    "tinySpanTolerance": "Segmento mínimo (mm)",
+    "removeDuplicates": "Eliminar duplicados",
+    "close": "Cerrar"
+  },
+  "colorMapping": {
+    "title": "Capas por color (láser)",
+    "description": "Cada color de trazo usa su propia potencia, velocidad y pasadas.",
+    "name": "Nombre",
+    "mode": "Modo",
+    "power": "Pot %",
+    "speed": "Vel",
+    "passes": "Pas",
+    "add": "Agregar color",
+    "newLayer": "Nueva capa",
+    "empty": "Sin mapeos de color. Se usa la configuración global del láser.",
+    "hint": "Los paths sin color mapeado usan la configuración global. Solo aplica a operaciones láser.",
+    "close": "Cerrar",
+    "edit": "Editar",
+    "activeCount": "colores activos"
+  },
+  "templates": {
+    "title": "Plantillas de toolpath",
+    "save": "Guardar",
+    "export": "Exportar",
+    "namePlaceholder": "Nombre de la plantilla"
   }
 }

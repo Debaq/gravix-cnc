@@ -23,6 +23,7 @@ import { useAppStore } from '@/stores/useAppStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import { linearizeCubicBezier, linearizeQuadraticBezier, arcFrom3Points, catmullRomToCubicBezier } from '@/lib/geometry'
 import { booleanOperation } from '@/lib/boolean-ops'
+import { autoJoinPaths, removeTinySpans, removeDuplicatePaths } from '@/lib/vector-diagnostics'
 import { offsetPolygon } from '@/lib/geometry'
 import { parseDxf, dxfToFabricObjects } from '@/lib/dxf-parser'
 
@@ -1745,7 +1746,19 @@ export function useCanvasManager() {
   // ------------------------------------------
   // Extract paths for G-code generation
   // ------------------------------------------
-  const getPathsForGCode = useCallback((): GCodePath[] => {
+  // Los SVG/DXF importados suelen traer paths casi cerrados, segmentos de
+  // longitud cero y contornos duplicados: eso rompe pocket, kerf y offset.
+  // Se limpian aca, en el unico punto por el que pasan todos los toolpaths.
+  const cleanPaths = (paths: GCodePath[]): GCodePath[] => {
+    const cfg = useCanvasStore.getState().vectorCleanup
+    if (!cfg?.enabled) return paths
+    let out = removeTinySpans(paths, cfg.tinySpanTolerance)
+    out = autoJoinPaths(out, cfg.joinTolerance)
+    if (cfg.removeDuplicates) out = removeDuplicatePaths(out)
+    return out
+  }
+
+  const getPathsForGCode = useCallback((options?: { raw?: boolean }): GCodePath[] => {
     const canvas = getCanvas()
     if (!canvas) return []
 
@@ -1843,7 +1856,7 @@ export function useCanvasManager() {
       }
     }
 
-    return paths
+    return options?.raw ? paths : cleanPaths(paths)
   }, [])
 
   // ------------------------------------------
@@ -1980,6 +1993,10 @@ export function useCanvasManager() {
           }
         }
       }
+
+      const cleaned = cleanPaths(paths)
+      paths.length = 0
+      paths.push(...cleaned)
 
       if (paths.length > 0) {
         // Tag paths with stroke color for plotter color grouping

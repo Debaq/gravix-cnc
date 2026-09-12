@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { CanvasElement, WorkArea, GlobalConfig, RasterData, Layer, ColorMapping } from '@/lib/types'
+import type { CanvasElement, WorkArea, GlobalConfig, RasterData, Layer, ColorMapping, VectorCleanupConfig } from '@/lib/types'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 
 export interface SelectedObjectProps {
@@ -77,6 +77,9 @@ interface CanvasState {
   // Color mappings for laser mode
   colorMappings: ColorMapping[]
 
+  // Limpieza automatica de vectores antes de generar G-code
+  vectorCleanup: VectorCleanupConfig
+
   // Multiple sheets
   sheets: { id: string; name: string }[]
   activeSheetId: string
@@ -123,6 +126,7 @@ interface CanvasState {
   setActiveSheet: (id: string) => void
   renameSheet: (id: string, name: string) => void
   setColorMappings: (mappings: ColorMapping[]) => void
+  setVectorCleanup: (cleanup: Partial<VectorCleanupConfig>) => void
   moveElementToLayer: (elementId: string, layerId: string) => void
 
   findElementById: (id: string) => CanvasElement | undefined
@@ -269,6 +273,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     { color: '#00ff00', name: 'Fill', mode: 'fill', power: 60, speed: 600, passes: 1, enabled: true },
     { color: '#ffff00', name: 'Corte suave', mode: 'cut', power: 50, speed: 500, passes: 2, enabled: true },
   ],
+
+  vectorCleanup: {
+    enabled: true,
+    joinTolerance: 0.1,
+    tinySpanTolerance: 0.01,
+    removeDuplicates: true,
+  },
 
   // Per-operation-type defaults (initial defaults, overwritten by last used)
   operationDefaults: {
@@ -464,6 +475,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   })),
 
   setColorMappings: (mappings) => set({ colorMappings: mappings }),
+
+  setVectorCleanup: (cleanup) => set((state) => ({
+    vectorCleanup: { ...state.vectorCleanup, ...cleanup },
+  })),
 
   moveElementToLayer: (elementId, layerId) => set((state) => ({
     elements: state.elements.map(el => el.id === elementId ? { ...el, layerId } : el)

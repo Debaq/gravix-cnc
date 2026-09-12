@@ -18,6 +18,10 @@
     "floydSteinberg": "Floyd-Steinberg (recomendado)",
     "ordered": "Patron ordenado (Bayer)",
     "atkinson": "Atkinson (alto contraste)",
+    "jarvis": "Jarvis-Judice-Ninke (suave)",
+    "stucki": "Stucki (detalle fino)",
+    "burkes": "Burkes (rapido)",
+    "sierra": "Sierra (equilibrado)",
     "grayscale": "Escala de grises (sin dithering)"
   }
 }

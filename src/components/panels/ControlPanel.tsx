@@ -92,6 +92,8 @@ export function ControlPanel() {
     baudRate,
     feedOverride,
     spindleOverride,
+    diagnostics,
+    parserState,
     jogDistance,
     jogSpeed,
     togglePosMode,
@@ -445,7 +447,12 @@ export function ControlPanel() {
                       value={activeWorkspace}
                       onChange={(e) => {
                         setActiveWorkspace(e.target.value)
-                        if (connected) serial.sendCommand(e.target.value)
+                        if (connected) {
+                          serial.sendCommand(e.target.value)
+                          // Refresca el parser state para que el diagnostico no
+                          // siga mostrando el sistema de coordenadas anterior.
+                          serial.sendCommand('$G')
+                        }
                       }}
                       disabled={!connected}
                     >
@@ -500,6 +507,67 @@ export function ControlPanel() {
                     </span>
                   </div>
                 </div>
+
+                {/* Diagnostico I/O: pines, buffers y feed/spindle reales que
+                    GRBL reporta en el status extendido. */}
+                {connected && !simulating && (
+                  <div className="space-y-1.5 border-t pt-2">
+                    <div className="flex flex-wrap gap-1">
+                      {[
+                        { label: 'X', on: diagnostics.limitX },
+                        { label: 'Y', on: diagnostics.limitY },
+                        { label: 'Z', on: diagnostics.limitZ },
+                        { label: 'P', on: diagnostics.probe },
+                        { label: 'D', on: diagnostics.door },
+                        { label: 'H', on: diagnostics.hold },
+                      ].map(({ label, on }) => (
+                        <span
+                          key={label}
+                          title={`Pin ${label}`}
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-mono font-semibold ${
+                            on
+                              ? 'bg-amber-500/20 text-amber-500'
+                              : 'bg-muted text-muted-foreground/60'
+                          }`}
+                        >
+                          {label}
+                        </span>
+                      ))}
+                      {(diagnostics.floodCoolant || diagnostics.mistCoolant) && (
+                        <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-mono font-semibold text-sky-400">
+                          {diagnostics.floodCoolant ? 'M8' : 'M7'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 text-center">
+                      <div className="rounded bg-muted px-1 py-1">
+                        <span className="block text-[9px] text-muted-foreground">Buf</span>
+                        <span className="font-mono text-[11px] tabular-nums">
+                          {diagnostics.plannerBuffer}/{diagnostics.rxBuffer}
+                        </span>
+                      </div>
+                      <div className="rounded bg-muted px-1 py-1">
+                        <span className="block text-[9px] text-muted-foreground">F real</span>
+                        <span className="font-mono text-[11px] tabular-nums">
+                          {diagnostics.currentFeed}
+                        </span>
+                      </div>
+                      <div className="rounded bg-muted px-1 py-1">
+                        <span className="block text-[9px] text-muted-foreground">Rapid</span>
+                        <span className="font-mono text-[11px] tabular-nums">
+                          {diagnostics.rapidOverride}%
+                        </span>
+                      </div>
+                    </div>
+                    {parserState && (
+                      <div className="truncate font-mono text-[10px] text-muted-foreground">
+                        {parserState.motionMode} {parserState.coordSystem} {parserState.plane}{' '}
+                        {parserState.units} {parserState.distanceMode} {parserState.spindleState}{' '}
+                        {parserState.coolantState} T{parserState.toolNumber}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* ── Controles rápidos ── */}

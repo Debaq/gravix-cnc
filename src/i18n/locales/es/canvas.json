@@ -172,5 +172,6 @@
     "centerX": "Centro X (mm)",
     "centerY": "Centro Y (mm)",
     "polarHint": "El centro por defecto es el centro del area de trabajo"
-  }
+  },
+  "vectorDiagnostics": "Diagnóstico de vectores"
 }

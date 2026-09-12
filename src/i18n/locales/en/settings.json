@@ -111,5 +111,41 @@
     "description": "Description",
     "value": "Value",
     "help": "Help"
+  },
+  "vectorDiagnostics": {
+    "title": "Vector diagnostics",
+    "description": "Finds geometry problems that break toolpath generation.",
+    "paths": "Paths",
+    "reanalyze": "Re-analyze",
+    "clean": "No issues found",
+    "noPaths": "No vectors in the design",
+    "autoCleanup": "Auto cleanup",
+    "autoCleanupHint": "Applied when generating G-code: joins near-closed paths, drops zero-length spans and removes duplicates.",
+    "joinTolerance": "Join tolerance (mm)",
+    "tinySpanTolerance": "Minimum span (mm)",
+    "removeDuplicates": "Remove duplicates",
+    "close": "Close"
+  },
+  "colorMapping": {
+    "title": "Color layers (laser)",
+    "description": "Each stroke color gets its own power, speed and pass count.",
+    "name": "Name",
+    "mode": "Mode",
+    "power": "Pwr %",
+    "speed": "Speed",
+    "passes": "Pass",
+    "add": "Add color",
+    "newLayer": "New layer",
+    "empty": "No color mappings. The global laser config is used.",
+    "hint": "Paths without a mapped color fall back to the global config. Laser operations only.",
+    "close": "Close",
+    "edit": "Edit",
+    "activeCount": "active colors"
+  },
+  "templates": {
+    "title": "Toolpath templates",
+    "save": "Save",
+    "export": "Export",
+    "namePlaceholder": "Template name"
   }
 }

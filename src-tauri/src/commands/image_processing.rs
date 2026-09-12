@@ -13,6 +13,14 @@ pub enum DitheringMode {
     Ordered,
     #[serde(rename = "atkinson")]
     Atkinson,
+    #[serde(rename = "jarvis")]
+    Jarvis,
+    #[serde(rename = "stucki")]
+    Stucki,
+    #[serde(rename = "burkes")]
+    Burkes,
+    #[serde(rename = "sierra")]
+    Sierra,
     #[serde(rename = "grayscale")]
     Grayscale,
 }
@@ -170,6 +178,10 @@ fn process_image(
         DitheringMode::FloydSteinberg => apply_floyd_steinberg(&mut buffer, threshold),
         DitheringMode::Ordered => apply_ordered_dither(&mut buffer),
         DitheringMode::Atkinson => apply_atkinson(&mut buffer, threshold),
+        DitheringMode::Jarvis => diffuse_error(&mut buffer, threshold, JARVIS, 48.0),
+        DitheringMode::Stucki => diffuse_error(&mut buffer, threshold, STUCKI, 42.0),
+        DitheringMode::Burkes => diffuse_error(&mut buffer, threshold, BURKES, 32.0),
+        DitheringMode::Sierra => diffuse_error(&mut buffer, threshold, SIERRA, 32.0),
         DitheringMode::Grayscale => {}
     }
 
@@ -211,6 +223,72 @@ fn process_image(
         pixel_size_mm,
         preview_base64,
     })
+}
+
+/// Un peso del kernel: desplazamiento (dx, dy) respecto al pixel actual y su
+/// numerador. El divisor va aparte para no repetirlo en cada entrada.
+type DiffusionKernel = &'static [(i32, i32, f32)];
+
+#[rustfmt::skip]
+const JARVIS: DiffusionKernel = &[
+    (1, 0, 7.0), (2, 0, 5.0),
+    (-2, 1, 3.0), (-1, 1, 5.0), (0, 1, 7.0), (1, 1, 5.0), (2, 1, 3.0),
+    (-2, 2, 1.0), (-1, 2, 3.0), (0, 2, 5.0), (1, 2, 3.0), (2, 2, 1.0),
+];
+
+#[rustfmt::skip]
+const STUCKI: DiffusionKernel = &[
+    (1, 0, 8.0), (2, 0, 4.0),
+    (-2, 1, 2.0), (-1, 1, 4.0), (0, 1, 8.0), (1, 1, 4.0), (2, 1, 2.0),
+    (-2, 2, 1.0), (-1, 2, 2.0), (0, 2, 4.0), (1, 2, 2.0), (2, 2, 1.0),
+];
+
+#[rustfmt::skip]
+const BURKES: DiffusionKernel = &[
+    (1, 0, 8.0), (2, 0, 4.0),
+    (-2, 1, 2.0), (-1, 1, 4.0), (0, 1, 8.0), (1, 1, 4.0), (2, 1, 2.0),
+];
+
+/// Sierra "de tres lineas", el clasico.
+#[rustfmt::skip]
+const SIERRA: DiffusionKernel = &[
+    (1, 0, 5.0), (2, 0, 3.0),
+    (-2, 1, 2.0), (-1, 1, 4.0), (0, 1, 5.0), (1, 1, 4.0), (2, 1, 2.0),
+    (-1, 2, 2.0), (0, 2, 3.0), (1, 2, 2.0),
+];
+
+/// Difusion de error generica. Floyd-Steinberg y Atkinson tienen su propia
+/// funcion por razones historicas; todo kernel nuevo entra por aca.
+fn diffuse_error(img: &mut GrayImage, threshold: u8, kernel: DiffusionKernel, divisor: f32) {
+    let (w, h) = img.dimensions();
+    let mut buf: Vec<Vec<f32>> = (0..h)
+        .map(|y| (0..w).map(|x| img.get_pixel(x, y).0[0] as f32).collect())
+        .collect();
+
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            let old = buf[y as usize][x as usize];
+            let new_val: f32 = if old > threshold as f32 { 255.0 } else { 0.0 };
+            let error = (old - new_val) / divisor;
+            buf[y as usize][x as usize] = new_val;
+
+            for &(dx, dy, weight) in kernel {
+                let nx = x + dx;
+                let ny = y + dy;
+                if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
+                    continue;
+                }
+                buf[ny as usize][nx as usize] += error * weight;
+            }
+        }
+    }
+
+    for y in 0..h {
+        for x in 0..w {
+            let v = buf[y as usize][x as usize].clamp(0.0, 255.0) as u8;
+            img.put_pixel(x, y, Luma([v]));
+        }
+    }
 }
 
 fn apply_threshold(img: &mut GrayImage, threshold: u8) {

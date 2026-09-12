@@ -39,6 +39,7 @@ import {
   Magnet,
   Grid3x3,
   LayoutGrid,
+  Stethoscope,
   Scaling,
   Combine,
   MinusSquare,
@@ -452,6 +453,16 @@ export function CanvasToolbar() {
           label={t('array.title') || 'Patron (Array)'}
           onClick={() => useAppStore.getState().openModal('array')}
           disabled={!hasSelection}
+          compact={compact}
+        />
+
+        {sep}
+
+        {/* ── Diagnostico de vectores ── */}
+        <ToolbarButton
+          icon={Stethoscope}
+          label={t('vectorDiagnostics') || 'Diagnostico de vectores'}
+          onClick={() => useAppStore.getState().openModal('vectorDiagnostics')}
           compact={compact}
         />
 
