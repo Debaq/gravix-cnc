@@ -1,0 +1,166 @@
+Gravix CNC — Licencia de Uso de Software (EULA)
+Copyright (c) 2026 Nicolás Baier Quezada. Todos los derechos reservados.
+
+Versión 1.0 — 12 de septiembre de 2026
+
+
+AVISO IMPORTANTE
+
+Este es un software PROPIETARIO. El código fuente está disponible públicamente
+para inspección, auditoría y fines educativos, pero NO es software libre ni de
+código abierto. La disponibilidad pública del repositorio no otorga ninguna
+licencia de uso, copia, modificación o distribución más allá de lo que este
+documento concede expresamente.
+
+Al instalar, copiar o utilizar Gravix CNC (el "Software") usted acepta los
+términos de esta licencia. Si no los acepta, no instale ni utilice el Software.
+
+
+1. DEFINICIONES
+
+1.1 "Titular": Nicolás Baier Quezada.
+1.2 "Software": la aplicación Gravix CNC, sus binarios, código fuente,
+    recursos, documentación y actualizaciones.
+1.3 "Usuario": la persona natural o jurídica que instala o utiliza el Software.
+1.4 "Licencia de Activación": la clave firmada emitida por el Titular que
+    habilita las funciones de la edición de pago.
+1.5 "Período de Prueba": el plazo de evaluación gratuita indicado en el
+    Software al momento de su primera ejecución.
+
+
+2. CONCESIÓN DE LICENCIA
+
+2.1 El Titular concede al Usuario una licencia personal, revocable, no
+    exclusiva, no transferible y no sublicenciable para instalar y ejecutar el
+    Software en equipos bajo su control, con el único fin de operar maquinaria
+    CNC, láser, plóter o similar.
+
+2.2 Período de Prueba. El Software puede utilizarse sin Licencia de Activación
+    durante el Período de Prueba, con las limitaciones funcionales que el
+    Titular determine. Vencido ese plazo, el uso continuado requiere una
+    Licencia de Activación vigente.
+
+2.3 Licencia de Activación. Es nominativa, se asocia al correo electrónico
+    indicado en la compra y no puede compartirse, revenderse, publicarse ni
+    cederse. El Titular puede revocar una Licencia de Activación obtenida o
+    utilizada en infracción de estos términos.
+
+2.4 Actualizaciones. Las actualizaciones que el Titular publique se rigen por
+    esta misma licencia, salvo que vengan acompañadas de términos distintos.
+
+
+3. RESTRICCIONES
+
+El Usuario NO podrá:
+
+3.1 Redistribuir, vender, arrendar, prestar, sublicenciar ni poner el Software
+    a disposición de terceros, en forma gratuita u onerosa.
+
+3.2 Publicar, compilar y distribuir binarios derivados del código fuente, ni
+    obras derivadas de este, salvo autorización escrita del Titular.
+
+3.3 Eludir, desactivar, alterar o interferir con los mecanismos de licencia,
+    activación, período de prueba o verificación de integridad del Software.
+
+3.4 Eliminar o alterar avisos de copyright, marcas o atribuciones.
+
+3.5 Utilizar el Software en violación de la legislación aplicable.
+
+3.6 Utilizar el nombre "Gravix", su logotipo o identidad visual para
+    identificar productos o servicios propios sin autorización escrita.
+
+Se permite expresamente: leer, estudiar y auditar el código fuente publicado;
+compilarlo localmente para uso propio bajo los términos de la sección 2;
+y reportar vulnerabilidades o errores al Titular.
+
+
+4. PROPIEDAD INTELECTUAL
+
+El Software se licencia, no se vende. El Titular conserva la totalidad de los
+derechos de propiedad intelectual sobre el Software, incluyendo su código
+fuente, diseño, interfaz y marcas. Los archivos de proyecto, diseños y G-code
+generados por el Usuario son de propiedad exclusiva del Usuario.
+
+
+5. SEGURIDAD Y USO DE MAQUINARIA — ADVERTENCIA
+
+5.1 El Software controla maquinaria física capaz de causar daño material,
+    lesiones graves o la muerte.
+
+5.2 El Usuario es el único responsable de la operación segura de su
+    maquinaria: supervisión durante la ejecución, uso de paradas de emergencia,
+    protección ocular y respiratoria, verificación de los límites de trabajo y
+    validación del G-code antes de ejecutarlo.
+
+5.3 Las validaciones, simulaciones, previsualizaciones y comprobaciones de
+    límites del Software son ayudas, NO garantías. El Usuario debe verificar
+    de forma independiente todo trabajo antes de ejecutarlo.
+
+5.4 NUNCA deje la máquina operando sin supervisión.
+
+
+6. AUSENCIA DE GARANTÍAS
+
+EL SOFTWARE SE ENTREGA "TAL CUAL" Y "SEGÚN DISPONIBILIDAD", SIN GARANTÍA DE
+NINGÚN TIPO, EXPRESA O IMPLÍCITA, INCLUYENDO SIN LIMITACIÓN LAS GARANTÍAS DE
+COMERCIABILIDAD, IDONEIDAD PARA UN PROPÓSITO PARTICULAR, PRECISIÓN,
+DISPONIBILIDAD ININTERRUMPIDA Y NO INFRACCIÓN.
+
+El Titular no garantiza que el Software sea compatible con todo firmware,
+controlador o máquina, ni que su funcionamiento sea libre de errores.
+
+
+7. LIMITACIÓN DE RESPONSABILIDAD
+
+7.1 En la máxima medida permitida por la ley aplicable, el Titular no será
+    responsable por daños indirectos, incidentales, especiales, punitivos o
+    consecuenciales, ni por lucro cesante, pérdida de datos, daño a material,
+    herramientas o maquinaria, ni por lesiones derivadas del uso del Software.
+
+7.2 La responsabilidad total acumulada del Titular, por cualquier causa, no
+    excederá el monto efectivamente pagado por el Usuario por la Licencia de
+    Activación durante los doce meses anteriores al hecho que origine el
+    reclamo.
+
+7.3 Nada en esta licencia excluye responsabilidades que no puedan excluirse
+    legalmente, incluidas las derivadas de dolo o culpa grave.
+
+
+8. DATOS
+
+El Software opera de forma local. El Titular solo trata los datos entregados
+voluntariamente por el Usuario en el proceso de compra y activación (correo
+electrónico y número de orden), con la finalidad de emitir y validar la
+Licencia de Activación. El Software no transmite diseños, proyectos ni G-code
+del Usuario al Titular.
+
+
+9. VIGENCIA Y TÉRMINO
+
+9.1 Esta licencia rige desde la instalación y hasta su término.
+
+9.2 Termina automáticamente si el Usuario incumple cualquiera de sus términos.
+
+9.3 Terminada la licencia, el Usuario debe cesar el uso y desinstalar el
+    Software. Subsisten las secciones 4, 6, 7 y 10.
+
+
+10. LEY APLICABLE Y JURISDICCIÓN
+
+Esta licencia se rige por las leyes de la República de Chile. Toda controversia
+se someterá a los tribunales ordinarios de justicia con asiento en Santiago de
+Chile, sin perjuicio de los derechos irrenunciables que la legislación de
+consumo otorgue al Usuario en su lugar de residencia.
+
+
+11. GENERALES
+
+11.1 Esta licencia constituye el acuerdo íntegro entre las partes respecto del
+     Software y reemplaza todo acuerdo previo sobre la materia.
+11.2 La nulidad de una cláusula no afecta la validez de las restantes.
+11.3 La falta de ejercicio de un derecho por parte del Titular no implica
+     renuncia a este.
+
+
+CONTACTO
+Nicolás Baier Quezada — https://github.com/Debaq/cnc
