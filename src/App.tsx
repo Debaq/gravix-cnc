@@ -33,7 +33,10 @@ import { NetworkServerModal } from '@/components/modals/NetworkServerModal'
 import { LicenseModal } from '@/components/modals/LicenseModal'
 import { GrblSettingsModal } from '@/components/modals/GrblSettingsModal'
 import { MachinesModal } from '@/components/modals/MachinesModal'
+import { UpdateModal } from '@/components/modals/UpdateModal'
 import { useLicense } from '@/hooks/useLicense'
+import { useUpdateStore } from '@/stores/useUpdateStore'
+import { startAutosave, stopAutosave, flushAutosave } from '@/lib/autosave'
 import { isTauri, tauriInvoke } from '@/lib/tauri'
 import { toast, errorDetail } from '@/lib/toast'
 import i18n from '@/i18n'
@@ -86,6 +89,8 @@ function App() {
   const activeMachineId = useMachineStore((s) => s.activeMachineId)
   const { setWorkArea } = useCanvasStore()
   const { check: checkLicense } = useLicense()
+  const checkUpdate = useUpdateStore((s) => s.check)
+  const activeProjectPath = useAppStore((s) => s.activeProjectPath)
 
   // Sincroniza workArea del canvas con la máquina activa.
   useEffect(() => {
@@ -111,6 +116,41 @@ function App() {
         })
       }
     })
+  }, [])
+
+  // Chequeo de updates al arrancar. Va aparte del Promise.all de carga para no
+  // retrasar el cierre del splashscreen, y en modo silencioso: sin red el
+  // arranque no debe mostrar un error que el usuario no pidio.
+  useEffect(() => {
+    if (!isTauri()) return
+    const timer = setTimeout(() => void checkUpdate(true), 4000)
+    return () => clearTimeout(timer)
+  }, [checkUpdate])
+
+  // Autosave: vive mientras haya un .gravix abierto en el editor. Al volver al
+  // listado se vacia lo pendiente antes de cortar, o el ultimo cambio se pierde.
+  useEffect(() => {
+    if (!isTauri()) return
+    if (currentView !== 'workspace' || !activeProjectPath) return
+
+    startAutosave()
+    return () => {
+      void flushAutosave()
+    }
+  }, [currentView, activeProjectPath])
+
+  // Cerrar la ventana con cambios pendientes no debe tirarlos. `beforeunload`
+  // no espera promesas, pero alcanza para disparar la escritura.
+  useEffect(() => {
+    if (!isTauri()) return
+    const onUnload = () => {
+      void flushAutosave()
+    }
+    window.addEventListener('beforeunload', onUnload)
+    return () => {
+      window.removeEventListener('beforeunload', onUnload)
+      stopAutosave()
+    }
   }, [])
 
   // Loading
@@ -139,6 +179,7 @@ function App() {
         <MaterialsModal />
         <SetupWizardModal />
         <MachinesModal />
+        <UpdateModal />
         <Toaster />
       </TooltipProvider>
     )
@@ -197,6 +238,7 @@ function App() {
         <GrblSettingsModal />
         <MachinesModal />
         <LicenseModal />
+        <UpdateModal />
         <Toaster />
       </div>
     </TooltipProvider>

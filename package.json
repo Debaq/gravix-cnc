@@ -2,6 +2,13 @@
   "name": "grbl-web-control-pro",
   "private": true,
   "version": "5.0.0",
+  "license": "SEE LICENSE IN LICENSE",
+  "description": "Control CNC/GRBL con CAD 2D y generación de G-code",
+  "author": "Nicolás Baier Quezada",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Debaq/cnc.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -33,6 +40,8 @@
     "@react-three/fiber": "^9.0.0",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.7.0",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.11.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
     "fabric": "^6.0.0",

@@ -16,6 +16,7 @@ import esImageWizard from './locales/es/imageWizard.json'
 import esSetupWizard from './locales/es/setupWizard.json'
 import esProjects from './locales/es/projects.json'
 import esLicense from './locales/es/license.json'
+import esUpdater from './locales/es/updater.json'
 
 // EN
 import enCommon from './locales/en/common.json'
@@ -31,6 +32,7 @@ import enImageWizard from './locales/en/imageWizard.json'
 import enSetupWizard from './locales/en/setupWizard.json'
 import enProjects from './locales/en/projects.json'
 import enLicense from './locales/en/license.json'
+import enUpdater from './locales/en/updater.json'
 
 i18n
   .use(LanguageDetector)
@@ -51,6 +53,7 @@ i18n
         setupWizard: esSetupWizard,
         projects: esProjects,
         license: esLicense,
+        updater: esUpdater,
       },
       en: {
         common: enCommon,
@@ -66,11 +69,12 @@ i18n
         setupWizard: enSetupWizard,
         projects: enProjects,
         license: enLicense,
+        updater: enUpdater,
       },
     },
     fallbackLng: 'es',
     defaultNS: 'common',
-    ns: ['common', 'header', 'canvas', 'gcode', 'serial', 'tools', 'materials', 'settings', 'help', 'imageWizard', 'setupWizard', 'projects', 'license'],
+    ns: ['common', 'header', 'canvas', 'gcode', 'serial', 'tools', 'materials', 'settings', 'help', 'imageWizard', 'setupWizard', 'projects', 'license', 'updater'],
     interpolation: {
       escapeValue: false,
     },

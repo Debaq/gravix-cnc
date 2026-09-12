@@ -1,9 +1,12 @@
 [package]
 name = "grbl-web-control-pro"
 version = "5.0.0"
-description = "GRBL Web Control Pro - CNC/Laser/Plotter/Pencil Control"
-authors = ["you"]
+description = "Gravix - control CNC/GRBL con CAD 2D y generacion de G-code"
+authors = ["Nicolas Baier Quezada"]
 edition = "2021"
+license-file = "../LICENSE"
+repository = "https://github.com/Debaq/cnc"
+publish = false
 
 [lib]
 name = "grbl_web_control_pro_lib"
@@ -30,3 +33,5 @@ futures = "0.3"
 mdns-sd = "0.11"
 jsonwebtoken = "9"
 ts-rs = "10"
+tauri-plugin-updater = "2.11.0"
+tauri-plugin-process = "2.3.1"
