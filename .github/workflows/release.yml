@@ -55,6 +55,18 @@ jobs:
 
       - run: npm ci
 
+      # Un release estable sin firma deja a los usuarios sin camino de
+      # actualizacion, asi que aca si se corta antes de compilar.
+      - name: Verificar clave de firma
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo '::error::Falta el secret TAURI_SIGNING_PRIVATE_KEY. Ver docs/RELEASE.md seccion 0.'
+            exit 1
+          fi
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

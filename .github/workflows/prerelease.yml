@@ -90,6 +90,26 @@ jobs:
           node scripts/set-prerelease-version.mjs --set '${{ needs.version.outputs.version }}'
           npm run sync:version
 
+      # Sin clave de firma no se pueden generar los artefactos del updater:
+      # el bundler aborta con "A public key has been found, but no private
+      # key". Antes que fallar el run entero, se publica la pre-release sin
+      # ellos. Cuando el secret exista, esto se activa solo.
+      - name: Decidir artefactos de updater
+        id: updater
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -n "$SIGNING_KEY" ]; then
+            echo 'config=--config tauri.release.conf.json' >> "$GITHUB_OUTPUT"
+            echo 'updater_json=true' >> "$GITHUB_OUTPUT"
+            echo '::notice::Firma disponible: se generan artefactos de updater'
+          else
+            echo 'config=' >> "$GITHUB_OUTPUT"
+            echo 'updater_json=false' >> "$GITHUB_OUTPUT"
+            echo '::warning::Sin TAURI_SIGNING_PRIVATE_KEY: pre-release sin updater. Ver docs/RELEASE.md'
+          fi
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -105,5 +125,5 @@ jobs:
             del formato de proyecto entre pre-releases.
           releaseDraft: ${{ inputs.draft }}
           prerelease: true
-          includeUpdaterJson: true
-          args: --config tauri.release.conf.json ${{ matrix.args }}
+          includeUpdaterJson: ${{ steps.updater.outputs.updater_json }}
+          args: ${{ steps.updater.outputs.config }} ${{ matrix.args }}
