@@ -1,4 +1,6 @@
 import type { AxisLimits } from '@/lib/generated/AxisLimits'
+import type { Dialect } from '@/lib/generated/Dialect'
+import { firmwareToDialect } from '@/lib/firmware'
 import type { SerialConfig } from '@/lib/generated/SerialConfig'
 import type { MachineProfile } from '@/lib/profiles'
 import { useMachineStore } from '@/stores/useMachineStore'
@@ -49,4 +51,9 @@ export function buildAxisLimits(machine: MachineProfile | null): AxisLimits | nu
 
 export function activeMachine(): MachineProfile | null {
   return useMachineStore.getState().getActive()
+}
+
+export function activeDialect(): Dialect {
+  const m = activeMachine()
+  return m ? firmwareToDialect(m.firmware) : 'grbl'
 }

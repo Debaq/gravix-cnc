@@ -43,7 +43,6 @@
   "sendComplete": "Send complete",
   "sendCancelled": "Send cancelled",
   "noTauri": "Tauri not available",
-
   "macros": "Macros",
   "positions": "Positions",
   "addMacro": "New Macro",
@@ -58,7 +57,6 @@
   "positionName": "Name",
   "noMacros": "No macros",
   "noPositions": "No saved positions",
-
   "workflow": "Workflow",
   "addGcode": "G-code",
   "addPause": "Pause",
@@ -73,7 +71,6 @@
   "stepDone": "Done",
   "stepError": "Error",
   "pauseMessage": "Paused - Press continue",
-
   "activeGcode": "Active G-Code",
   "noActiveGcode": "No G-code running",
   "lineOf": "of",
@@ -83,13 +80,11 @@
   "remaining": "Remaining",
   "progress": "Progress",
   "setupWizard": "Machine Setup",
-
   "laserOff": "LASER OFF",
   "laserPower": "Laser Power",
   "laserPowerPercent": "Power",
   "laserSetPower": "Set Power",
   "laserTestPulse": "Test Pulse",
-
   "preFlightCheck": "Pre-Start Check",
   "preflight_alarm": "Machine is in ALARM state. Unlock first.",
   "preflight_hold": "Machine is in HOLD state. Resume first.",
@@ -97,5 +92,8 @@
   "preflight_notConnected": "No serial connection active.",
   "preflight_noSteps": "Workflow has no steps.",
   "forceStart": "Start Anyway",
-  "cancel": "Cancel"
+  "cancel": "Cancel",
+  "reconnecting": "Reconnecting...",
+  "reconnectAttemptOf": "Attempt {{attempt}} of {{max}}",
+  "reconnectCancel": "Cancel"
 }

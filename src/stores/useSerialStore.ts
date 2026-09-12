@@ -6,6 +6,9 @@ interface SerialState {
   connected: boolean
   port: string
   baudRate: number
+  /** Reintento de conexion en curso tras una caida inesperada. */
+  reconnecting: boolean
+  reconnectAttempt: number
 
   // Machine state
   machineState: MachineState
@@ -39,6 +42,7 @@ interface SerialState {
 
   // Actions
   setConnected: (connected: boolean) => void
+  setReconnecting: (reconnecting: boolean, attempt: number) => void
   setPort: (port: string) => void
   setBaudRate: (rate: number) => void
   setMachineState: (state: MachineState) => void
@@ -64,6 +68,8 @@ export const useSerialStore = create<SerialState>((set) => ({
   connected: false,
   port: '',
   baudRate: 115200,
+  reconnecting: false,
+  reconnectAttempt: 0,
 
   // Machine state
   machineState: 'Idle',
@@ -97,6 +103,8 @@ export const useSerialStore = create<SerialState>((set) => ({
 
   // Actions
   setConnected: (connected) => set({ connected }),
+  setReconnecting: (reconnecting, attempt) =>
+    set({ reconnecting, reconnectAttempt: attempt }),
   setPort: (port) => set({ port }),
   setBaudRate: (rate) => set({ baudRate: rate }),
   setMachineState: (state) => set({ machineState: state }),

@@ -1,11 +1,18 @@
-import { useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback } from 'react'
 import { useSerialStore } from '@/stores/useSerialStore'
 import { useWorkflowStore } from '@/stores/useWorkflowStore'
 import { useAppStore } from '@/stores/useAppStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { isTauri, isRemote, tauriInvoke, tauriListen } from '@/lib/tauri'
 import { getClientRole } from '@/lib/client-role'
-import { activeMachine, buildAxisLimits, buildSerialConfig } from '@/lib/machine-limits'
+import { activeMachine, activeDialect, buildAxisLimits, buildSerialConfig } from '@/lib/machine-limits'
+import {
+  rememberConnection,
+  markIntentionalDisconnect,
+  clearIntentionalDisconnect,
+  handleDisconnected,
+  cancelReconnect,
+} from '@/lib/serial-reconnect'
 import type { MachineState } from '@/lib/types'
 import type { Dialect } from '@/lib/generated/Dialect'
 import type { PortInfo } from '@/lib/generated/PortInfo'
@@ -13,7 +20,6 @@ import type { GrblStatus } from '@/lib/generated/GrblStatus'
 import type { GrblData } from '@/lib/generated/GrblData'
 import type { SendProgress } from '@/lib/generated/SendProgress'
 import type { RealtimeCmd } from '@/lib/generated/RealtimeCmd'
-import { firmwareToDialect } from '@/lib/firmware'
 
 // Estados en los que la máquina no puede aceptar un programa nuevo.
 // Arrancar un job en Alarm o Hold es la vía rápida a un choque o a un job que
@@ -38,89 +44,110 @@ function buildJogCommands(
   return [`$J=G91 ${axisStr} F${feedRate}`]
 }
 
-function activeDialect(): Dialect {
-  const m = activeMachine()
-  return m ? firmwareToDialect(m.firmware) : 'grbl'
+// Los eventos serial son globales al proceso, no por componente. El guard
+// anterior era un `useRef`, y como `useSerial()` se consume desde nueve
+// lugares cada uno registraba su propio juego de listeners: cada línea del
+// firmware entraba nueve veces a la consola y cada evento se procesaba nueve
+// veces. Ahora se registran una sola vez y se sueltan cuando se desmonta el
+// último consumidor.
+let listenerRefCount = 0
+let listenerHandle: Promise<() => void> | null = null
+
+function setupSerialListeners(): Promise<() => void> {
+  const addConsoleLine = (line: string) => useAppStore.getState().addConsoleLine(line)
+  const unlisteners: (() => void)[] = []
+
+  async function setupListeners() {
+    const unlData = await tauriListen<GrblData>('serial:data', (payload) => {
+      // Los reportes de status ya no llegan por este canal, y los `ok` de un
+      // job los suprime el backend. Lo que queda es todo relevante.
+      if (payload.data_type === 'status') return
+      addConsoleLine(payload.line)
+      if (payload.data_type === 'error' || payload.data_type === 'alarm') {
+        useSerialStore.getState().setLastError(payload.line)
+      }
+    })
+    unlisteners.push(unlData)
+
+    const unlStatus = await tauriListen<GrblStatus>('serial:status', (payload) => {
+      const { setMachineState, setPosition, posMode, lastError, clearLastError } = useSerialStore.getState()
+      // Backend reporta state como string (GRBL/Marlin/custom); narrow al union MachineState.
+      const state = payload.state as MachineState
+      setMachineState(state)
+      if (state === 'Idle' && lastError) clearLastError()
+      const pos = posMode === 'WPos' ? payload.wpos : payload.mpos
+      setPosition({ x: pos.x, y: pos.y, z: pos.z })
+    })
+    unlisteners.push(unlStatus)
+
+    const unlProgress = await tauriListen<SendProgress>('serial:progress', (payload) => {
+      const { setSendProgress, setSending } = useSerialStore.getState()
+      setSending(true)
+      setSendProgress(payload.percent)
+      const wf = useWorkflowStore.getState()
+      if (wf.activeGCode) {
+        wf.setActiveGCodeLine(payload.current)
+      }
+    })
+    unlisteners.push(unlProgress)
+
+    // El backend manda por qué terminó: done | cancelled | error | alarm | reset.
+    const unlComplete = await tauriListen<string>('serial:complete', (result) => {
+      const { setSending, setSendProgress } = useSerialStore.getState()
+      setSending(false)
+      if (result === 'done') {
+        setSendProgress(100)
+        addConsoleLine('Envio de G-code completado')
+      } else {
+        setSendProgress(0)
+        addConsoleLine(`Envio interrumpido (${result ?? 'desconocido'})`)
+      }
+    })
+    unlisteners.push(unlComplete)
+
+    const unlDisconnected = await tauriListen<string>('serial:disconnected', (reason) => {
+      const { setConnected, setMachineState, setSending, setSendProgress, sending } =
+        useSerialStore.getState()
+      // Se lee `sending` antes de limpiarlo: distingue "se cayó el cable" de
+      // "se cayó el cable con la herramienta dentro del material".
+      const wasSending = sending
+      setConnected(false)
+      setSending(false)
+      setSendProgress(0)
+      setMachineState('Idle')
+      addConsoleLine(`Conexion serial cerrada${reason ? `: ${reason}` : ''}`)
+      handleDisconnected(reason, wasSending)
+    })
+    unlisteners.push(unlDisconnected)
+  }
+
+  return setupListeners().then(() => () => {
+    unlisteners.forEach((fn) => fn())
+  })
+}
+
+function acquireSerialListeners(): () => void {
+  listenerRefCount += 1
+  if (!listenerHandle) {
+    listenerHandle = setupSerialListeners()
+  }
+  return () => {
+    listenerRefCount -= 1
+    if (listenerRefCount > 0 || !listenerHandle) return
+    const pending = listenerHandle
+    listenerHandle = null
+    void pending.then((off) => off())
+  }
 }
 
 export function useSerial() {
   const store = useSerialStore()
   const { addConsoleLine } = useAppStore()
-  const listenersRegistered = useRef(false)
 
-  // Registrar listeners de eventos (Tauri o WebSocket)
   useEffect(() => {
-    if ((!isTauri() && !isRemote()) || listenersRegistered.current) return
-    listenersRegistered.current = true
-
-    const unlisteners: (() => void)[] = []
-
-    async function setupListeners() {
-      const unlData = await tauriListen<GrblData>('serial:data', (payload) => {
-        // Los reportes de status ya no llegan por este canal, y los `ok` de un
-        // job los suprime el backend. Lo que queda es todo relevante.
-        if (payload.data_type === 'status') return
-        addConsoleLine(payload.line)
-        if (payload.data_type === 'error' || payload.data_type === 'alarm') {
-          useSerialStore.getState().setLastError(payload.line)
-        }
-      })
-      unlisteners.push(unlData)
-
-      const unlStatus = await tauriListen<GrblStatus>('serial:status', (payload) => {
-        const { setMachineState, setPosition, posMode, lastError, clearLastError } = useSerialStore.getState()
-        // Backend reporta state como string (GRBL/Marlin/custom); narrow al union MachineState.
-        const state = payload.state as MachineState
-        setMachineState(state)
-        if (state === 'Idle' && lastError) clearLastError()
-        const pos = posMode === 'WPos' ? payload.wpos : payload.mpos
-        setPosition({ x: pos.x, y: pos.y, z: pos.z })
-      })
-      unlisteners.push(unlStatus)
-
-      const unlProgress = await tauriListen<SendProgress>('serial:progress', (payload) => {
-        const { setSendProgress, setSending } = useSerialStore.getState()
-        setSending(true)
-        setSendProgress(payload.percent)
-        const wf = useWorkflowStore.getState()
-        if (wf.activeGCode) {
-          wf.setActiveGCodeLine(payload.current)
-        }
-      })
-      unlisteners.push(unlProgress)
-
-      // El backend manda por qué terminó: done | cancelled | error | alarm | reset.
-      const unlComplete = await tauriListen<string>('serial:complete', (result) => {
-        const { setSending, setSendProgress } = useSerialStore.getState()
-        setSending(false)
-        if (result === 'done') {
-          setSendProgress(100)
-          addConsoleLine('Envio de G-code completado')
-        } else {
-          setSendProgress(0)
-          addConsoleLine(`Envio interrumpido (${result ?? 'desconocido'})`)
-        }
-      })
-      unlisteners.push(unlComplete)
-
-      const unlDisconnected = await tauriListen<string>('serial:disconnected', (reason) => {
-        const { setConnected, setMachineState, setSending, setSendProgress } = useSerialStore.getState()
-        setConnected(false)
-        setSending(false)
-        setSendProgress(0)
-        setMachineState('Idle')
-        addConsoleLine(`Conexion serial cerrada${reason ? `: ${reason}` : ''}`)
-      })
-      unlisteners.push(unlDisconnected)
-    }
-
-    setupListeners()
-
-    return () => {
-      listenersRegistered.current = false
-      unlisteners.forEach((fn) => fn())
-    }
-  }, [addConsoleLine])
+    if (!isTauri() && !isRemote()) return
+    return acquireSerialListeners()
+  }, [])
 
   // El polling de status vive en el hilo serial del backend: `?` es un comando
   // realtime que no consume buffer del firmware, así que sigue corriendo durante
@@ -161,16 +188,22 @@ export function useSerial() {
       store.setConnected(true)
       store.setPort(port)
       store.setBaudRate(effectiveBaud)
+      rememberConnection(port, effectiveBaud)
       addConsoleLine(`Conectado a ${port}`)
     } catch (err) {
       addConsoleLine(`Error conectando: ${err}`)
       store.setConnected(false)
+      cancelReconnect()
     }
   }, [isLocal, store, addConsoleLine])
 
   const disconnect = useCallback(async () => {
     if (!isLocal) return
     try {
+      // Se marca antes del invoke: el evento `serial:disconnected` puede llegar
+      // mientras esta promesa sigue pendiente, y sin la marca el reconector lo
+      // leería como una caída inesperada.
+      markIntentionalDisconnect()
       // El backend frena la máquina antes de cerrar si hay un job en vuelo.
       await tauriInvoke('serial_disconnect')
       store.setConnected(false)
@@ -179,6 +212,9 @@ export function useSerial() {
       store.setMachineState('Idle')
       addConsoleLine('Desconectado')
     } catch (err) {
+      // La desconexión no prosperó: se levanta la marca para no silenciar una
+      // caída real posterior.
+      clearIntentionalDisconnect()
       addConsoleLine(`Error desconectando: ${err}`)
     }
   }, [isLocal, store, addConsoleLine])

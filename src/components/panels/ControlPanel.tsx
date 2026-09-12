@@ -4,6 +4,7 @@ import { useSerialStore } from '@/stores/useSerialStore'
 import { useWorkflowStore } from '@/stores/useWorkflowStore'
 import { useAppStore } from '@/stores/useAppStore'
 import { useSerial } from '@/hooks/useSerial'
+import { cancelReconnect, RECONNECT_MAX_ATTEMPTS } from '@/lib/serial-reconnect'
 import { useKeyboardJog } from '@/hooks/useKeyboardJog'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { getSharedCanvas } from '@/hooks/useCanvasManager'
@@ -35,6 +36,7 @@ import {
   RefreshCw,
   Frame,
   Settings2,
+  Loader2,
   TestTube,
   ZapOff,
   ShieldAlert,
@@ -82,6 +84,8 @@ export function ControlPanel() {
 
   const {
     connected,
+    reconnecting,
+    reconnectAttempt,
     machineState,
     position,
     posMode,
@@ -304,6 +308,27 @@ export function ControlPanel() {
                     onClick={handleConnect}
                   >
                     {t('disconnect')}
+                  </Button>
+                </div>
+              ) : reconnecting ? (
+                // Reintento en curso: se oculta el formulario para que el
+                // operador no abra el puerto a mano mientras el reconector lo
+                // está intentando y terminen peleándose por el descriptor.
+                <div className="bg-background border rounded-lg px-2 py-1.5 flex items-center gap-1.5">
+                  <Loader2 className="h-3 w-3 shrink-0 animate-spin text-warning-fg" strokeWidth={1.5} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] truncate">{t('reconnecting')}</p>
+                    <p className="text-[10px] text-muted-foreground font-mono">
+                      {t('reconnectAttemptOf', { attempt: reconnectAttempt, max: RECONNECT_MAX_ATTEMPTS })}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 px-2 text-[10px] shrink-0"
+                    onClick={cancelReconnect}
+                  >
+                    {t('reconnectCancel')}
                   </Button>
                 </div>
               ) : (

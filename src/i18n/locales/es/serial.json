@@ -8,7 +8,7 @@
   "machineState": "Estado Maquina",
   "position": "Posicion",
   "home": "Home",
-  "setZero": "Fijar origen",
+  "setZero": "Establecer Cero",
   "refresh": "Refrescar puertos",
   "spindleSpeed": "Velocidad husillo (RPM)",
   "spindleOff": "Husillo OFF",
@@ -27,7 +27,6 @@
   "jogSpeed": "Velocidad",
   "feedOverride": "Feed Override",
   "spindleOverride": "Spindle Override",
-  "setZero": "Establecer Cero",
   "clearOffset": "Limpiar Offset",
   "console": "Consola GRBL",
   "command": "Comando...",
@@ -44,7 +43,6 @@
   "sendComplete": "Envio completado",
   "sendCancelled": "Envio cancelado",
   "noTauri": "Tauri no disponible",
-
   "macros": "Macros",
   "positions": "Posiciones",
   "addMacro": "Nueva Macro",
@@ -59,7 +57,6 @@
   "positionName": "Nombre",
   "noMacros": "Sin macros",
   "noPositions": "Sin posiciones guardadas",
-
   "workflow": "Flujo de Trabajo",
   "addGcode": "G-code",
   "addPause": "Pausa",
@@ -74,7 +71,6 @@
   "stepDone": "Completado",
   "stepError": "Error",
   "pauseMessage": "Pausado - Presiona continuar",
-
   "activeGcode": "G-Code Activo",
   "noActiveGcode": "Sin G-code en ejecucion",
   "lineOf": "de",
@@ -84,13 +80,11 @@
   "remaining": "Restante",
   "progress": "Avance",
   "setupWizard": "Preparar Máquina",
-
   "laserOff": "LASER APAGADO",
   "laserPower": "Potencia Laser",
   "laserPowerPercent": "Potencia",
   "laserSetPower": "Aplicar S",
   "laserTestPulse": "Pulso Test",
-
   "preFlightCheck": "Verificacion Pre-Inicio",
   "preflight_alarm": "La maquina esta en estado ALARM. Desbloquea primero.",
   "preflight_hold": "La maquina esta en HOLD. Reanuda primero.",
@@ -98,5 +92,8 @@
   "preflight_notConnected": "No hay conexion serial activa.",
   "preflight_noSteps": "El workflow no tiene pasos.",
   "forceStart": "Iniciar Igual",
-  "cancel": "Cancelar"
+  "cancel": "Cancelar",
+  "reconnecting": "Reconectando...",
+  "reconnectAttemptOf": "Intento {{attempt}} de {{max}}",
+  "reconnectCancel": "Cancelar"
 }
