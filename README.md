@@ -1,4 +1,4 @@
-# Gravix CNC — GRBL Web Control Pro
+# gravix
 
 App de escritorio para control CNC/GRBL. Diseño CAD 2D, generación G-code, visor 3D, ejecución vía serial. Construida con **Tauri 2 + React + Rust**.
 
@@ -145,7 +145,7 @@ entiende la sección `.relr.dyn` de las librerías actuales.
 Targets declarados en `src-tauri/tauri.conf.json` → `bundle.targets`:
 `deb`, `appimage`, `rpm` (Linux) · `nsis` (Windows) · `dmg`, `app` (macOS).
 
-El auto-updater consulta `https://github.com/Debaq/cnc/releases/latest/download/latest.json`.
+El auto-updater consulta `https://github.com/Debaq/gravix-cnc/releases/latest/download/latest.json`.
 Publicar un release con el tag `vX.Y.Z` dispara `.github/workflows/release.yml`,
 que compila los tres SO, firma los artefactos y sube el `latest.json`.
 

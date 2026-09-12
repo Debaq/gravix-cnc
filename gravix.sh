@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# cnc.sh - Script de gestion para GRBL Web Control Pro
-# Uso: ./cnc.sh [comando]
+# gravix.sh - Script de gestion para gravix
+# Uso: ./gravix.sh [comando]
 # Sin argumentos: abre menu interactivo
 #
 
@@ -36,7 +36,7 @@ CARGO_TARGET="$(_detect_cargo_target)"
 BUNDLE_DIR="$CARGO_TARGET/release/bundle"
 
 find_binary() {
-    local name="${1:-grbl-web-control-pro}"
+    local name="${1:-gravix}"
     for dir in "$CARGO_TARGET/release" "$TAURI_DIR/target/release"; do
         if [[ -f "$dir/$name" ]]; then
             echo "$dir/$name"
@@ -171,7 +171,7 @@ cmd_check() {
 
 # ── Build ────────────────────────────────────────────────────────────────────
 cmd_build() {
-    header "Build GRBL Web Control Pro v$VERSION"
+    header "Build gravix v$VERSION"
     check_deps || return
     local start=$(date +%s)
     cd "$PROJECT_DIR"
@@ -212,7 +212,7 @@ cmd_run() {
         error "Binario no encontrado. Ejecuta 'build' primero."
         return 1
     fi
-    header "Ejecutando GRBL Web Control Pro v$VERSION"
+    header "Ejecutando gravix v$VERSION"
     "$bin" "$@" || true
 }
 
@@ -243,7 +243,7 @@ cmd_clean() {
 
 # ── Info ─────────────────────────────────────────────────────────────────────
 cmd_info() {
-    header "GRBL Web Control Pro v$VERSION"
+    header "gravix v$VERSION"
     echo -e "${BOLD}Directorio:${NC} $PROJECT_DIR"
     echo -e "${BOLD}Node:${NC}       $(node --version 2>/dev/null || echo 'N/A')"
     echo -e "${BOLD}Rust:${NC}       $(rustc --version 2>/dev/null || echo 'N/A')"
@@ -259,13 +259,13 @@ cmd_info() {
 show_banner() {
     clear
     echo -e "${BOLD}${CYAN}"
-    echo "   ____ _   _  ____"
-    echo "  / ___| \ | |/ ___|"
-    echo " | |   |  \| | |    "
-    echo " | |___| |\  | |___ "
-    echo "  \____|_| \_|\____|"
+    echo "  ____ ____      ___     _______  __"
+    echo " / ___|  _ \\    / \\ \\   / /_ _\\ \\/ /"
+    echo "| |  _| |_) |  / _ \\ \\ / / | | \\  / "
+    echo "| |_| |  _ <  / ___ \\ V /  | | /  \\ "
+    echo " \\____|_| \\_\\/_/   \\_\\_/  |___/_/\\_\\"
     echo -e "${NC}"
-    echo -e "${DIM}  GRBL Web Control Pro v$VERSION"
+    echo -e "${DIM}  gravix v$VERSION"
     echo -e "  $(git -C "$PROJECT_DIR" branch --show-current 2>/dev/null || echo '-') · $(git -C "$PROJECT_DIR" log --oneline -1 2>/dev/null | cut -c1-50 || echo '-')${NC}"
     echo ""
 }
@@ -319,10 +319,10 @@ menu_loop() {
 
 # ── Ayuda CLI ────────────────────────────────────────────────────────────────
 cmd_help() {
-    echo -e "${BOLD}${CYAN}GRBL Web Control Pro v$VERSION${NC}"
+    echo -e "${BOLD}${CYAN}gravix v$VERSION${NC}"
     echo ""
-    echo -e "${BOLD}Uso:${NC} ./cnc.sh [comando]"
-    echo -e "     ./cnc.sh          ${DIM}(menu interactivo)${NC}"
+    echo -e "${BOLD}Uso:${NC} ./gravix.sh [comando]"
+    echo -e "     ./gravix.sh          ${DIM}(menu interactivo)${NC}"
     echo ""
     echo "  dev            Tauri + Vite hot reload"
     echo "  dev:web        Solo frontend en navegador"

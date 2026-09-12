@@ -90,7 +90,7 @@ function collectCargo() {
 
   return (metadata.packages ?? [])
     .filter((p) => !localNames.has(p.id))
-    .filter((p) => p.name !== 'grbl-web-control-pro')
+    .filter((p) => p.name !== 'gravix')
     .map((p) => ({
       name: p.name,
       version: p.version,

@@ -107,7 +107,7 @@ Vacío: los puntos 10 a 14 se cerraron el 2026-09-12 (ver abajo).
 - `src/lib/updater.ts` — envoltorio del plugin: check, descarga con progreso, relaunch separado del install (reiniciar con un job en vuelo cortaría el envío a la máquina).
 - `src/stores/useUpdateStore.ts` + `src/components/modals/UpdateModal.tsx`.
 - Chequeo al arranque a los 4 s, **silencioso**: sin red no grita, y cuando hay versión nueva avisa con un toast en vez de abrir el modal encima de la app recién abierta. El modal se abre solo a pedido.
-- Endpoint: `https://github.com/Debaq/cnc/releases/latest/download/latest.json`.
+- Endpoint: `https://github.com/Debaq/gravix-cnc/releases/latest/download/latest.json`.
 - `.github/workflows/release.yml` — tag `vX.Y.Z` → compila Linux/Windows/macOS (arm64 + x86_64), firma y sube el `latest.json` como release en borrador.
 - `docs/RELEASE.md` — proceso completo.
 
@@ -160,7 +160,7 @@ Hacer #1 antes que #3 obliga a rehacer el gating cuando aparezca la expiración.
 
 Y un paso manual pendiente del #10: generar el par de claves de firma de updates y poner la pubkey en `tauri.conf.json` (ver `docs/RELEASE.md`).
 
-> ⚠️ El repo es **público** (`github.com/Debaq/cnc`). El EULA cubre lo legal, pero cualquiera puede leer el gating que se implemente en #1–#4 y compilar una versión sin él. Eso no se arregla con código; se decide: o el repo pasa a privado antes de vender, o el modelo asume que el binario firmado y el soporte son el producto.
+> ⚠️ El repo es **público** (`github.com/Debaq/gravix-cnc`). El EULA cubre lo legal, pero cualquiera puede leer el gating que se implemente en #1–#4 y compilar una versión sin él. Eso no se arregla con código; se decide: o el repo pasa a privado antes de vender, o el modelo asume que el binario firmado y el soporte son el producto.
 
 ---
 

@@ -1,5 +1,5 @@
 {
-  "name": "grbl-web-control-pro",
+  "name": "gravix",
   "private": true,
   "version": "5.0.0",
   "license": "SEE LICENSE IN LICENSE",
@@ -7,7 +7,7 @@
   "author": "Nicolás Baier Quezada",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Debaq/cnc.git"
+    "url": "git+https://github.com/Debaq/gravix-cnc.git"
   },
   "type": "module",
   "scripts": {

@@ -69,7 +69,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/Debaq/cnc/releases/latest/download/latest.json"
+        "https://github.com/Debaq/gravix-cnc/releases/latest/download/latest.json"
       ],
       "pubkey": "",
       "windows": {
@@ -90,7 +90,7 @@
     "publisher": "Nicolás Baier Quezada",
     "copyright": "© 2026 Nicolás Baier Quezada. Todos los derechos reservados.",
     "category": "DeveloperTool",
-    "homepage": "https://github.com/Debaq/cnc",
+    "homepage": "https://github.com/Debaq/gravix-cnc",
     "licenseFile": "../LICENSE",
     "shortDescription": "Control CNC/GRBL con CAD 2D y generación de G-code",
     "longDescription": "Gravix es una aplicación de escritorio para control de máquinas CNC, láser, plóter y pluma sobre firmware GRBL. Incluye diseño CAD 2D, generación de G-code, visor 3D de toolpaths y ejecución vía puerto serial.",

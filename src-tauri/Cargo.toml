@@ -1,15 +1,15 @@
 [package]
-name = "grbl-web-control-pro"
+name = "gravix"
 version = "5.0.0"
 description = "Gravix - control CNC/GRBL con CAD 2D y generacion de G-code"
 authors = ["Nicolas Baier Quezada"]
 edition = "2021"
 license-file = "../LICENSE"
-repository = "https://github.com/Debaq/cnc"
+repository = "https://github.com/Debaq/gravix-cnc"
 publish = false
 
 [lib]
-name = "grbl_web_control_pro_lib"
+name = "gravix_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]

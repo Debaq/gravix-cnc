@@ -1603,7 +1603,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "grbl-web-control-pro"
+name = "gravix"
 version = "5.0.0"
 dependencies = [
  "axum",

@@ -4021,19 +4021,19 @@ SOFTWARE.
 
 ## Dependencias Rust
 
-642 paquetes.
+651 paquetes.
 
-- `MIT OR Apache-2.0` — 294
-- `MIT` — 161
-- `Apache-2.0 OR MIT` — 38
+- `MIT OR Apache-2.0` — 293
+- `MIT` — 160
+- `Apache-2.0 OR MIT` — 41
 - `MIT/Apache-2.0` — 30
 - `Unicode-3.0` — 18
+- `Zlib OR Apache-2.0 OR MIT` — 17
 - `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT` — 15
-- `Zlib OR Apache-2.0 OR MIT` — 11
 - `MPL-2.0` — 8
 - `BSD-3-Clause` — 7
+- `Apache-2.0/MIT` — 7
 - `Unlicense OR MIT` — 6
-- `Apache-2.0/MIT` — 5
 - `ISC` — 4
 - `MIT OR Apache-2.0 OR Zlib` — 4
 - `BSD-2-Clause` — 3
@@ -6429,7 +6429,11 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
   defined by the Mozilla Public License, v. 2.0.
 ```
 
-### ctor 0.2.9
+### ctor 0.8.0
+
+Licencia: `Apache-2.0 OR MIT`
+
+### ctor-proc-macro 0.0.7
 
 Licencia: `Apache-2.0 OR MIT`
 
@@ -6545,6 +6549,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+### dbus 0.9.12
+
+Licencia: `Apache-2.0/MIT`
 
 ### deranged 0.5.8
 
@@ -7291,6 +7299,14 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
   This Source Code Form is "Incompatible With Secondary Licenses", as
   defined by the Mozilla Public License, v. 2.0.
 ```
+
+### dtor 0.3.0
+
+Licencia: `Apache-2.0 OR MIT`
+
+### dtor-proc-macro 0.0.6
+
+Licencia: `Apache-2.0 OR MIT`
 
 ### dunce 1.0.5
 
@@ -9136,6 +9152,10 @@ Licencia: `Apache-2.0 OR MIT`
 
 Licencia: `MIT OR Apache-2.0`
 
+### libdbus-sys 0.2.7
+
+Licencia: `Apache-2.0/MIT`
+
 ### libfuzzer-sys 0.4.12
 
 Licencia: `(MIT OR Apache-2.0) AND NCSA`
@@ -9657,15 +9677,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### muda 0.17.2
+### muda 0.19.3
 
 Licencia: `Apache-2.0 OR MIT`
 
 ### ndk 0.9.0
-
-Licencia: `MIT OR Apache-2.0`
-
-### ndk-context 0.1.1
 
 Licencia: `MIT OR Apache-2.0`
 
@@ -9804,11 +9820,31 @@ Licencia: `MIT`
 
 Licencia: `Zlib OR Apache-2.0 OR MIT`
 
+### objc2-cloud-kit 0.3.2
+
+Licencia: `Zlib OR Apache-2.0 OR MIT`
+
+### objc2-core-data 0.3.2
+
+Licencia: `Zlib OR Apache-2.0 OR MIT`
+
 ### objc2-core-foundation 0.3.2
 
 Licencia: `Zlib OR Apache-2.0 OR MIT`
 
 ### objc2-core-graphics 0.3.2
+
+Licencia: `Zlib OR Apache-2.0 OR MIT`
+
+### objc2-core-image 0.3.2
+
+Licencia: `Zlib OR Apache-2.0 OR MIT`
+
+### objc2-core-location 0.3.2
+
+Licencia: `Zlib OR Apache-2.0 OR MIT`
+
+### objc2-core-text 0.3.2
 
 Licencia: `Zlib OR Apache-2.0 OR MIT`
 
@@ -9837,6 +9873,10 @@ Licencia: `Zlib OR Apache-2.0 OR MIT`
 Licencia: `Zlib OR Apache-2.0 OR MIT`
 
 ### objc2-ui-kit 0.3.2
+
+Licencia: `Zlib OR Apache-2.0 OR MIT`
+
+### objc2-user-notifications 0.3.2
 
 Licencia: `Zlib OR Apache-2.0 OR MIT`
 
@@ -10579,33 +10619,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ### phf_macros 0.10.0
 
 Licencia: `MIT`
-
-### phf_macros 0.11.3
-
-Licencia: `MIT`
-
-```text
-The MIT License (MIT)
-
-Copyright (c) 2014-2022 Steven Fackler, Yuki Okushi
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
 
 ### phf_macros 0.13.1
 
@@ -12089,7 +12102,7 @@ Licencia: `MIT OR Apache-2.0`
 
 Licencia: `MIT OR Apache-2.0`
 
-### tao 0.34.8
+### tao 0.35.3
 
 Licencia: `Apache-2.0`
 
@@ -12530,19 +12543,19 @@ the License, but only in their entirety and only with respect to the Combined
 Software.
 ```
 
-### tauri 2.10.3
+### tauri 2.11.3
 
 Licencia: `Apache-2.0 OR MIT`
 
-### tauri-build 2.5.6
+### tauri-build 2.6.3
 
 Licencia: `Apache-2.0 OR MIT`
 
-### tauri-codegen 2.5.5
+### tauri-codegen 2.6.3
 
 Licencia: `Apache-2.0 OR MIT`
 
-### tauri-macros 2.5.5
+### tauri-macros 2.6.3
 
 Licencia: `Apache-2.0 OR MIT`
 
@@ -12570,15 +12583,15 @@ Licencia: `Apache-2.0 OR MIT`
 
 Licencia: `Apache-2.0 OR MIT`
 
-### tauri-runtime 2.10.1
+### tauri-runtime 2.11.3
 
 Licencia: `Apache-2.0 OR MIT`
 
-### tauri-runtime-wry 2.10.1
+### tauri-runtime-wry 2.11.4
 
 Licencia: `Apache-2.0 OR MIT`
 
-### tauri-utils 2.8.3
+### tauri-utils 2.9.3
 
 Licencia: `Apache-2.0 OR MIT`
 
@@ -13096,7 +13109,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-### tray-icon 0.21.3
+### tray-icon 0.24.2
 
 Licencia: `MIT OR Apache-2.0`
 
@@ -13974,7 +13987,7 @@ Portions of ICU4X may have been adapted from ICU4C and/or ICU4J.
 ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation and others.
 ```
 
-### wry 0.54.4
+### wry 0.55.1
 
 Licencia: `Apache-2.0 OR MIT`
 
