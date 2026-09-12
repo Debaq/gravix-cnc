@@ -63,6 +63,12 @@ una sola vez en un job aparte y se reparte a los runners; si cada uno la
 calculara por su cuenta, dos que crucen medianoche UTC firmarían versiones
 distintas para el mismo release.
 
+Si el secret `TAURI_SIGNING_PRIVATE_KEY` todavía no existe, el workflow no
+falla: publica la pre-release **sin** artefactos de updater y deja un warning
+en el run. Cuando el secret aparezca, los genera solo. El workflow `release`
+(estable) sí corta antes de compilar: publicar una estable sin firma dejaría a
+los usuarios sin camino de actualización.
+
 **En local**, para probar el bundle antes de publicar:
 
 ```bash

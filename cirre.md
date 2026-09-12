@@ -1,6 +1,6 @@
-# Revisión — Gravix CNC para prototipo vendible
+# Revisión — gravix para prototipo vendible
 
-> Revisión original: 2026-06-08 · **Reverificada y ejecutada: 2026-09-12** · Branch: `feature/tauri-react-migration`
+> Revisión original: 2026-06-08 · **Reverificada y ejecutada: 2026-09-12** · Repo: `Debaq/gravix-cnc` · Branch: `main`
 > Base: 30.2k líneas TS, 3.4k Rust, sin TODOs sueltos, i18n EN/ES, design system, 14 modales, CAD+CAM+control.
 > Desde la revisión original solo entraron 2 commits (`bf0af54`, `d4b884f` — ambos 2026-09-12), y cerraron el frente de seguridad de máquina.
 
@@ -101,6 +101,32 @@ Vacío: los puntos 10 a 14 se cerraron el 2026-09-12 (ver abajo).
 ---
 
 ## ✅ Packaging y pulido — cerrados el 2026-09-12
+
+### Rename y versionado — 2026-09-12
+
+El repo pasó a `Debaq/gravix-cnc` (renombrado, con historia e issues intactos;
+el main viejo quedó respaldado en `backup/main-pre-gravix`). El nombre interno
+`grbl-web-control-pro` era del producto legacy: paquete npm y crate pasan a
+`gravix`, la lib a `gravix_lib`, el binario a `gravix` y `cnc.sh` a
+`gravix.sh`. `cnc` como tipo de operación no se toca.
+
+Versión base **0.5.0** — 5.0.0 venía del legacy y no describía el estado real.
+
+Pre-releases: `<base>-pre.<YYYYMMDD>.<git rev-list --count HEAD>`, calculado
+por el Action en el momento del run y nunca commiteado. El contador ordena dos
+pre-releases del mismo día; el updater compara con semver y un hash no le
+serviría. La versión se calcula en un job aparte y se reparte a los runners:
+dos que crucen medianoche UTC firmarían versiones distintas.
+
+CI compila **Linux y Windows**. macOS sale de la matriz hasta que haya cuenta
+de Apple Developer — sin firma ni notarización, Gatekeeper no abre la app en
+ninguna máquina ajena.
+
+Identifier: `com.gravix.desktop` → **`io.github.debaq.gravix`**. Nadie verifica
+el dominio, pero con uno que no controlamos otro proyecto puede elegir el mismo
+y romper instalaciones, y las tiendas validan más estricto. Se cambió antes del
+primer release a propósito: el identifier decide dónde viven config y licencia,
+y moverlo después dejaría esos datos huérfanos.
 
 ### ~~10. Sin auto-updater~~ — **RESUELTO**
 `tauri-plugin-updater` + `tauri-plugin-process` instalados y registrados (`lib.rs:33-36`), permisos en `capabilities/default.json`.
