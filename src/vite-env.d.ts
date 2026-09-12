@@ -13,3 +13,6 @@ declare module 'opentype.js' {
   const opentype: { load: typeof load }
   export default opentype
 }
+
+/** Versión de package.json, inyectada por Vite en build-time. */
+declare const __APP_VERSION__: string

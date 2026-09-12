@@ -10,9 +10,10 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "types:gen": "cd src-tauri && cargo test --quiet export_bindings",
-    "predev": "npm run types:gen",
-    "prebuild": "npm run types:gen",
-    "pretauri": "npm run types:gen"
+    "predev": "npm run sync:version && npm run types:gen",
+    "prebuild": "npm run sync:version && npm run types:gen",
+    "pretauri": "npm run sync:version && npm run types:gen",
+    "sync:version": "node scripts/sync-version.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

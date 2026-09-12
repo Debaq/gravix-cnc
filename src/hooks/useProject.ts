@@ -50,7 +50,7 @@ export function useProject() {
       metadata: {
         created: now,
         modified: now,
-        appVersion: '5.0.0',
+        appVersion: __APP_VERSION__,
         projectName,
       },
       workArea,
