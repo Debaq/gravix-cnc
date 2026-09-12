@@ -11,9 +11,9 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-  // Tauri expects a fixed port
+  // Tauri expects a fixed port; cnc.sh injects a free one via VITE_PORT
   server: {
-    port: 5173,
+    port: Number(process.env.VITE_PORT) || 5173,
     strictPort: true,
   },
   // Produce a smaller bundle for Tauri

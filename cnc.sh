@@ -53,6 +53,22 @@ warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 header()  { echo -e "\n${BOLD}${CYAN}=== $* ===${NC}\n"; }
 
+# Busca puerto TCP libre empezando en $1 (default 5173)
+find_free_port() {
+    local port="${1:-5173}"
+    local max=$((port + 100))
+    while [[ $port -lt $max ]]; do
+        if ! { exec 3<>"/dev/tcp/127.0.0.1/$port"; } 2>/dev/null; then
+            echo "$port"
+            return 0
+        fi
+        exec 3>&- 2>/dev/null
+        port=$((port + 1))
+    done
+    echo "${1:-5173}"
+    return 1
+}
+
 elapsed() {
     local start=$1
     local end=$(date +%s)
@@ -107,15 +123,19 @@ cmd_dev() {
     header "Modo desarrollo (Tauri)"
     check_deps || return
     cd "$PROJECT_DIR"
-    info "Iniciando Tauri + Vite hot reload..."
-    npx tauri dev || true
+    local port; port="$(find_free_port 5173)"
+    [[ "$port" != "5173" ]] && warn "Puerto 5173 ocupado, usando $port"
+    info "Iniciando Tauri + Vite hot reload en puerto $port..."
+    VITE_PORT="$port" npx tauri dev --config "{\"build\":{\"devUrl\":\"http://localhost:$port\"}}" || true
 }
 
 cmd_dev_web() {
     header "Frontend dev (solo navegador)"
     cd "$PROJECT_DIR"
-    info "Iniciando Vite dev server... (Ctrl+C para detener)"
-    npm run dev || true
+    local port; port="$(find_free_port 5173)"
+    [[ "$port" != "5173" ]] && warn "Puerto 5173 ocupado, usando $port"
+    info "Iniciando Vite dev server en puerto $port... (Ctrl+C para detener)"
+    VITE_PORT="$port" npm run dev || true
 }
 
 # ── Check ────────────────────────────────────────────────────────────────────

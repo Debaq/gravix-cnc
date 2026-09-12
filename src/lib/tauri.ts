@@ -16,9 +16,14 @@ export function isTauri(): boolean {
 
 /**
  * Retorna true si la app se ejecuta en un browser servida por el servidor embebido.
+ *
+ * No se puede distinguir por puerto: cnc.sh elige uno libre cuando 5173 esta
+ * ocupado, y con eso una sesion de `vite dev` pasaba por remota e intentaba
+ * abrir un WebSocket contra un backend que no existe. `import.meta.env.DEV`
+ * solo es true bajo el dev server de Vite, que es exactamente el caso a excluir.
  */
 export function isRemote(): boolean {
-  return !isTauri() && typeof window !== 'undefined' && window.location.port !== '5173'
+  return !isTauri() && typeof window !== 'undefined' && !import.meta.env.DEV
 }
 
 /**
