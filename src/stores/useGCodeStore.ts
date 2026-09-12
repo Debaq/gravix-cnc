@@ -7,6 +7,9 @@ interface GCodeState {
   gcodeGenerated: boolean
   gcodeNeedsRegeneration: boolean
   gcodeLines: number
+  /** Generacion en curso. La generacion de raster y de miles de paths bloquea
+   *  el hilo varios segundos; sin esto la UI parece colgada. */
+  generating: boolean
 
   // Estimates
   estimates: MachiningEstimates
@@ -27,6 +30,7 @@ interface GCodeState {
   setGCode: (gcode: string) => void
   setGCodeGenerated: (generated: boolean) => void
   setGCodeNeedsRegeneration: (needs: boolean) => void
+  setGenerating: (generating: boolean) => void
   setEstimates: (estimates: MachiningEstimates) => void
   setAnimationSpeed: (speed: number) => void
   setAnimationProgress: (progress: number) => void
@@ -45,6 +49,7 @@ export const useGCodeStore = create<GCodeState>((set) => ({
   gcodeGenerated: false,
   gcodeNeedsRegeneration: false,
   gcodeLines: 0,
+  generating: false,
 
   // Estimates
   estimates: { time: '-', distance: '-' },
@@ -73,6 +78,8 @@ export const useGCodeStore = create<GCodeState>((set) => ({
   setGCodeGenerated: (generated) => set({ gcodeGenerated: generated }),
 
   setGCodeNeedsRegeneration: (needs) => set({ gcodeNeedsRegeneration: needs }),
+
+  setGenerating: (generating) => set({ generating }),
 
   setEstimates: (estimates) => set({ estimates }),
 
@@ -103,6 +110,7 @@ export const useGCodeStore = create<GCodeState>((set) => ({
       gcodeGenerated: false,
       gcodeNeedsRegeneration: false,
       gcodeLines: 0,
+      generating: false,
       estimates: { time: '-', distance: '-' },
       estimatedTime: null,
       totalDistance: null,

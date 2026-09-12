@@ -60,8 +60,14 @@ function JogPad({
   return (
     <div className="space-y-2">
       {/* Step selector */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-[10px] text-muted-foreground shrink-0">{t('jogStep')}:</span>
+      <div
+        className="flex items-center gap-1.5"
+        role="radiogroup"
+        aria-label={t('ariaJogStepGroup')}
+      >
+        <span className="text-[10px] text-muted-foreground shrink-0" id="jog-step-label">
+          {t('jogStep')}:
+        </span>
         {steps.map((s) => (
           <Button
             key={s}
@@ -69,6 +75,9 @@ function JogPad({
             size="sm"
             className="h-6 text-[10px] px-2 min-w-0"
             onClick={() => onJogStep(s)}
+            role="radio"
+            aria-checked={jogStep === s}
+            aria-label={`${s} ${t('mm')}`}
           >
             {s}
           </Button>
@@ -79,24 +88,28 @@ function JogPad({
       <div className="flex items-start gap-4">
         {/* XY pad */}
         {(axes === 'xy' || axes === 'xyz') && (
-          <div className="grid grid-cols-3 gap-0.5 w-fit">
+          <div className="grid grid-cols-3 gap-0.5 w-fit" role="group" aria-label="XY">
             <div />
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => serial.jogXY(0, jogStep, 1000)} disabled={!connected}>
-              <ArrowUp className="h-3.5 w-3.5" />
-            </Button>
-            <div />
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => serial.jogXY(-jogStep, 0, 1000)} disabled={!connected}>
-              <ArrowLeft className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-8 w-8">
-              <Crosshair className="h-3 w-3 text-muted-foreground" />
-            </Button>
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => serial.jogXY(jogStep, 0, 1000)} disabled={!connected}>
-              <ArrowRight className="h-3.5 w-3.5" />
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => serial.jogXY(0, jogStep, 1000)} disabled={!connected} aria-label={t('ariaJogYPlus', { step: jogStep })}>
+              <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
             <div />
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => serial.jogXY(0, -jogStep, 1000)} disabled={!connected}>
-              <ArrowDown className="h-3.5 w-3.5" />
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => serial.jogXY(-jogStep, 0, 1000)} disabled={!connected} aria-label={t('ariaJogXMinus', { step: jogStep })}>
+              <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
+            <div
+              className="flex items-center justify-center h-8 w-8"
+              aria-label={t('ariaJogCenter')}
+              role="presentation"
+            >
+              <Crosshair className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+            </div>
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => serial.jogXY(jogStep, 0, 1000)} disabled={!connected} aria-label={t('ariaJogXPlus', { step: jogStep })}>
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
+            <div />
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => serial.jogXY(0, -jogStep, 1000)} disabled={!connected} aria-label={t('ariaJogYMinus', { step: jogStep })}>
+              <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
             <div />
           </div>
@@ -104,13 +117,13 @@ function JogPad({
 
         {/* Z controls */}
         {(axes === 'z' || axes === 'xyz') && (
-          <div className="flex flex-col items-center gap-0.5">
-            <span className="text-[10px] font-bold text-blue-500">Z</span>
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => serial.jogZ(jogStep, 500)} disabled={!connected}>
-              <ChevronUp className="h-3.5 w-3.5" />
+          <div className="flex flex-col items-center gap-0.5" role="group" aria-label="Z">
+            <span className="text-[10px] font-medium text-blue-500" aria-hidden="true">Z</span>
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => serial.jogZ(jogStep, 500)} disabled={!connected} aria-label={t('ariaJogZPlus', { step: jogStep })}>
+              <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => serial.jogZ(-jogStep, 500)} disabled={!connected}>
-              <ChevronDown className="h-3.5 w-3.5" />
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => serial.jogZ(-jogStep, 500)} disabled={!connected} aria-label={t('ariaJogZMinus', { step: jogStep })}>
+              <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
           </div>
         )}
@@ -648,11 +661,33 @@ export function SetupWizardModal() {
         </DialogHeader>
 
         {/* Step indicator */}
-        <div className="flex items-center gap-1">
+        <div
+          className="flex items-center gap-1"
+          role="tablist"
+          aria-label={t('ariaStepList')}
+          aria-orientation="horizontal"
+          onKeyDown={(e) => {
+            // Las barras son de 1.5px de alto: sin flechas no hay forma
+            // razonable de recorrerlas con teclado.
+            if (e.key === 'ArrowRight') {
+              e.preventDefault()
+              setStep((step + 1) % totalSteps)
+            } else if (e.key === 'ArrowLeft') {
+              e.preventDefault()
+              setStep((step - 1 + totalSteps) % totalSteps)
+            }
+          }}
+        >
           {stepKeys.map((key, i) => (
             <button
               key={key}
-              className={`flex-1 h-1.5 rounded-full transition-colors cursor-pointer ${
+              id={`wizard-tab-${key}`}
+              role="tab"
+              type="button"
+              aria-selected={i === step}
+              aria-controls="wizard-step-panel"
+              tabIndex={i === step ? 0 : -1}
+              className={`flex-1 h-1.5 rounded-full transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 i === step
                   ? 'bg-primary'
                   : completed[i]
@@ -663,13 +698,16 @@ export function SetupWizardModal() {
               }`}
               onClick={() => setStep(i)}
               title={stepInfo[key].title}
+              aria-label={`${t('ariaGoToStep', { n: i + 1, title: stepInfo[key].title })}${
+                completed[i] ? ` — ${t('ariaStepDone')}` : ''
+              }`}
             />
           ))}
         </div>
 
         {/* Step title */}
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">{info.title}</span>
+          <span className="text-sm font-medium" aria-live="polite">{info.title}</span>
           {isLaser && (
             <Badge variant="secondary" className="text-[9px]">Laser</Badge>
           )}
@@ -681,7 +719,18 @@ export function SetupWizardModal() {
         <Separator />
 
         {/* Content */}
-        {renderStep()}
+        <div
+          id="wizard-step-panel"
+          role="tabpanel"
+          aria-labelledby={`wizard-tab-${currentKey}`}
+          aria-label={t('ariaStepContent', {
+            n: step + 1,
+            total: totalSteps,
+            title: info.title,
+          })}
+        >
+          {renderStep()}
+        </div>
 
         <Separator />
 

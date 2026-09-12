@@ -66,5 +66,19 @@
 
   "jogStep": "Paso",
   "currentPos": "Posición",
-  "mm": "mm"
+  "mm": "mm",
+
+
+  "ariaStepList": "Pasos de la puesta a punto",
+  "ariaGoToStep": "Ir al paso {{n}}: {{title}}",
+  "ariaStepDone": "completado",
+  "ariaJogXPlus": "Mover X +{{step}} mm",
+  "ariaJogXMinus": "Mover X -{{step}} mm",
+  "ariaJogYPlus": "Mover Y +{{step}} mm",
+  "ariaJogYMinus": "Mover Y -{{step}} mm",
+  "ariaJogZPlus": "Subir Z {{step}} mm",
+  "ariaJogZMinus": "Bajar Z {{step}} mm",
+  "ariaJogCenter": "Centro del pad — sin movimiento",
+  "ariaJogStepGroup": "Distancia de cada movimiento",
+  "ariaStepContent": "Contenido del paso {{n}} de {{total}}: {{title}}"
 }

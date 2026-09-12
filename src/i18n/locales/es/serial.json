@@ -95,5 +95,7 @@
   "cancel": "Cancelar",
   "reconnecting": "Reconectando...",
   "reconnectAttemptOf": "Intento {{attempt}} de {{max}}",
-  "reconnectCancel": "Cancelar"
+  "reconnectCancel": "Cancelar",
+  "routingPreviewEmpty": "La ruta de la herramienta aparece acá cuando cargues G-code",
+  "routingPreviewNoMoves": "El G-code cargado no tiene movimientos XY dibujables"
 }

@@ -28,6 +28,7 @@ const SIM_SPEEDS = [
 
 export function GCodePreviewPanel() {
   const { t } = useTranslation('serial')
+  const { t: tg } = useTranslation('gcode')
   const {
     activeGCode, activeGCodeName, activeGCodeLine, activeGCodeTotal,
     simulating, simPaused, simSpeed, simulatedPos,
@@ -95,8 +96,15 @@ export function GCodePreviewPanel() {
             </div>
           </ScrollArea>
         ) : (
-          <div className="flex-1 flex items-center justify-center">
-            <p className="text-xs text-muted-foreground">{t('noActiveGcode')}</p>
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+            <FileCode
+              className="h-8 w-8 text-muted-foreground/40 mb-2"
+              strokeWidth={1.5}
+            />
+            <p className="text-[13px] font-medium">{tg('noActiveGcodeTitle')}</p>
+            <p className="text-[11px] text-muted-foreground mt-1 max-w-[260px]">
+              {tg('noActiveGcodeHint')}
+            </p>
           </div>
         )}
 
@@ -159,7 +167,9 @@ export function GCodePreviewPanel() {
             {activeGCode ? (
               <MiniToolpathPreview gcode={activeGCode} currentLine={activeGCodeLine} />
             ) : (
-              <span className="text-xs text-muted-foreground/50">Preview</span>
+              <span className="text-[11px] text-muted-foreground/60 px-4 text-center">
+                {t('routingPreviewEmpty')}
+              </span>
             )}
           </div>
         </div>
@@ -204,6 +214,7 @@ export function GCodePreviewPanel() {
 
 /** Mini preview 2D del toolpath */
 function MiniToolpathPreview({ gcode, currentLine }: { gcode: string; currentLine: number }) {
+  const { t } = useTranslation('serial')
   const lines = gcode.split('\n')
   const points: { x: number; y: number; rapid: boolean; lineNum: number; step: number }[] = []
   let cx = 0, cy = 0, currentStep = 0
@@ -230,7 +241,11 @@ function MiniToolpathPreview({ gcode, currentLine }: { gcode: string; currentLin
   }
 
   if (points.length < 2) {
-    return <span className="text-xs text-muted-foreground/50">Preview</span>
+    return (
+      <span className="text-[11px] text-muted-foreground/60 px-4 text-center">
+        {t('routingPreviewNoMoves')}
+      </span>
+    )
   }
 
   const xs = points.map((p) => p.x)

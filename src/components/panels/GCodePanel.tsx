@@ -11,8 +11,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Progress } from '@/components/ui/progress'
-import { Code, Download, Copy, Cog, AlertTriangle, Square, ListPlus, Scan } from 'lucide-react'
+import { Code, Download, Copy, Cog, AlertTriangle, Square, ListPlus, Scan, Loader2 } from 'lucide-react'
 import { GCodeGenerator } from '@/lib/gcode-generator'
+import { withGenerating } from '@/lib/gcode-run'
 import { generateBoundaryGCode, computeBBox } from '@/components/modals/SetupWizardModal'
 
 export function GCodePanel() {
@@ -21,6 +22,7 @@ export function GCodePanel() {
   const { globalConfig, rasterData } = useCanvasStore()
   const { addConsoleLine, setWorkspace } = useAppStore()
   const { setGCode, setEstimates } = useGCodeStore()
+  const generating = useGCodeStore((s) => s.generating)
   const { connected, sending, sendProgress } = useSerialStore()
   const { addStep } = useWorkflowStore()
   const serial = useSerial()
@@ -43,9 +45,11 @@ export function GCodePanel() {
 
     addConsoleLine('Generando G-code...')
 
-    const generator = new GCodeGenerator()
-    const result = await generator.generateFromJobs(jobs, rasterData)
-    const est = generator.getEstimates()
+    const { result, est } = await withGenerating(async () => {
+      const generator = new GCodeGenerator()
+      const out = await generator.generateFromJobs(jobs, rasterData)
+      return { result: out, est: generator.getEstimates() }
+    })
 
     setGCode(result)
     setEstimates({
@@ -124,13 +128,17 @@ export function GCodePanel() {
             size="sm"
             className="flex-1 gap-1"
             onClick={handleGenerate}
+            disabled={generating}
+            aria-busy={generating}
           >
-            {gcodeNeedsRegeneration ? (
+            {generating ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : gcodeNeedsRegeneration ? (
               <AlertTriangle className="h-3 w-3" />
             ) : (
               <Cog className="h-3 w-3" />
             )}
-            {t('generate')}
+            {generating ? t('generating') : t('generate')}
           </Button>
           <Button
             variant="outline"

@@ -14,6 +14,7 @@ import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import {
   Cog,
+  Loader2,
   AlertTriangle,
   Copy,
   Download,
@@ -23,6 +24,7 @@ import {
   Scan,
 } from 'lucide-react'
 import { GCodeGenerator } from '@/lib/gcode-generator'
+import { withGenerating } from '@/lib/gcode-run'
 import { generateBoundaryGCode, computeBBox } from '@/components/modals/SetupWizardModal'
 
 function GCodeLineViewer() {
@@ -102,6 +104,7 @@ export function PreviewPanel() {
   const { globalConfig, rasterData } = useCanvasStore()
   const { addConsoleLine, setWorkspace } = useAppStore()
   const { setGCode, setEstimates } = useGCodeStore()
+  const generating = useGCodeStore((s) => s.generating)
   const { connected, sending, sendProgress } = useSerialStore()
   const { addStep } = useWorkflowStore()
   const serial = useSerial()
@@ -136,9 +139,11 @@ export function PreviewPanel() {
 
     addConsoleLine('Generando G-code...')
 
-    const generator = new GCodeGenerator()
-    const result = await generator.generateFromJobs(jobs, rasterData)
-    const est = generator.getEstimates()
+    const { result, est } = await withGenerating(async () => {
+      const generator = new GCodeGenerator()
+      const out = await generator.generateFromJobs(jobs, rasterData)
+      return { result: out, est: generator.getEstimates() }
+    })
 
     setGCode(result)
     setEstimates({
@@ -191,18 +196,26 @@ export function PreviewPanel() {
     return (
       <div className="space-y-4">
         <div className="flex flex-col items-center justify-center py-8 text-center">
-          <Box className="h-12 w-12 text-muted-foreground mb-3" />
-          <p className="text-sm text-muted-foreground">{t('noGCode')}</p>
-          <p className="text-xs text-muted-foreground mt-1">{t('generateFirst')}</p>
+          <Box className="h-12 w-12 text-muted-foreground/40 mb-3" strokeWidth={1.5} />
+          <p className="text-[14px] font-medium">{t('noGCode')}</p>
+          <p className="text-[12px] text-muted-foreground mt-1 max-w-[240px]">
+            {t('noGCodeHint')}
+          </p>
         </div>
         <Button
           variant="default"
           size="sm"
           className="w-full gap-1"
           onClick={handleGenerate}
+          disabled={generating}
+          aria-busy={generating}
         >
-          <Cog className="h-3 w-3" />
-          {t('generate')}
+          {generating ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Cog className="h-3 w-3" />
+          )}
+          {generating ? t('generating') : t('generate')}
         </Button>
       </div>
     )
@@ -218,13 +231,17 @@ export function PreviewPanel() {
             size="sm"
             className="flex-1 min-w-0 gap-1 truncate"
             onClick={handleGenerate}
+            disabled={generating}
+            aria-busy={generating}
           >
-            {gcodeNeedsRegeneration ? (
+            {generating ? (
+              <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+            ) : gcodeNeedsRegeneration ? (
               <AlertTriangle className="h-3 w-3 shrink-0" />
             ) : (
               <Cog className="h-3 w-3 shrink-0" />
             )}
-            <span className="truncate">{t('generate')}</span>
+            <span className="truncate">{generating ? t('generating') : t('generate')}</span>
           </Button>
           <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={handleCopy} title={t('copy')}>
             <Copy className="h-3 w-3" />

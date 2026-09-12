@@ -4,6 +4,7 @@ import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import { useAppStore } from '@/stores/useAppStore'
 import { GCodeGenerator } from '@/lib/gcode-generator'
+import { withGenerating } from '@/lib/gcode-run'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -26,6 +27,7 @@ import {
   ChevronUp,
   ChevronDown,
   Cog,
+  Loader2,
   AlignStartVertical,
   AlignCenterVertical,
   AlignEndVertical,
@@ -162,6 +164,7 @@ export function CanvasToolbar() {
     cycleToolbarColumns,
   } = useCanvasStore()
   const { setGCode, setEstimates } = useGCodeStore()
+  const generating = useGCodeStore((s) => s.generating)
   const { addConsoleLine, setWorkspace } = useAppStore()
   const cm = useCanvasManager()
   const hasSelection = !!selectedElementId
@@ -177,9 +180,11 @@ export function CanvasToolbar() {
     }
 
     addConsoleLine('Generando G-code...')
-    const generator = new GCodeGenerator()
-    const result = await generator.generateFromJobs(jobs, rasterData)
-    const est = generator.getEstimates()
+    const { result, est } = await withGenerating(async () => {
+      const generator = new GCodeGenerator()
+      const out = await generator.generateFromJobs(jobs, rasterData)
+      return { result: out, est: generator.getEstimates() }
+    })
 
     setGCode(result)
     setEstimates({
@@ -475,11 +480,19 @@ export function CanvasToolbar() {
                 size="icon"
                 className={compact ? 'h-7 w-7' : 'h-8 w-8'}
                 onClick={handleGenerate}
+                disabled={generating}
+                aria-busy={generating}
               >
-                <Cog className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+                {generating ? (
+                  <Loader2 className={`animate-spin ${compact ? 'h-3.5 w-3.5' : 'h-4 w-4'}`} />
+                ) : (
+                  <Cog className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+                )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right">{tg('generate')}</TooltipContent>
+            <TooltipContent side="right">
+              {generating ? tg('generating') : tg('generate')}
+            </TooltipContent>
           </Tooltip>
         </div>
       </div>

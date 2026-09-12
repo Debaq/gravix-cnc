@@ -54,5 +54,9 @@
   "vbitAngle": "V-bit angle",
   "maxDepthVcarve": "Max V-carve depth",
   "restMachining": "Rest machining",
-  "finishToolDiam": "Finish tool diameter"
+  "finishToolDiam": "Finish tool diameter",
+  "generating": "Generating…",
+  "noGCodeHint": "G-code comes from your CAD design. Draw at least one element and assign it an operation.",
+  "noActiveGcodeTitle": "No G-code loaded",
+  "noActiveGcodeHint": "Generate G-code in CAM, or load a file from the job queue, to step through it here."
 }

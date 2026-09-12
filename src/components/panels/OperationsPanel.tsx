@@ -11,6 +11,7 @@ import { useSerialStore } from '@/stores/useSerialStore'
 import { useSerial } from '@/hooks/useSerial'
 import { useProject } from '@/hooks/useProject'
 import { GCodeGenerator } from '@/lib/gcode-generator'
+import { withGenerating } from '@/lib/gcode-run'
 import { validateToolVsPaths } from '@/lib/geometry'
 import { generateBoundaryGCode, computeBBox } from '@/components/modals/SetupWizardModal'
 import { Button } from '@/components/ui/button'
@@ -26,6 +27,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Cog,
+  Loader2,
   Copy,
   Download,
   Square,
@@ -374,6 +376,7 @@ function GenerateActions() {
   const { globalConfig, rasterData } = useCanvasStore()
   const { addConsoleLine, setWorkspace } = useAppStore()
   const { setGCode, setEstimates } = useGCodeStore()
+  const generating = useGCodeStore((s) => s.generating)
   const { connected, sending, sendProgress } = useSerialStore()
   const { addStep } = useWorkflowStore()
   const serial = useSerial()
@@ -484,9 +487,11 @@ function GenerateActions() {
     }
 
     addConsoleLine('Generando G-code...')
-    const generator = new GCodeGenerator()
-    const result = await generator.generateFromJobs(jobs, rasterData, gcodeMarkers, clampRects)
-    const est = generator.getEstimates()
+    const { result, est } = await withGenerating(async () => {
+      const generator = new GCodeGenerator()
+      const out = await generator.generateFromJobs(jobs, rasterData, gcodeMarkers, clampRects)
+      return { result: out, est: generator.getEstimates() }
+    })
 
     setGCode(result)
     setEstimates({
@@ -554,16 +559,19 @@ function GenerateActions() {
           size="sm"
           className="flex-1 min-w-0 gap-1 truncate"
           onClick={handleGenerate}
-          disabled={hasErrors}
+          disabled={hasErrors || generating}
+          aria-busy={generating}
         >
-          {hasErrors ? (
+          {generating ? (
+            <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+          ) : hasErrors ? (
             <AlertCircle className="h-3 w-3 shrink-0 text-red-500" />
           ) : gcodeNeedsRegeneration ? (
             <AlertTriangle className="h-3 w-3 shrink-0" />
           ) : (
             <Cog className="h-3 w-3 shrink-0" />
           )}
-          <span className="truncate">{t('generate')}</span>
+          <span className="truncate">{generating ? t('generating') : t('generate')}</span>
         </Button>
         <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={handleCopy} disabled={!gcodeGenerated} title={t('copy')}>
           <Copy className="h-3 w-3" />

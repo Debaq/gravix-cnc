@@ -54,5 +54,9 @@
   "vbitAngle": "Angulo V-bit",
   "maxDepthVcarve": "Prof. max V-carve",
   "restMachining": "Rest machining",
-  "finishToolDiam": "Diam. fresa acabado"
+  "finishToolDiam": "Diam. fresa acabado",
+  "generating": "Generando…",
+  "noGCodeHint": "El G-code se genera desde tu diseño en CAD. Dibujá al menos un elemento y asignale una operación.",
+  "noActiveGcodeTitle": "Sin G-code cargado",
+  "noActiveGcodeHint": "Generá G-code en CAM, o cargá un archivo desde la cola de trabajos, para verlo línea a línea acá."
 }

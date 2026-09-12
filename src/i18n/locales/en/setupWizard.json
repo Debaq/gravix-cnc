@@ -66,5 +66,19 @@
 
   "jogStep": "Step",
   "currentPos": "Position",
-  "mm": "mm"
+  "mm": "mm",
+
+
+  "ariaStepList": "Setup steps",
+  "ariaGoToStep": "Go to step {{n}}: {{title}}",
+  "ariaStepDone": "done",
+  "ariaJogXPlus": "Move X +{{step}} mm",
+  "ariaJogXMinus": "Move X -{{step}} mm",
+  "ariaJogYPlus": "Move Y +{{step}} mm",
+  "ariaJogYMinus": "Move Y -{{step}} mm",
+  "ariaJogZPlus": "Raise Z {{step}} mm",
+  "ariaJogZMinus": "Lower Z {{step}} mm",
+  "ariaJogCenter": "Pad center — no movement",
+  "ariaJogStepGroup": "Distance per move",
+  "ariaStepContent": "Step {{n}} of {{total}} content: {{title}}"
 }

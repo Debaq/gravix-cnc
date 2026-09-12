@@ -95,5 +95,7 @@
   "cancel": "Cancel",
   "reconnecting": "Reconnecting...",
   "reconnectAttemptOf": "Attempt {{attempt}} of {{max}}",
-  "reconnectCancel": "Cancel"
+  "reconnectCancel": "Cancel",
+  "routingPreviewEmpty": "The toolpath shows up here once G-code is loaded",
+  "routingPreviewNoMoves": "The loaded G-code has no drawable XY moves"
 }
