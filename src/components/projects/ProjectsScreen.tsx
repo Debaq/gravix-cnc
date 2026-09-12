@@ -35,9 +35,11 @@ import {
   Layers,
   Wand2,
   Gamepad2,
+  RefreshCw,
 } from 'lucide-react'
 import { GravixMark, GravixWordmark } from '@/components/brand/GravixLogo'
 import { useLicense } from '@/hooks/useLicense'
+import { useUpdateStore } from '@/stores/useUpdateStore'
 import { getTrialDaysLeft, isTrialActive } from '@/lib/trial'
 import type { OperationType } from '@/lib/types'
 
@@ -114,6 +116,7 @@ function sanitizeFilename(name: string): string {
 export function ProjectsScreen() {
   const { t, i18n } = useTranslation('projects')
   const { t: tl } = useTranslation('license')
+  const { t: tu } = useTranslation('updater')
 
   const {
     setView,
@@ -133,6 +136,8 @@ export function ProjectsScreen() {
   const { tools, materials } = useLibraryStore()
   const { path: workspacePath, projects, pick: pickWorkspace, refresh } = useWorkspaceStore()
   const { status: licenseStatus } = useLicense()
+  const checkUpdate = useUpdateStore((s) => s.check)
+  const updateStatus = useUpdateStore((s) => s.status)
   const daysLeft = getTrialDaysLeft()
   const trialActive = isTrialActive()
   const isLicensed = licenseStatus?.is_valid ?? false
@@ -223,12 +228,13 @@ export function ProjectsScreen() {
     }
 
     // Guardar path activo para saber qué archivo estamos editando
-    useAppStore.getState().setActiveProjectPath(filePath)
+    useAppStore.getState().setActiveProjectPath(filePath, now)
     setShowNewDialog(false)
     setView('workspace')
   }, [newName, newType, newWidth, newHeight, newTool, newMaterial, t, globalConfig, workspacePath, setProjectName, setProjectOperationType, setWorkArea, setGlobalConfig, clearGCode, refresh, setView])
 
   const handleOpenProject = useCallback(async (proj: ProjectMeta) => {
+    let createdAt: number | null = null
     if (isTauri()) {
       try {
         const raw = await tauriInvoke<string>('load_gravix_project', { path: proj.path })
@@ -241,16 +247,40 @@ export function ProjectsScreen() {
           height: data.height || 300,
           origin: 'bottom-left',
         })
-        setGlobalConfig({ ...globalConfig, operationType: data.mode as OperationType || 'cnc' })
+        // Lo guardado manda sobre el default: si el proyecto trae su config de
+        // herramienta y material, restaurarla o el G-code sale con otra.
+        setGlobalConfig({
+          ...globalConfig,
+          ...(data.globalConfig ?? {}),
+          operationType: (data.mode as OperationType) || 'cnc',
+        })
 
         if (data.elements?.length) {
           const { setElements } = useCanvasStore.getState()
           setElements(data.elements)
         }
+
+        if (data.gcode?.code) {
+          useGCodeStore.getState().setGCode(data.gcode.code)
+        } else {
+          clearGCode()
+        }
+
+        createdAt = typeof data.created_at === 'number' ? data.created_at : null
       } catch (err) {
         // Fallback — abrir con metadata. Sin aviso, un archivo corrupto se ve
         // igual que un proyecto vacío y el usuario le pasa por encima.
-        toast.warning(t('projectLoadFallback'), { detail: errorDetail(err) })
+        //
+        // El autosave va a sobrescribirlo en segundos, así que primero se
+        // guarda una copia: el original puede ser recuperable a mano.
+        try {
+          const backup = await tauriInvoke<string>('backup_gravix_project', { path: proj.path })
+          toast.warning(t('projectLoadFallback'), {
+            detail: `${errorDetail(err)} — ${t('projectBackedUp', { path: backup })}`,
+          })
+        } catch {
+          toast.warning(t('projectLoadFallback'), { detail: errorDetail(err) })
+        }
         setProjectName(proj.name)
         setProjectOperationType(proj.mode)
         setWorkArea({ width: proj.width || 300, height: proj.height || 300, origin: 'bottom-left' })
@@ -258,9 +288,9 @@ export function ProjectsScreen() {
       }
     }
 
-    useAppStore.getState().setActiveProjectPath(proj.path)
+    useAppStore.getState().setActiveProjectPath(proj.path, createdAt)
     setView('workspace')
-  }, [setProjectName, setProjectOperationType, setWorkArea, setGlobalConfig, globalConfig, setView, t])
+  }, [setProjectName, setProjectOperationType, setWorkArea, setGlobalConfig, globalConfig, setView, t, clearGCode])
 
   const handleDeleteProject = useCallback(async (proj: ProjectMeta, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -418,9 +448,38 @@ export function ProjectsScreen() {
               {t('recentProjects')}
             </h2>
             {projects.length === 0 ? (
-              <div className="border border-dashed rounded-[10px] py-12 px-6 text-center">
-                <p className="text-[14px] text-muted-foreground">{t('noProjects')}</p>
-                <p className="text-[12px] text-muted-foreground/60 mt-1">{t('noProjectsDesc')}</p>
+              <div className="border border-dashed rounded-[10px] py-10 px-6 flex flex-col items-center text-center">
+                <FolderOpen
+                  className="h-8 w-8 text-muted-foreground/40 mb-3"
+                  strokeWidth={1.5}
+                />
+                <p className="text-[14px] font-medium">{t('noProjects')}</p>
+                <p className="text-[12px] text-muted-foreground mt-1 max-w-[340px]">
+                  {t('noProjectsDesc')}
+                </p>
+                <p className="text-[12px] text-muted-foreground mt-0.5 max-w-[340px]">
+                  {t('noProjectsCta')}
+                </p>
+                {workspacePath && (
+                  <p className="text-[11px] font-mono text-muted-foreground/60 mt-3 truncate max-w-full">
+                    {workspacePath}
+                  </p>
+                )}
+                <div className="flex items-center gap-2 mt-4">
+                  <Button size="sm" className="gap-1.5" onClick={openNewDialog}>
+                    <Plus className="h-4 w-4" />
+                    {t('emptyCreate')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={() => pickWorkspace()}
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                    {t('emptyChangeFolder')}
+                  </Button>
+                </div>
               </div>
             ) : (
               <div className="space-y-0.5">
@@ -511,6 +570,24 @@ export function ProjectsScreen() {
                   <p className="text-[11px] text-muted-foreground truncate">{t('setupWizardDesc')}</p>
                 </div>
               </button>
+              {isTauri() && (
+                <button
+                  className="flex items-center gap-3 px-4 py-3 rounded-[10px] border border-border hover:bg-card transition-colors text-left disabled:opacity-60"
+                  onClick={() => {
+                    openModal('updater')
+                    void checkUpdate()
+                  }}
+                  disabled={updateStatus === 'checking' || updateStatus === 'downloading'}
+                >
+                  <div className="flex items-center justify-center h-8 w-8 rounded-[6px] bg-sky-500/10 text-sky-600 shrink-0">
+                    <RefreshCw className={`h-4 w-4 ${updateStatus === 'checking' ? 'animate-spin' : ''}`} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-medium">{tu('checkNow')}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{tu('checkNowDesc')}</p>
+                  </div>
+                </button>
+              )}
             </div>
           </div>
         </div>

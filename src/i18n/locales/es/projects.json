@@ -35,8 +35,8 @@
   "pickFolder": "Elegir carpeta",
   "recentWorkspaces": "Carpetas recientes",
   "changeWorkspace": "Cambiar carpeta",
-  "noProjects": "Aun no hay proyectos",
-  "noProjectsDesc": "Crea un nuevo proyecto para comenzar a trabajar",
+  "noProjects": "Todavía no hay proyectos acá",
+  "noProjectsDesc": "gravix lista los archivos .gravix de la carpeta de trabajo.",
   "deleteProject": "Eliminar proyecto",
   "deleteConfirm": "Se eliminara el archivo .gravix permanentemente",
   "viewAll": "Ver todos",
@@ -56,5 +56,16 @@
   "projectSaveFailed": "No se pudo crear el proyecto",
   "projectDeleteFailed": "No se pudo eliminar el proyecto",
   "projectLoadFallback": "El proyecto se abrio sin su contenido",
-  "projectLoadFallbackDetail": "El archivo no se pudo leer; se uso la metadata del listado"
+  "projectLoadFallbackDetail": "El archivo no se pudo leer; se uso la metadata del listado",
+  "noProjectsCta": "Creá el primero, o cambiá de carpeta si tus proyectos están en otro lado.",
+  "emptyCreate": "Crear proyecto",
+  "emptyChangeFolder": "Cambiar carpeta",
+  "autosaveFailed": "No se pudo guardar el proyecto",
+  "saving": "Guardando…",
+  "saved": "Guardado",
+  "savedJustNow": "Guardado recién",
+  "savedMinutesAgo": "Guardado hace {{count}} min",
+  "saveFailedShort": "Sin guardar",
+  "saveNow": "Guardar ahora",
+  "projectBackedUp": "copia guardada en {{path}}"
 }

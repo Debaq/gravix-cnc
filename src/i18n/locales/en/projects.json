@@ -35,8 +35,8 @@
   "pickFolder": "Choose folder",
   "recentWorkspaces": "Recent folders",
   "changeWorkspace": "Change folder",
-  "noProjects": "No projects yet",
-  "noProjectsDesc": "Create a new project to start working",
+  "noProjects": "No projects here yet",
+  "noProjectsDesc": "gravix lists the .gravix files in your workspace folder.",
   "deleteProject": "Delete project",
   "deleteConfirm": "The .gravix file will be permanently deleted",
   "viewAll": "View all",
@@ -56,5 +56,16 @@
   "projectSaveFailed": "Could not create project",
   "projectDeleteFailed": "Could not delete project",
   "projectLoadFallback": "Project opened without its content",
-  "projectLoadFallbackDetail": "The file could not be read; listing metadata was used instead"
+  "projectLoadFallbackDetail": "The file could not be read; listing metadata was used instead",
+  "noProjectsCta": "Create the first one, or switch folders if your projects live elsewhere.",
+  "emptyCreate": "Create project",
+  "emptyChangeFolder": "Change folder",
+  "autosaveFailed": "Couldn't save the project",
+  "saving": "Saving…",
+  "saved": "Saved",
+  "savedJustNow": "Saved just now",
+  "savedMinutesAgo": "Saved {{count}} min ago",
+  "saveFailedShort": "Not saved",
+  "saveNow": "Save now",
+  "projectBackedUp": "backup saved to {{path}}"
 }

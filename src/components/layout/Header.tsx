@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/stores/useAppStore'
 import { useSerialStore } from '@/stores/useSerialStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useSerial } from '@/hooks/useSerial'
 import { useProject } from '@/hooks/useProject'
+import { saveNow } from '@/lib/autosave'
+import { useUpdateStore } from '@/stores/useUpdateStore'
 import { useCanvasManager } from '@/hooks/useCanvasManager'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -21,6 +23,7 @@ import {
   FilePlus,
   FolderOpen,
   Save,
+  Loader2,
   Download,
   Pencil,
   Cog,
@@ -56,6 +59,8 @@ export function Header() {
   const { t, i18n } = useTranslation('header')
   const { t: ts } = useTranslation('serial')
   const { t: tl } = useTranslation('license')
+  const { t: tp } = useTranslation('projects')
+  const { t: tu } = useTranslation('updater')
 
   const {
     currentWorkspace,
@@ -63,6 +68,9 @@ export function Header() {
     setView,
     projectName,
     projectModified,
+    activeProjectPath,
+    saveState,
+    lastSavedTime,
     openModal,
     language,
     setLanguage,
@@ -72,6 +80,8 @@ export function Header() {
   } = useAppStore()
 
   const { connected, sending, baudRate, setBaudRate } = useSerialStore()
+  const updateInfo = useUpdateStore((s) => s.info)
+  const updateAvailable = useUpdateStore((s) => s.status === 'available')
   const activeMachine = useMachineStore((s) =>
     s.machines.find((m) => m.id === s.activeMachineId) ?? null,
   )
@@ -91,6 +101,44 @@ export function Header() {
     serial.sendGCode(gcode)
     addConsoleLine(elementBBox ? 'Prueba de area iniciada' : 'Prueba de area iniciada (area de trabajo completa)')
   }, [connected, sending, cm, globalConfig, serial, addConsoleLine])
+
+  // Guardar: con proyecto activo escribe el .gravix; si no, cae al dialogo.
+  const handleSave = useCallback(async () => {
+    if (activeProjectPath) {
+      await saveNow(true)
+      return
+    }
+    await project.saveProject()
+  }, [activeProjectPath, project])
+
+  // Ctrl/Cmd+S. Se registra a nivel documento: el foco suele estar en el canvas.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        void handleSave()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [handleSave])
+
+  // Minuto a minuto para que el "hace N min" no se congele.
+  const [savedTick, setSavedTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setSavedTick((n) => n + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const saveLabel = useMemo(() => {
+    void savedTick
+    if (!activeProjectPath) return ''
+    if (saveState === 'saving') return tp('saving')
+    if (saveState === 'error') return tp('saveFailedShort')
+    if (!lastSavedTime) return ''
+    const minutes = Math.floor((Date.now() - new Date(lastSavedTime).getTime()) / 60_000)
+    return minutes < 1 ? tp('savedJustNow') : tp('savedMinutesAgo', { count: minutes })
+  }, [activeProjectPath, saveState, lastSavedTime, tp, savedTick])
 
   const [ports, setPorts] = useState<PortInfo[]>([])
   const [selectedPort, setSelectedPort] = useState('')
@@ -183,10 +231,16 @@ export function Header() {
               variant="ghost"
               size="icon"
               className="text-primary-foreground hover:bg-primary/80"
-              title={t('saveProject')}
-              onClick={project.saveProject}
+              title={activeProjectPath ? tp('saveNow') : t('saveProject')}
+              onClick={handleSave}
+              disabled={saveState === 'saving'}
+              aria-busy={saveState === 'saving'}
             >
-              <Save className="h-4 w-4" />
+              {saveState === 'saving' ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
             </Button>
 
             <DropdownMenu>
@@ -212,10 +266,21 @@ export function Header() {
 
             <Separator orientation="vertical" className="h-6 bg-primary-foreground/30 mx-1" />
 
-            <span className="text-sm font-medium truncate max-w-[180px]">
-              {projectName}
-              {projectModified && <span className="ml-1 text-yellow-300">*</span>}
-            </span>
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-medium truncate max-w-[180px]">
+                {projectName}
+                {projectModified && <span className="ml-1 text-yellow-300">*</span>}
+              </span>
+              <span
+                className={`text-[10px] truncate max-w-[180px] ${
+                  saveState === 'error' ? 'text-red-300' : 'text-primary-foreground/60'
+                }`}
+                role="status"
+                aria-live="polite"
+              >
+                {saveLabel}
+              </span>
+            </div>
           </>
         )}
       </div>
@@ -436,6 +501,18 @@ export function Header() {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {/* Update disponible — solo aparece cuando hay algo que instalar */}
+        {updateAvailable && updateInfo && (
+          <button
+            onClick={() => openModal('updater')}
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium text-sky-200 hover:bg-sky-500/20 transition-colors"
+            title={tu('newVersion', { version: updateInfo.version })}
+          >
+            <Download className="h-3.5 w-3.5" />
+            {updateInfo.version}
+          </button>
+        )}
+
         {/* License status */}
         <button
           onClick={() => openModal('license')}
@@ -494,7 +571,12 @@ export function Header() {
               variant="ghost"
               size="icon"
               className="h-8 w-8 text-primary-foreground hover:bg-destructive/80"
-              onClick={() => appWindow.close()}
+              onClick={async () => {
+                // El X destruye el webview: `beforeunload` no es confiable aca,
+                // asi que lo pendiente se escribe antes de cerrar.
+                await saveNow()
+                appWindow.close()
+              }}
             >
               <X className="h-4 w-4" />
             </Button>
