@@ -145,9 +145,27 @@ entiende la sección `.relr.dyn` de las librerías actuales.
 Targets declarados en `src-tauri/tauri.conf.json` → `bundle.targets`:
 `deb`, `appimage`, `rpm` (Linux) · `nsis` (Windows) · `dmg`, `app` (macOS).
 
+**CI compila Linux y Windows.** macOS queda fuera hasta que haya cuenta de
+Apple Developer: sin firma y notarización, un `.app` descargado no abre. Los
+targets siguen declarados para que un build local en Mac funcione.
+
+### Versiones
+
+`package.json` es la única fuente de verdad; `scripts/sync-version.mjs` la
+propaga a `tauri.conf.json` y `Cargo.toml` en cada pre-build.
+
+| | Cómo | Versión |
+|---|---|---|
+| Pre-release | Actions → `prerelease` → Run workflow | `0.5.0-pre.20260912.70` |
+| Estable | `git tag vX.Y.Z && git push --tags` | `0.5.0` |
+
+La pre-release calcula fecha y número de commit **sola, dentro del Action**, y
+no los commitea: la rama siempre lleva la versión base. Para probarla en local:
+`npm run version:pre`, buildear, y revertir los tres archivos de versión.
+
 El auto-updater consulta `https://github.com/Debaq/gravix-cnc/releases/latest/download/latest.json`.
 Publicar un release con el tag `vX.Y.Z` dispara `.github/workflows/release.yml`,
-que compila los tres SO, firma los artefactos y sube el `latest.json`.
+que compila Linux y Windows, firma los artefactos y sube el `latest.json`.
 
 Firmar releases necesita dos secrets en GitHub — ver `docs/RELEASE.md`:
 `TAURI_SIGNING_PRIVATE_KEY` y `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.

@@ -1,0 +1,109 @@
+name: prerelease
+
+# Publica una pre-release firmada para Linux y Windows desde la rama actual,
+# sin tocar la version commiteada. La version se calcula sola en el momento:
+#   <base>-pre.<YYYYMMDD>.<numero de commit>   ej. 0.5.0-pre.20260912.70
+#
+# La fecha es la del run y el numero es `git rev-list --count HEAD`: nada de
+# esto se escribe en la rama, se calcula aca y se usa para el bundle y el tag.
+#
+# Se dispara a mano (Actions -> prerelease -> Run workflow).
+on:
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: Publicar como borrador en vez de pre-release visible
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  # La version se calcula una sola vez: si cada plataforma la calculara por su
+  # cuenta, dos runners que cruzan medianoche UTC producirian versiones
+  # distintas para el mismo release.
+  version:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.calc.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # El contador de commits necesita la historia completa.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - id: calc
+        run: echo "version=$(node scripts/set-prerelease-version.mjs --print)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            args: ''
+          - platform: windows-latest
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Instalar dependencias de sistema (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libudev-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      # Fija en el working tree del runner la version que calculo el job
+      # `version`. No se commitea: la version de la rama sigue siendo la
+      # estable.
+      - name: Fijar version de pre-release
+        shell: bash
+        run: |
+          node scripts/set-prerelease-version.mjs --set '${{ needs.version.outputs.version }}'
+          npm run sync:version
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v${{ needs.version.outputs.version }}
+          releaseName: gravix ${{ needs.version.outputs.version }}
+          releaseBody: |
+            Pre-release automática desde `${{ github.ref_name }}` (commit ${{ github.sha }}).
+
+            No apta para producción: sin garantía de estabilidad ni de compatibilidad
+            del formato de proyecto entre pre-releases.
+          releaseDraft: ${{ inputs.draft }}
+          prerelease: true
+          includeUpdaterJson: true
+          args: --config tauri.release.conf.json ${{ matrix.args }}
