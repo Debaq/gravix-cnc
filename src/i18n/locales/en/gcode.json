@@ -58,5 +58,18 @@
   "generating": "Generating…",
   "noGCodeHint": "G-code comes from your CAD design. Draw at least one element and assign it an operation.",
   "noActiveGcodeTitle": "No G-code loaded",
-  "noActiveGcodeHint": "Generate G-code in CAM, or load a file from the job queue, to step through it here."
+  "noActiveGcodeHint": "Generate G-code in CAM, or load a file from the job queue, to step through it here.",
+  "tiling": {
+    "title": "Split into tiles",
+    "hint": "Splits a job larger than the machine area into several G-code files, one per tile. Each file uses local coordinates: reposition the stock at the tile origin before running it.",
+    "tileWidth": "Tile width (mm)",
+    "tileHeight": "Tile height (mm)",
+    "overlap": "Overlap (mm)",
+    "margin": "Margin (mm)",
+    "tiles": "tiles",
+    "noPaths": "No valid elements on the canvas",
+    "overlapTooBig": "Overlap must be smaller than the tile size",
+    "export": "Export",
+    "exporting": "Exporting..."
+  }
 }

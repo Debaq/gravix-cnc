@@ -71,7 +71,6 @@
   "param_boltRadius": "Bolt radius",
   "param_boltCount": "Bolt count",
   "param_inset": "Inset",
-
   "align": "Align",
   "alignToFirst": "Align to first",
   "alignToWorkArea": "Align to work area",
@@ -89,7 +88,6 @@
   "snapToObjects": "Snap to objects",
   "group": "Group",
   "ungroup": "Ungroup",
-
   "drawLine": "Draw line",
   "drawLineHint": "Click to place points. Double-click or Enter to finish. Escape to cancel.",
   "drawArc": "Draw arc",
@@ -107,7 +105,6 @@
   "letterSpacing": "Letter spacing",
   "loadingFont": "Loading font...",
   "addToCanvas": "Add to canvas",
-
   "boxGenerator": "Box Generator",
   "boxJointType": "Joint type",
   "boxFingerJoint": "Finger Joint",
@@ -120,7 +117,6 @@
   "boxOpenTop": "Open top (no lid)",
   "boxInvalidParams": "Invalid parameters. Check dimensions.",
   "boxPanelCount": "{{count}} panels generated",
-
   "editNodes": "Edit nodes",
   "nodeEditHint": "Editing nodes of {{name}} — Click: select/add node, Del: delete node, Escape: exit",
   "nodeDeleteNode": "Delete node",
@@ -173,5 +169,31 @@
     "centerY": "Center Y (mm)",
     "polarHint": "Default center is the work area center"
   },
-  "vectorDiagnostics": "Vector diagnostics"
+  "vectorDiagnostics": "Vector diagnostics",
+  "variableText": {
+    "menu": "Variable text (CSV)",
+    "title": "Variable text (CSV)",
+    "hint": "Creates one copy of the text per CSV row. In the template, write the column name inside double braces; index, date and time are built in.",
+    "template": "Template",
+    "loadCsv": "Load CSV",
+    "noCsv": "No file",
+    "rows": "rows",
+    "missingVars": "Missing CSV column:",
+    "previewEmpty": "Load a CSV to see the preview",
+    "more": "more",
+    "adding": "Adding..."
+  },
+  "tiling": {
+    "title": "Split into tiles",
+    "hint": "Splits a job larger than the machine area into several G-code files, one per tile. Each file uses local coordinates: reposition the stock at the tile origin before running it.",
+    "tileWidth": "Tile width (mm)",
+    "tileHeight": "Tile height (mm)",
+    "overlap": "Overlap (mm)",
+    "margin": "Margin (mm)",
+    "tiles": "tiles",
+    "noPaths": "No valid elements on the canvas",
+    "overlapTooBig": "Overlap must be smaller than the tile size",
+    "export": "Export",
+    "exporting": "Exporting..."
+  }
 }

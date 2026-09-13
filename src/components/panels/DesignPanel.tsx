@@ -42,6 +42,7 @@ import {
   CircleDashed,
   SquareDashed,
   BoxSelect,
+  Table2,
 } from 'lucide-react'
 
 export function DesignPanel() {
@@ -52,6 +53,7 @@ export function DesignPanel() {
   const { addConsoleLine, openModal } = useAppStore()
   const handleTextToPath = () => openModal('textToPath')
   const handleBoxGenerator = () => openModal('boxGenerator')
+  const handleVariableText = () => openModal('variableText')
   const canvasManager = useCanvasManager()
   const svgInputRef = useRef<HTMLInputElement>(null)
   const dxfInputRef = useRef<HTMLInputElement>(null)
@@ -236,6 +238,10 @@ return (
               <DropdownMenuItem onSelect={handleBoxGenerator}>
                 <BoxSelect className="h-4 w-4 mr-2" />
                 {t('boxGenerator')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleVariableText}>
+                <Table2 className="h-4 w-4 mr-2" />
+                {t('variableText.menu') || 'Texto variable (CSV)'}
               </DropdownMenuItem>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>

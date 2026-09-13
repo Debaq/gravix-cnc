@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Progress } from '@/components/ui/progress'
-import { Code, Download, Copy, Cog, AlertTriangle, Square, ListPlus, Scan, Loader2 } from 'lucide-react'
+import { Code, Download, Copy, Cog, AlertTriangle, Square, ListPlus, Scan, Loader2, Grid2X2 } from 'lucide-react'
 import { GCodeGenerator } from '@/lib/gcode-generator'
 import { withGenerating } from '@/lib/gcode-run'
 import { generateBoundaryGCode, computeBBox } from '@/components/modals/SetupWizardModal'
@@ -20,7 +20,7 @@ export function GCodePanel() {
   const { t } = useTranslation('gcode')
   const { gcode, gcodeGenerated, gcodeLines, gcodeNeedsRegeneration, estimates } = useGCodeStore()
   const { globalConfig, rasterData } = useCanvasStore()
-  const { addConsoleLine, setWorkspace } = useAppStore()
+  const { addConsoleLine, setWorkspace, openModal } = useAppStore()
   const { setGCode, setEstimates } = useGCodeStore()
   const generating = useGCodeStore((s) => s.generating)
   const { connected, sending, sendProgress } = useSerialStore()
@@ -159,6 +159,15 @@ export function GCodePanel() {
             title={t('download')}
           >
             <Download className="h-3 w-3" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => openModal('tiling')}
+            title={t('tiling.title') || 'Dividir en tiles'}
+          >
+            <Grid2X2 className="h-3 w-3" />
           </Button>
         </div>
         {/* Fila 2: Workflow + Dry Run */}
