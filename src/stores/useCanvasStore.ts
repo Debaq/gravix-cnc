@@ -2,6 +2,38 @@ import { create } from 'zustand'
 import type { CanvasElement, WorkArea, GlobalConfig, RasterData, Layer, ColorMapping, VectorCleanupConfig } from '@/lib/types'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import type { NodeConstraint } from '@/lib/constraints'
+import type { SnapKind } from '@/lib/snap-engine'
+
+/** Subconjunto de SnapKind que el usuario puede activar/desactivar. */
+export type GeometricSnapKind = Exclude<SnapKind, 'grid'>
+
+export const GEOMETRIC_SNAP_KINDS: GeometricSnapKind[] = [
+  'endpoint',
+  'midpoint',
+  'center',
+  'quadrant',
+  'intersection',
+  'perpendicular',
+  'tangent',
+  'onEdge',
+]
+
+const defaultSnapKinds: Record<GeometricSnapKind, boolean> = {
+  endpoint: true,
+  midpoint: true,
+  center: true,
+  quadrant: true,
+  intersection: true,
+  perpendicular: true,
+  tangent: false,
+  onEdge: false,
+}
+
+/** Modo de dibujo activo. Los tres ultimos se dibujan arrastrando. */
+export type DrawingMode =
+  | 'line' | 'arc' | 'bezier' | 'cota'
+  | 'rect' | 'circle' | 'ellipse'
+  | null
 
 export interface SelectedObjectProps {
   x: number
@@ -23,6 +55,18 @@ interface CanvasState {
 
   // Grid
   showGrid: boolean
+  /** Paso base de la grilla en mm (la adaptativa parte de aca). */
+  gridSpacingMm: number
+  /** La grilla se subdivide/agrupa segun el zoom para no saturar ni desaparecer. */
+  gridAdaptive: boolean
+  /** Reglas en mm en los bordes del lienzo. */
+  showRulers: boolean
+
+  // Lectura del lienzo
+  /** Posicion del cursor en mm respecto al origen del area de trabajo. */
+  cursorMm: { x: number; y: number } | null
+  /** Zoom actual del canvas (1 = 100%). */
+  zoomLevel: number
 
 
   // SVG info
@@ -45,8 +89,16 @@ interface CanvasState {
   snapToObjects: boolean
   snapThreshold: number
 
+  // Snaps geometricos (estilo CAD) al dibujar y al mover nodos
+  snapGeometry: boolean
+  snapKinds: Record<GeometricSnapKind, boolean>
+
+  // Ortho / polar: restringe la direccion al dibujar
+  orthoMode: boolean
+  orthoAngleDeg: number
+
   // Drawing mode
-  drawingMode: 'line' | 'arc' | 'bezier' | 'cota' | null
+  drawingMode: DrawingMode
 
   // Measuring mode: 'distance' (2 clicks), 'angle' (3 clicks), or false
   measuringMode: 'distance' | 'angle' | false
@@ -93,9 +145,18 @@ interface CanvasState {
   setSelectedObjectProps: (props: SelectedObjectProps | null) => void
   setGlobalConfig: (config: Partial<GlobalConfig>) => void
   setRasterData: (data: RasterData | null) => void
+  setGridSpacing: (mm: number) => void
+  toggleGridAdaptive: () => void
+  toggleRulers: () => void
+  setCursorMm: (pos: { x: number; y: number } | null) => void
+  setZoomLevel: (zoom: number) => void
   toggleSnapToGrid: () => void
   toggleSnapToObjects: () => void
-  setDrawingMode: (mode: 'line' | 'arc' | 'bezier' | 'cota' | null) => void
+  toggleSnapGeometry: () => void
+  setSnapKind: (kind: GeometricSnapKind, enabled: boolean) => void
+  toggleOrtho: () => void
+  setOrthoAngle: (deg: number) => void
+  setDrawingMode: (mode: DrawingMode) => void
   setMeasuringMode: (mode: 'distance' | 'angle' | false) => void
   setTrimMode: (active: boolean) => void
   setExtendMode: (active: boolean) => void
@@ -188,6 +249,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   // Grid
   showGrid: true,
+  gridSpacingMm: 10,
+  gridAdaptive: true,
+  showRulers: true,
+
+  // Lectura del lienzo
+  cursorMm: null,
+  zoomLevel: 1,
 
 
   // SVG info
@@ -215,6 +283,14 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   snapToGrid: true,
   snapToObjects: true,
   snapThreshold: 5,
+
+  // Snaps geometricos
+  snapGeometry: true,
+  snapKinds: { ...defaultSnapKinds },
+
+  // Ortho / polar
+  orthoMode: false,
+  orthoAngleDeg: 45,
 
   // Drawing mode
   drawingMode: null,
@@ -355,8 +431,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   setRasterData: (data) => set({ rasterData: data }),
 
+  setGridSpacing: (mm) => set({ gridSpacingMm: Math.max(0.1, Math.min(500, mm)) }),
+  toggleGridAdaptive: () => set((state) => ({ gridAdaptive: !state.gridAdaptive })),
+  toggleRulers: () => set((state) => ({ showRulers: !state.showRulers })),
+  setCursorMm: (pos) => set({ cursorMm: pos }),
+  setZoomLevel: (zoom) => set({ zoomLevel: zoom }),
   toggleSnapToGrid: () => set((state) => ({ snapToGrid: !state.snapToGrid })),
   toggleSnapToObjects: () => set((state) => ({ snapToObjects: !state.snapToObjects })),
+  toggleSnapGeometry: () => set((state) => ({ snapGeometry: !state.snapGeometry })),
+  setSnapKind: (kind, enabled) =>
+    set((state) => ({ snapKinds: { ...state.snapKinds, [kind]: enabled } })),
+  toggleOrtho: () => set((state) => ({ orthoMode: !state.orthoMode })),
+  setOrthoAngle: (deg) => set({ orthoAngleDeg: deg }),
   setDrawingMode: (mode) => set({ drawingMode: mode, measuringMode: false }),
   setMeasuringMode: (mode) => set({ measuringMode: mode, drawingMode: null, trimMode: false }),
   setTrimMode: (active) => set({ trimMode: active, extendMode: false, drawingMode: null, measuringMode: false }),

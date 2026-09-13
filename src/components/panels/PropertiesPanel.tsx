@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useLibraryStore } from '@/stores/useLibraryStore'
@@ -8,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Settings2, Plus, Trash2, Hexagon } from 'lucide-react'
+import { Settings2, Plus, Trash2, Hexagon, Lock, Unlock } from 'lucide-react'
 import type { GlobalConfig, OperationType, WorkType, LaserMode } from '@/lib/types'
 
 // Maker shapes own their dimensions via params (not Fabric scale).
@@ -67,9 +68,11 @@ export function PropertiesPanel() {
     findElementById,
     getElementConfig,
     updateElement,
+    showRulers,
   } = useCanvasStore()
   const { getFilteredTools } = useLibraryStore()
-  const { applyObjectProps, updateMakerParams } = useCanvasManager()
+  const { applyObjectProps, resizeSelected, updateMakerParams } = useCanvasManager()
+  const [lockAspect, setLockAspect] = useState(true)
 
   if (!selectedElementId) return null
 
@@ -92,7 +95,11 @@ export function PropertiesPanel() {
   }
 
   return (
-    <div className="absolute top-2 right-2 z-20 w-72 max-w-[calc(100%-1rem)] bg-background border rounded-lg shadow-lg max-h-[calc(100%-3.5rem)] flex flex-col">
+    <div
+      className={`absolute right-2 z-20 w-72 max-w-[calc(100%-1rem)] bg-background border rounded-lg shadow-lg max-h-[calc(100%-3.5rem)] flex flex-col ${
+        showRulers ? 'top-6' : 'top-2'
+      }`}
+    >
       {/* Header */}
       <div className="px-3 py-2 border-b shrink-0">
         <span className="text-sm font-semibold truncate">{element.name}</span>
@@ -136,6 +143,43 @@ export function PropertiesPanel() {
                   step="1"
                 />
               </div>
+            </div>
+
+            {/* Tamano con candado de proporcion */}
+            <div className="grid grid-cols-3 gap-2 items-end">
+              <div>
+                <label className="text-[11px] text-muted-foreground">{t('widthMm')}</label>
+                <Input
+                  type="number"
+                  value={props?.width ?? 0}
+                  onChange={(e) => resizeSelected('width', parseFloat(e.target.value) || 0, lockAspect)}
+                  className="h-8"
+                  step="0.1"
+                  min="0"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-muted-foreground">{t('heightMm')}</label>
+                <Input
+                  type="number"
+                  value={props?.height ?? 0}
+                  onChange={(e) => resizeSelected('height', parseFloat(e.target.value) || 0, lockAspect)}
+                  className="h-8"
+                  step="0.1"
+                  min="0"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setLockAspect((v) => !v)}
+                title={t('lockAspect')}
+                className={`h-8 flex items-center justify-center gap-1 rounded-md border text-[11px] ${
+                  lockAspect ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground'
+                }`}
+              >
+                {lockAspect ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
+                {t('ratio')}
+              </button>
             </div>
           </section>
 

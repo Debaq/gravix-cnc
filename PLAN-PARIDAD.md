@@ -378,6 +378,20 @@ Feature set más ambicioso. Aspire se diferencia de VCarve Pro por su modelado 3
 - **2026-09-12**: `VectorDiagnosticsModal.tsx` (boton en CanvasToolbar) reporta los problemas sobre la geometria cruda, y la auto-limpieza configurable (`vectorCleanup` en el store) se aplica en `getPathsForGCode()` / `getJobsForGCode()`, el unico punto por el que pasan todos los toolpaths
 - **Archivos**: `vector-diagnostics.ts`, `VectorDiagnosticsModal.tsx`, `useCanvasManager.ts`, `useCanvasStore.ts`, `types.ts`, `CanvasToolbar.tsx`, i18n
 
+### ~~4D.9 Precision de lienzo (snaps, ortho, reglas)~~ ✅ COMPLETADO (2026-09-12)
+- **Referencia**: Aspire, LightBurn, AutoCAD
+- **Que**: motor de snap geometrico (`snap-engine.ts`) con extremo/medio/centro/
+  cuadrante/interseccion/perpendicular/tangente, aplicado al dibujo y a la edicion
+  de nodos; ortho/polar con paso configurable y Shift como inversor; reglas en mm
+  con marcador de cursor; coordenadas vivas y zoom % en el footer; grilla adaptativa
+  al zoom; formas por arrastre (rect/circulo/elipse); ancho/alto con candado de
+  proporcion; atajos de herramienta
+- **Estaba asi**: el snap solo comparaba bounding boxes y **el modo dibujo no
+  snapeaba** — las lineas se trazaban a ojo sobre el pixel crudo del mouse
+- **Archivos**: `snap-engine.ts`, `DesignCanvas.tsx`, `useCanvasManager.ts`,
+  `useCanvasStore.ts`, `useKeyboardShortcuts.ts`, `CanvasToolbar.tsx`,
+  `CanvasFooter.tsx`, `PropertiesPanel.tsx`, `DesignPanel.tsx`, `HelpModal.tsx`, i18n
+
 ### 4D.6 Multiple Sheets — ❌ NO EMPEZADO
 - **Qué**: hojas multiples con pestañas y elementos asociados a cada hoja
 - **2026-09-12**: el stub `sheets[]` (add/remove/rename/setActive sin un solo consumidor) se **elimino** del store. Guardar la estructura sin la feature solo hacia que el plan se leyera como mas avanzado de lo que estaba

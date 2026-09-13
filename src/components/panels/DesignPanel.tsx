@@ -43,6 +43,7 @@ import {
   SquareDashed,
   BoxSelect,
   Table2,
+  Egg,
 } from 'lucide-react'
 
 export function DesignPanel() {
@@ -218,6 +219,18 @@ return (
               <DropdownMenuItem onSelect={() => handleAddShape('circle')}>
                 <Circle className="h-4 w-4 mr-2" />
                 {t('addCircle')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setDrawingMode('rect')}>
+                <SquareDashed className="h-4 w-4 mr-2" />
+                {t('drawRect')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setDrawingMode('circle')}>
+                <CircleDashed className="h-4 w-4 mr-2" />
+                {t('drawCircle')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setDrawingMode('ellipse')}>
+                <Egg className="h-4 w-4 mr-2" />
+                {t('drawEllipse')}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setDrawingMode('line')}>
                 <Minus className="h-4 w-4 mr-2" />

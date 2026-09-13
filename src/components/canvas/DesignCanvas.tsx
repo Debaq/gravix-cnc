@@ -11,8 +11,10 @@ import {
   WORK_AREA_PADDING,
   MIN_ZOOM,
   MAX_ZOOM,
-  GRID_SPACING_MM,
-  GRID_MAJOR_EVERY,
+  effectiveGridSpacing,
+  niceStepMm,
+  canvasToMm,
+  getOriginPixels,
   NON_INTERACTIVE_KEY,
   ELEMENT_ID_KEY,
   getCustomProp,
@@ -40,6 +42,21 @@ import {
   trimPathAtClick,
   extendPathToIntersection,
 } from '@/lib/trim-extend'
+import {
+  buildSnapIndex,
+  querySnap,
+  applyAngleLock,
+  snapLengthAlongRay,
+  angleDegCad,
+  EMPTY_SNAP_INDEX,
+  invalidateSnapCache,
+  snapCacheGeneration,
+  type SnapIndex,
+  type SnapHit,
+  type SnapKind,
+  type SnapKindFlags,
+} from '@/lib/snap-engine'
+import type { Point2D } from '@/lib/types'
 
 // ============================================
 // Node editing — module-level state
@@ -76,6 +93,163 @@ interface SnapGuides {
 }
 
 let activeGuides: SnapGuides = { h: [], v: [], dots: [] }
+
+// ============================================
+// Snap geometrico (CAD) — indice + resultado activo
+// ============================================
+
+/** Radio de captura en pixeles de PANTALLA (se divide por el zoom al usarlo). */
+const SNAP_CAPTURE_PX = 12
+
+let snapIndex: SnapIndex = EMPTY_SNAP_INDEX
+let snapIndexGeneration = -1
+let snapIndexExcluded: FabricObject | null = null
+
+/** Snap mostrado bajo el cursor (marcador + etiqueta en after:render). */
+let activeSnap: SnapHit | null = null
+/** Rayo de ortho/polar activo, dibujado como guia punteada. */
+let orthoRay: { from: Point2D; to: Point2D } | null = null
+/** HUD de longitud/angulo que sigue al cursor mientras se dibuja. */
+let cursorHud: { x: number; y: number; lengthMm: number; angleDeg: number } | null = null
+
+/** Ultima posicion del cursor en pixeles de pantalla, para las reglas. */
+let rulerCursor: { x: number; y: number } | null = null
+
+function invalidateSnapIndex(): void {
+  invalidateSnapCache()
+}
+
+function clearSnapFeedback(): void {
+  activeSnap = null
+  orthoRay = null
+  cursorHud = null
+}
+
+function ensureSnapIndex(canvas: Canvas, exclude: FabricObject | null): SnapIndex {
+  const gen = snapCacheGeneration()
+  if (gen === snapIndexGeneration && snapIndexExcluded === exclude) return snapIndex
+  const objects = canvas.getObjects().filter(
+    o => getCustomProp(o, NON_INTERACTIVE_KEY) !== true && o !== exclude,
+  )
+  snapIndex = buildSnapIndex(objects)
+  snapIndexGeneration = gen
+  snapIndexExcluded = exclude
+  return snapIndex
+}
+
+function gridSpacingPx(zoom: number): number {
+  return effectiveGridSpacing(zoom).spacingMm * PIXELS_PER_MM
+}
+
+function enabledSnapKinds(): SnapKindFlags {
+  const st = useCanvasStore.getState()
+  const kinds: SnapKindFlags = { grid: st.snapToGrid }
+  if (st.snapGeometry) {
+    for (const [kind, on] of Object.entries(st.snapKinds)) {
+      kinds[kind as SnapKind] = on
+    }
+  }
+  return kinds
+}
+
+export interface SnappedPoint {
+  point: Point2D
+  snap: SnapHit | null
+  /** Angulo CAD del tramo desde la referencia, si hay referencia. */
+  angleDeg: number | null
+  orthoActive: boolean
+}
+
+/**
+ * Convierte el cursor crudo en un punto util: aplica ortho/polar (si esta
+ * activo o si se aprieta Shift) y luego el snap geometrico/grilla.
+ * Deja listo el feedback visual (marcador, rayo, HUD).
+ */
+function resolveSnappedPoint(
+  canvas: Canvas,
+  raw: Point2D,
+  reference: Point2D | null,
+  shiftKey: boolean,
+  exclude: FabricObject | null = null,
+): SnappedPoint {
+  const st = useCanvasStore.getState()
+  const zoom = canvas.getZoom() || 1
+  const threshold = SNAP_CAPTURE_PX / zoom
+
+  // Shift invierte el estado de ortho (igual que F8 + Shift en CAD clasico)
+  const orthoActive = (st.orthoMode !== shiftKey) && !!reference
+
+  let candidate = raw
+  let rayDir: Point2D | null = null
+  if (orthoActive && reference) {
+    const locked = applyAngleLock(reference, raw, st.orthoAngleDeg || 45)
+    candidate = locked.point
+    const rad = (-locked.angleDeg * Math.PI) / 180
+    rayDir = { x: Math.cos(rad), y: Math.sin(rad) }
+    // Sobre el rayo, redondear la longitud a la grilla si esta activa
+    if (st.snapToGrid) {
+      const stepped = snapLengthAlongRay(reference, candidate, gridSpacingPx(zoom))
+      if (Math.hypot(stepped.x - candidate.x, stepped.y - candidate.y) <= threshold) {
+        candidate = stepped
+      }
+    }
+    orthoRay = { from: reference, to: candidate }
+  } else {
+    orthoRay = null
+  }
+
+  const kinds = enabledSnapKinds()
+  // Con ortho la grilla ya se aplico a lo largo del rayo: dejarla aca la sacaria del eje
+  if (orthoActive) kinds.grid = false
+
+  const index = (st.snapGeometry || (st.snapToGrid && !orthoActive))
+    ? ensureSnapIndex(canvas, exclude)
+    : EMPTY_SNAP_INDEX
+
+  let hit = querySnap(index, candidate, {
+    threshold,
+    kinds,
+    grid: st.snapToGrid && !orthoActive
+      ? { spacing: gridSpacingPx(zoom), originX: WORK_AREA_PADDING, originY: WORK_AREA_PADDING }
+      : undefined,
+    reference,
+  })
+
+  let point = hit ? { x: hit.x, y: hit.y } : candidate
+
+  // Con ortho el punto NO puede salirse del rayo: el snap solo fija la
+  // distancia sobre el, y solo si cae lo bastante cerca del eje.
+  if (orthoActive && reference && rayDir && hit) {
+    const along = (hit.x - reference.x) * rayDir.x + (hit.y - reference.y) * rayDir.y
+    const projected = {
+      x: reference.x + rayDir.x * along,
+      y: reference.y + rayDir.y * along,
+    }
+    const perp = Math.hypot(hit.x - projected.x, hit.y - projected.y)
+    if (along >= 0 && perp <= threshold) {
+      point = projected
+      hit = { ...hit, x: projected.x, y: projected.y }
+    } else {
+      point = candidate
+      hit = null
+    }
+  }
+
+  activeSnap = hit
+  if (orthoRay) orthoRay = { from: orthoRay.from, to: point }
+
+  const angleDeg = reference ? angleDegCad(reference, point) : null
+  cursorHud = reference
+    ? {
+        x: point.x,
+        y: point.y,
+        lengthMm: Math.hypot(point.x - reference.x, point.y - reference.y) / PIXELS_PER_MM,
+        angleDeg: angleDeg ?? 0,
+      }
+    : null
+
+  return { point, snap: hit, angleDeg, orthoActive }
+}
 
 function cacheOtherBounds(canvas: Canvas, movingObj: FabricObject): void {
   cachedOtherBounds = canvas.getObjects()
@@ -227,6 +401,28 @@ let drawingMousePos: { x: number; y: number } | null = null
 let drawingNearStart = false // true when mouse is close to first point (snap-to-close)
 // Arc drawing: collects exactly 3 points
 let arcPoints: { x: number; y: number }[] = []
+// Formas por arrastre (rect / circulo / elipse): esquina inicial y actual
+let shiftHeld = false
+let dragShapeStart: { x: number; y: number } | null = null
+let dragShapeCurrent: { x: number; y: number } | null = null
+
+/** Caja normalizada del arrastre; con `square` fuerza proporcion 1:1. */
+function dragShapeBox(square: boolean): { left: number; top: number; width: number; height: number } | null {
+  if (!dragShapeStart || !dragShapeCurrent) return null
+  let dx = dragShapeCurrent.x - dragShapeStart.x
+  let dy = dragShapeCurrent.y - dragShapeStart.y
+  if (square) {
+    const side = Math.max(Math.abs(dx), Math.abs(dy))
+    dx = Math.sign(dx || 1) * side
+    dy = Math.sign(dy || 1) * side
+  }
+  return {
+    left: Math.min(dragShapeStart.x, dragShapeStart.x + dx),
+    top: Math.min(dragShapeStart.y, dragShapeStart.y + dy),
+    width: Math.abs(dx),
+    height: Math.abs(dy),
+  }
+}
 
 function distancePxBetween(a: { x: number; y: number }, b: { x: number; y: number }): number {
   return Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2)
@@ -416,6 +612,223 @@ function exitNodeEditing(canvas: Canvas): void {
   canvas.requestRenderAll()
 }
 
+const RULER_SIZE = 18
+
+/**
+ * Reglas en mm sobre los bordes del lienzo. Se dibujan en coordenadas de
+ * PANTALLA (sin la transform del viewport) para que no escalen con el zoom.
+ */
+function drawRulers(
+  ctx: CanvasRenderingContext2D,
+  canvas: Canvas,
+  workArea: { width: number; height: number; origin: string },
+): void {
+  const vpt = canvas.viewportTransform
+  if (!vpt) return
+  const zoom = canvas.getZoom() || 1
+  const w = canvas.getWidth()
+  const h = canvas.getHeight()
+
+  const { spacingMm } = effectiveGridSpacing(zoom)
+  // Las etiquetas necesitan mucho mas aire que las marcas: se eligen aparte
+  const labelStep = Math.max(spacingMm, niceStepMm(zoom, 64))
+  const originPos = getOriginPixels(
+    workArea.origin,
+    workArea.width * PIXELS_PER_MM,
+    workArea.height * PIXELS_PER_MM,
+    WORK_AREA_PADDING,
+    WORK_AREA_PADDING,
+  )
+  const flipY = workArea.origin.startsWith('bottom')
+
+  const screenX = (mm: number) => (originPos.x + mm * PIXELS_PER_MM) * zoom + vpt[4]
+  const screenY = (mm: number) =>
+    (flipY ? originPos.y - mm * PIXELS_PER_MM : originPos.y + mm * PIXELS_PER_MM) * zoom + vpt[5]
+
+  // Rango visible en mm
+  const mmAtX = (px: number) => ((px - vpt[4]) / zoom - originPos.x) / PIXELS_PER_MM
+  const mmAtY = (px: number) => {
+    const cy = (px - vpt[5]) / zoom
+    return flipY ? (originPos.y - cy) / PIXELS_PER_MM : (cy - originPos.y) / PIXELS_PER_MM
+  }
+
+  ctx.save()
+  ctx.setLineDash([])
+  ctx.font = '9px Inter, sans-serif'
+  ctx.textBaseline = 'middle'
+
+  // Franjas de fondo
+  ctx.fillStyle = 'rgba(248,247,252,0.97)'
+  ctx.fillRect(0, 0, w, RULER_SIZE)
+  ctx.fillRect(0, 0, RULER_SIZE, h)
+  ctx.strokeStyle = '#D6D1E6'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(0, RULER_SIZE + 0.5); ctx.lineTo(w, RULER_SIZE + 0.5)
+  ctx.moveTo(RULER_SIZE + 0.5, 0); ctx.lineTo(RULER_SIZE + 0.5, h)
+  ctx.stroke()
+
+  const decimals = labelStep < 1 ? 2 : labelStep < 10 ? 1 : 0
+
+  // ---- Regla horizontal ----
+  {
+    const from = Math.floor(mmAtX(RULER_SIZE) / spacingMm) * spacingMm
+    const to = Math.ceil(mmAtX(w) / spacingMm) * spacingMm
+    const steps = Math.min(4000, Math.max(0, Math.round((to - from) / spacingMm)))
+    ctx.strokeStyle = '#9B93B5'
+    ctx.fillStyle = '#5C5470'
+    ctx.textAlign = 'left'
+    for (let i = 0; i <= steps; i++) {
+      const mm = from + i * spacingMm
+      const x = screenX(mm)
+      if (x < RULER_SIZE || x > w) continue
+      const isMajor = Math.abs(mm / labelStep - Math.round(mm / labelStep)) < 1e-6
+      ctx.beginPath()
+      ctx.moveTo(Math.round(x) + 0.5, isMajor ? 3 : RULER_SIZE - 5)
+      ctx.lineTo(Math.round(x) + 0.5, RULER_SIZE)
+      ctx.stroke()
+      if (isMajor) ctx.fillText(mm.toFixed(decimals), x + 2, 7)
+    }
+  }
+
+  // ---- Regla vertical ----
+  {
+    const yTop = mmAtY(RULER_SIZE)
+    const yBottom = mmAtY(h)
+    const lo = Math.min(yTop, yBottom)
+    const hi = Math.max(yTop, yBottom)
+    const from = Math.floor(lo / spacingMm) * spacingMm
+    const steps = Math.min(4000, Math.max(0, Math.round((hi - from) / spacingMm)))
+    ctx.strokeStyle = '#9B93B5'
+    ctx.fillStyle = '#5C5470'
+    ctx.textAlign = 'center'
+    for (let i = 0; i <= steps; i++) {
+      const mm = from + i * spacingMm
+      const y = screenY(mm)
+      if (y < RULER_SIZE || y > h) continue
+      const isMajor = Math.abs(mm / labelStep - Math.round(mm / labelStep)) < 1e-6
+      ctx.beginPath()
+      ctx.moveTo(isMajor ? 3 : RULER_SIZE - 5, Math.round(y) + 0.5)
+      ctx.lineTo(RULER_SIZE, Math.round(y) + 0.5)
+      ctx.stroke()
+      if (isMajor) {
+        ctx.save()
+        ctx.translate(8, y)
+        ctx.rotate(-Math.PI / 2)
+        ctx.fillText(mm.toFixed(decimals), 0, 0)
+        ctx.restore()
+      }
+    }
+  }
+
+  // ---- Marcador del cursor ----
+  if (rulerCursor) {
+    ctx.strokeStyle = '#EF4444'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(Math.round(rulerCursor.x) + 0.5, 0)
+    ctx.lineTo(Math.round(rulerCursor.x) + 0.5, RULER_SIZE)
+    ctx.moveTo(0, Math.round(rulerCursor.y) + 0.5)
+    ctx.lineTo(RULER_SIZE, Math.round(rulerCursor.y) + 0.5)
+    ctx.stroke()
+  }
+
+  // Esquina
+  ctx.fillStyle = 'rgba(248,247,252,0.97)'
+  ctx.fillRect(0, 0, RULER_SIZE, RULER_SIZE)
+  ctx.strokeStyle = '#D6D1E6'
+  ctx.strokeRect(0.5, 0.5, RULER_SIZE, RULER_SIZE)
+  ctx.fillStyle = '#8B84A3'
+  ctx.textAlign = 'center'
+  ctx.fillText('mm', RULER_SIZE / 2, RULER_SIZE / 2)
+
+  ctx.restore()
+}
+
+/**
+ * Marcador del snap activo. Cada tipo tiene su glifo, como en cualquier CAD:
+ * cuadrado = extremo, triangulo = medio, circulo = centro, rombo = cuadrante,
+ * X = interseccion, y asi.
+ */
+function drawSnapMarker(
+  ctx: CanvasRenderingContext2D,
+  hit: SnapHit,
+  z: number,
+  label: string,
+): void {
+  const r = 6 / z
+  ctx.save()
+  ctx.translate(hit.x, hit.y)
+  ctx.strokeStyle = '#10B981'
+  ctx.fillStyle = 'rgba(16,185,129,0.18)'
+  ctx.lineWidth = 1.6 / z
+  ctx.setLineDash([])
+
+  switch (hit.kind) {
+    case 'endpoint':
+      ctx.beginPath(); ctx.rect(-r, -r, r * 2, r * 2); ctx.fill(); ctx.stroke()
+      break
+    case 'midpoint':
+      ctx.beginPath()
+      ctx.moveTo(0, -r); ctx.lineTo(r, r); ctx.lineTo(-r, r); ctx.closePath()
+      ctx.fill(); ctx.stroke()
+      break
+    case 'center':
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+      break
+    case 'quadrant':
+      ctx.beginPath()
+      ctx.moveTo(0, -r); ctx.lineTo(r, 0); ctx.lineTo(0, r); ctx.lineTo(-r, 0)
+      ctx.closePath(); ctx.fill(); ctx.stroke()
+      break
+    case 'intersection':
+      ctx.beginPath()
+      ctx.moveTo(-r, -r); ctx.lineTo(r, r)
+      ctx.moveTo(r, -r); ctx.lineTo(-r, r)
+      ctx.stroke()
+      break
+    case 'perpendicular':
+      ctx.beginPath()
+      ctx.moveTo(-r, -r); ctx.lineTo(-r, r); ctx.lineTo(r, r)
+      ctx.moveTo(-r, 0); ctx.lineTo(0, 0); ctx.lineTo(0, r)
+      ctx.stroke()
+      break
+    case 'tangent':
+      ctx.beginPath(); ctx.arc(0, r * 0.2, r * 0.8, 0, Math.PI * 2); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(-r, -r * 0.7); ctx.lineTo(r, -r * 0.7); ctx.stroke()
+      break
+    case 'grid':
+      ctx.beginPath()
+      ctx.moveTo(-r, 0); ctx.lineTo(r, 0)
+      ctx.moveTo(0, -r); ctx.lineTo(0, r)
+      ctx.stroke()
+      break
+    case 'onEdge':
+      ctx.beginPath()
+      ctx.moveTo(-r, -r * 0.6); ctx.lineTo(r, -r * 0.6)
+      ctx.moveTo(-r, r * 0.6); ctx.lineTo(r, r * 0.6)
+      ctx.stroke()
+      break
+  }
+  ctx.restore()
+
+  if (!label) return
+  const fontSize = 10 / z
+  ctx.save()
+  ctx.font = `${fontSize}px Inter, sans-serif`
+  const tw = ctx.measureText(label).width
+  const pad = 3 / z
+  const lx = hit.x + 10 / z
+  const ly = hit.y - 10 / z
+  ctx.fillStyle = 'rgba(16,185,129,0.92)'
+  ctx.fillRect(lx, ly - fontSize, tw + pad * 2, fontSize + pad * 2)
+  ctx.fillStyle = '#FFFFFF'
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(label, lx + pad, ly - fontSize / 2 + pad / 2)
+  ctx.restore()
+}
+
 interface ContextMenuState {
   visible: boolean
   x: number
@@ -437,9 +850,16 @@ export function DesignCanvas() {
   })
 
   const { t } = useTranslation('canvas')
+  // after:render corre dentro del effect de montaje: leemos t por ref para que
+  // las etiquetas dibujadas sigan el idioma activo sin recrear el canvas.
+  const tRef = useRef(t)
+  tRef.current = t
   const { 
     workArea, 
     showGrid, 
+    gridSpacingMm,
+    gridAdaptive,
+    showRulers,
     selectElement, 
     setSelectedElements, 
     setIsGroupSelection,
@@ -455,9 +875,10 @@ export function DesignCanvas() {
   const cm = useCanvasManager()
   const { setCanvas, updateSelectedObjectProps } = cm
   const [distanceOverlay, setDistanceOverlay] = useState<{
-    screenX: number; screenY: number; valueMm: string
+    screenX: number; screenY: number; valueMm: string; angleDeg: string
   } | null>(null)
   const distanceInputRef = useRef<HTMLInputElement>(null)
+  const angleInputRef = useRef<HTMLInputElement>(null)
   const [cotaEdit, setCotaEdit] = useState<{
     screenX: number; screenY: number; valueMm: string
     cota: CotaData
@@ -588,6 +1009,41 @@ export function DesignCanvas() {
       }
     })
 
+    // ---- Event: posicion del cursor (footer + marcador en las reglas) ----
+    let cursorRaf = 0
+    let lastRulerPaint = { x: -1, y: -1 }
+    canvas.on('mouse:move', (opt) => {
+      const evt = opt.e as MouseEvent
+      rulerCursor = { x: evt.offsetX, y: evt.offsetY }
+      if (cursorRaf) return
+      cursorRaf = requestAnimationFrame(() => {
+        cursorRaf = 0
+        if (!rulerCursor) return
+        // Repintar solo si el cursor cambio de pixel: evita renders en vano
+        const moved =
+          Math.round(rulerCursor.x) !== lastRulerPaint.x ||
+          Math.round(rulerCursor.y) !== lastRulerPaint.y
+        if (!moved) return
+        lastRulerPaint = { x: Math.round(rulerCursor.x), y: Math.round(rulerCursor.y) }
+        const vptNow = canvas.viewportTransform
+        if (!vptNow) return
+        const zoomNow = canvas.getZoom() || 1
+        const state = useCanvasStore.getState()
+        state.setCursorMm(canvasToMm(
+          (rulerCursor.x - vptNow[4]) / zoomNow,
+          (rulerCursor.y - vptNow[5]) / zoomNow,
+          state.workArea,
+        ))
+        if (state.showRulers) canvas.requestRenderAll()
+      })
+    })
+
+    canvas.on('mouse:out', () => {
+      rulerCursor = null
+      useCanvasStore.getState().setCursorMm(null)
+      canvas.requestRenderAll()
+    })
+
     // ---- Event: Right-click context menu ----
     canvas.on('mouse:down', (opt) => {
       const evt = opt.e as MouseEvent
@@ -652,6 +1108,11 @@ export function DesignCanvas() {
       updateSelectedObjectProps()
     }
 
+    // El indice de snap se invalida ante cualquier cambio de geometria
+    canvas.on('object:added', invalidateSnapIndex)
+    canvas.on('object:removed', invalidateSnapIndex)
+    canvas.on('object:modified', invalidateSnapIndex)
+
     canvas.on('selection:created', (opt) => syncSelection(opt.selected))
     canvas.on('selection:updated', (opt) => syncSelection(opt.selected))
 
@@ -679,7 +1140,8 @@ export function DesignCanvas() {
 
       // ---- Grid ----
       if (wa.showGrid) {
-        const gridPx = GRID_SPACING_MM * PIXELS_PER_MM
+        const { spacingMm, major } = effectiveGridSpacing(z)
+        const gridPx = spacingMm * PIXELS_PER_MM
         const ox = WORK_AREA_PADDING
         const oy = WORK_AREA_PADDING
         const workW = wa.workArea.width * PIXELS_PER_MM
@@ -693,12 +1155,12 @@ export function DesignCanvas() {
         ctx.setLineDash([])
         ctx.beginPath()
         for (let i = 1; i <= totalCols; i++) {
-          if (i % GRID_MAJOR_EVERY === 0) continue
+          if (i % major === 0) continue
           const x = ox + i * gridPx
           ctx.moveTo(x, oy); ctx.lineTo(x, oy + workH)
         }
         for (let i = 1; i <= totalRows; i++) {
-          if (i % GRID_MAJOR_EVERY === 0) continue
+          if (i % major === 0) continue
           const y = oy + i * gridPx
           ctx.moveTo(ox, y); ctx.lineTo(ox + workW, y)
         }
@@ -708,11 +1170,11 @@ export function DesignCanvas() {
         ctx.strokeStyle = '#8B7BBF'
         ctx.lineWidth = 1 / z
         ctx.beginPath()
-        for (let i = GRID_MAJOR_EVERY; i <= totalCols; i += GRID_MAJOR_EVERY) {
+        for (let i = major; i <= totalCols; i += major) {
           const x = ox + i * gridPx
           ctx.moveTo(x, oy); ctx.lineTo(x, oy + workH)
         }
-        for (let i = GRID_MAJOR_EVERY; i <= totalRows; i += GRID_MAJOR_EVERY) {
+        for (let i = major; i <= totalRows; i += major) {
           const y = oy + i * gridPx
           ctx.moveTo(ox, y); ctx.lineTo(ox + workW, y)
         }
@@ -798,6 +1260,50 @@ export function DesignCanvas() {
           ctx.beginPath()
           ctx.arc(fp.x, fp.y, 4 / z, 0, Math.PI * 2)
           ctx.fill()
+        }
+      }
+
+      // ---- Preview de forma por arrastre ----
+      if (dragShapeStart && dragShapeCurrent) {
+        const mode = wa.drawingMode
+        const box = dragShapeBox(shiftHeld)
+        if (box && (box.width > 0 || box.height > 0)) {
+          ctx.strokeStyle = '#0EA5E9'
+          ctx.lineWidth = 1.5 / z
+          ctx.setLineDash([6 / z, 4 / z])
+          ctx.beginPath()
+          if (mode === 'circle') {
+            const r = Math.min(box.width, box.height) / 2
+            ctx.arc(box.left + r, box.top + r, r, 0, Math.PI * 2)
+          } else if (mode === 'ellipse') {
+            ctx.ellipse(
+              box.left + box.width / 2, box.top + box.height / 2,
+              box.width / 2, box.height / 2, 0, 0, Math.PI * 2,
+            )
+          } else {
+            ctx.rect(box.left, box.top, box.width, box.height)
+          }
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          // Medidas junto al cursor
+          const wMm = box.width / PIXELS_PER_MM
+          const hMm = box.height / PIXELS_PER_MM
+          const text = mode === 'circle'
+            ? `⌀ ${(Math.min(wMm, hMm)).toFixed(2)} mm`
+            : `${wMm.toFixed(2)} x ${hMm.toFixed(2)} mm`
+          const fontSize = 11 / z
+          ctx.font = `bold ${fontSize}px Inter, sans-serif`
+          const tw = ctx.measureText(text).width
+          const pad = 4 / z
+          const bx = dragShapeCurrent.x + 14 / z
+          const by = dragShapeCurrent.y + 14 / z
+          ctx.fillStyle = 'rgba(15,23,42,0.88)'
+          ctx.fillRect(bx, by, tw + pad * 2, fontSize + pad * 2)
+          ctx.fillStyle = '#F8FAFC'
+          ctx.textAlign = 'left'
+          ctx.textBaseline = 'top'
+          ctx.fillText(text, bx + pad, by + pad)
         }
       }
 
@@ -1197,7 +1703,61 @@ export function DesignCanvas() {
         ctx.restore()
       }
 
+      // ---- Ortho / polar: rayo guia ----
+      if (orthoRay) {
+        const dx = orthoRay.to.x - orthoRay.from.x
+        const dy = orthoRay.to.y - orthoRay.from.y
+        const len = Math.hypot(dx, dy)
+        if (len > 1e-6) {
+          // Extiende el rayo mas alla del cursor para que se lea la direccion
+          const ext = 2000 / z
+          ctx.save()
+          ctx.strokeStyle = 'rgba(16,185,129,0.55)'
+          ctx.lineWidth = 1 / z
+          ctx.setLineDash([8 / z, 5 / z])
+          ctx.beginPath()
+          ctx.moveTo(orthoRay.from.x, orthoRay.from.y)
+          ctx.lineTo(orthoRay.from.x + (dx / len) * ext, orthoRay.from.y + (dy / len) * ext)
+          ctx.stroke()
+          ctx.restore()
+        }
+      }
+
+      // ---- HUD de longitud / angulo junto al cursor ----
+      if (cursorHud && (wa.drawingMode || wa.measuringMode)) {
+        const text = `${cursorHud.lengthMm.toFixed(2)} mm  ${cursorHud.angleDeg.toFixed(1)}°`
+        const fontSize = 11 / z
+        ctx.save()
+        ctx.font = `bold ${fontSize}px Inter, sans-serif`
+        const tw = ctx.measureText(text).width
+        const pad = 4 / z
+        const bx = cursorHud.x + 14 / z
+        const by = cursorHud.y + 14 / z
+        ctx.fillStyle = 'rgba(15,23,42,0.88)'
+        ctx.fillRect(bx, by, tw + pad * 2, fontSize + pad * 2)
+        ctx.fillStyle = '#F8FAFC'
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'top'
+        ctx.fillText(text, bx + pad, by + pad)
+        ctx.restore()
+      }
+
+      // ---- Marcador del snap activo ----
+      if (activeSnap) {
+        drawSnapMarker(ctx, activeSnap, z, tRef.current(`snapKind.${activeSnap.kind}`))
+      }
+
       ctx.restore()
+
+      // ---- Reglas (fuera de la transform: siempre en pantalla) ----
+      if (wa.showRulers) {
+        drawRulers(ctx, canvas, wa.workArea)
+      }
+
+      // Mantener el zoom del store sincronizado para el footer
+      if (Math.abs(z - wa.zoomLevel) > 1e-6) {
+        useCanvasStore.getState().setZoomLevel(z)
+      }
     })
 
     // ---- Cota hover detection — change color when mouse is near a cota label ----
@@ -1249,12 +1809,12 @@ export function DesignCanvas() {
 
       const snapState = useCanvasStore.getState()
       if (snapState.snapToGrid || snapState.snapToObjects) {
-        const gridSpacingPx = GRID_SPACING_MM * PIXELS_PER_MM
+        const gridSpacing = gridSpacingPx(canvas.getZoom())
         const snap = calculateSnap(
           canvas.getZoom(), obj,
           snapState.snapToGrid,
           snapState.snapToObjects,
-          gridSpacingPx,
+          gridSpacing,
           snapState.workArea,
         )
         if (snap.dx !== 0 || snap.dy !== 0) {
@@ -1280,12 +1840,12 @@ export function DesignCanvas() {
       if (obj && isDragging) {
         const snapState = useCanvasStore.getState()
         if (snapState.snapToGrid || snapState.snapToObjects) {
-          const gridSpacingPx = GRID_SPACING_MM * PIXELS_PER_MM
+          const gridSpacing = gridSpacingPx(canvas.getZoom())
           const snap = calculateSnap(
             canvas.getZoom(), obj,
             snapState.snapToGrid,
             snapState.snapToObjects,
-            gridSpacingPx,
+            gridSpacing,
             snapState.workArea,
           )
           if (snap.dx !== 0 || snap.dy !== 0) {
@@ -1479,10 +2039,14 @@ export function DesignCanvas() {
           } else {
             targetX = nodeDragStartPos.x
           }
-        } else if (state.snapToGrid) {
-          const gridPx = GRID_SPACING_MM * PIXELS_PER_MM
-          targetX = Math.round(cx / gridPx) * gridPx
-          targetY = Math.round(cy / gridPx) * gridPx
+          clearSnapFeedback()
+        } else {
+          // Snap geometrico + grilla contra el resto de la geometria
+          const snapped = resolveSnappedPoint(
+            canvas, { x: cx, y: cy }, null, false, nodeEditObject,
+          )
+          targetX = snapped.point.x
+          targetY = snapped.point.y
         }
 
         // Apply persistent constraints (H/V/fixed)
@@ -1505,6 +2069,10 @@ export function DesignCanvas() {
       const segHit = hitIdx < 0 ? hitTestSegment(nodeEditData, cx, cy, threshold) : null
 
       let needRender = false
+      if (activeSnap) {
+        clearSnapFeedback()
+        needRender = true
+      }
       if (hitIdx !== nodeHoverIndex) {
         nodeHoverIndex = hitIdx
         needRender = true
@@ -1639,6 +2207,25 @@ export function DesignCanvas() {
       }
     }
 
+    // Entrar a edicion de nodos desde el teclado (tecla N)
+    const handleNodeEnter = () => {
+      const active = canvas.getActiveObject()
+      if (!active || !(active instanceof Path || active instanceof FabricPolygon)) return
+      const elId = getCustomProp(active, ELEMENT_ID_KEY)
+      if (typeof elId !== 'string') return
+      const data = extractNodes(active)
+      if (!data || data.nodes.length === 0) return
+      nodeEditData = data
+      nodeEditObject = active
+      active.selectable = false
+      active.evented = false
+      canvas.discardActiveObject()
+      canvas.selection = false
+      useCanvasStore.getState().setNodeEditing(elId)
+      canvas.requestRenderAll()
+    }
+
+    window.addEventListener('node-edit:enter', handleNodeEnter)
     window.addEventListener('node-edit:exit', handleNodeExit)
     window.addEventListener('node-edit:delete', handleNodeDelete)
     window.addEventListener('node-edit:toggle-smooth', handleNodeToggleSmooth)
@@ -1678,6 +2265,7 @@ export function DesignCanvas() {
 
     // Cleanup
     return () => {
+      window.removeEventListener('node-edit:enter', handleNodeEnter)
       window.removeEventListener('node-edit:exit', handleNodeExit)
       window.removeEventListener('node-edit:delete', handleNodeDelete)
       window.removeEventListener('node-edit:toggle-smooth', handleNodeToggleSmooth)
@@ -1705,6 +2293,13 @@ export function DesignCanvas() {
   }, [rebuildWorkArea])
 
   // ------------------------------------------
+  // Repintar al cambiar grilla o reglas
+  // ------------------------------------------
+  useEffect(() => {
+    fabricRef.current?.requestRenderAll()
+  }, [gridSpacingMm, gridAdaptive, showRulers, showGrid])
+
+  // ------------------------------------------
   // Drawing mode: setup/teardown event handlers
   // ------------------------------------------
   useEffect(() => {
@@ -1713,9 +2308,12 @@ export function DesignCanvas() {
 
     if (!drawingMode && !measuringMode && !trimMode && !extendMode) {
       // Clean up drawing state when exiting
-      if (drawingPoints.length > 0 || arcPoints.length > 0 || measureStart || measureAnglePoints.length > 0) {
+      clearSnapFeedback()
+      if (drawingPoints.length > 0 || arcPoints.length > 0 || measureStart || measureAnglePoints.length > 0 || dragShapeStart) {
         drawingPoints = []
         arcPoints = []
+        dragShapeStart = null
+        dragShapeCurrent = null
         drawingMousePos = null
         measureStart = null
         measureEnd = null
@@ -1740,6 +2338,8 @@ export function DesignCanvas() {
     drawingMousePos = null
     drawingNearStart = false
     arcPoints = []
+    dragShapeStart = null
+    dragShapeCurrent = null
     setDistanceOverlay(null)
     canvas.requestRenderAll()
 
@@ -1750,13 +2350,30 @@ export function DesignCanvas() {
       return { x: (evt.offsetX - vpt[4]) / zoom, y: (evt.offsetY - vpt[5]) / zoom }
     }
 
+    // El indice de snap se arma al entrar al modo; los cambios de geometria
+    // lo invalidan via los listeners de object:added/removed/modified.
+    invalidateSnapIndex()
+
+    /**
+     * Punto del cursor ya pasado por ortho + snap. `reference` es el ultimo
+     * punto colocado (o null si es el primero del trazo).
+     */
+    const getSnappedCoords = (evt: MouseEvent, reference: Point2D | null): Point2D =>
+      resolveSnappedPoint(canvas, getCanvasCoords(evt), reference, evt.shiftKey).point
+
+    const lastDrawingPoint = (): Point2D | null =>
+      drawingPoints.length > 0 ? drawingPoints[drawingPoints.length - 1] : null
+
     const cancelAll = () => {
       drawingPoints = []; arcPoints = []; drawingMousePos = null; drawingNearStart = false
+      dragShapeStart = null; dragShapeCurrent = null
+      clearSnapFeedback()
       setDistanceOverlay(null); setDrawingMode(null); canvas.requestRenderAll()
     }
 
     let handleMouseDown: (opt: { e: Event }) => void
     let handleMouseMove: (opt: { e: Event }) => void
+    let handleMouseUp: ((opt: { e: Event }) => void) | null = null
     let handleDblClick: (() => void) | null = null
     let handleKeyDown: (e: KeyboardEvent) => void
 
@@ -1783,6 +2400,7 @@ export function DesignCanvas() {
           screenX: ((prev.x + curr.x) / 2) * zoom + vpt[4],
           screenY: ((prev.y + curr.y) / 2) * zoom + vpt[5] - 30,
           valueMm: dist.toFixed(2),
+          angleDeg: angleDegCad(prev, curr).toFixed(1),
         })
         setTimeout(() => distanceInputRef.current?.select(), 50)
       }
@@ -1796,14 +2414,15 @@ export function DesignCanvas() {
       handleMouseDown = (opt) => {
         const evt = opt.e as MouseEvent
         if (evt.button !== 0 || evt.altKey) return
-        const { x, y } = getCanvasCoords(evt)
+        const { x, y } = getSnappedCoords(evt, lastDrawingPoint())
         if (isNearFirstPoint(x, y)) { finishLine(true); return }
         drawingPoints.push({ x, y }); canvas.requestRenderAll(); showOverlay()
       }
 
       handleMouseMove = (opt) => {
-        if (drawingPoints.length === 0) return
-        const { x, y } = getCanvasCoords(opt.e as MouseEvent)
+        const evt = opt.e as MouseEvent
+        const { x, y } = getSnappedCoords(evt, lastDrawingPoint())
+        if (drawingPoints.length === 0) { canvas.requestRenderAll(); return }
         drawingMousePos = { x, y }; drawingNearStart = isNearFirstPoint(x, y)
         canvas.requestRenderAll()
       }
@@ -1814,12 +2433,15 @@ export function DesignCanvas() {
       }
 
       handleKeyDown = (e) => {
+        const inOverlayInput =
+          document.activeElement === distanceInputRef.current ||
+          document.activeElement === angleInputRef.current
         if (e.key === 'Escape') {
           e.preventDefault()
-          if (document.activeElement === distanceInputRef.current) { distanceInputRef.current!.blur(); return }
+          if (inOverlayInput) { (document.activeElement as HTMLElement).blur(); return }
           cancelAll()
         } else if (e.key === 'Enter') {
-          if (document.activeElement === distanceInputRef.current) return
+          if (inOverlayInput) return
           e.preventDefault(); finishLine()
         }
       }
@@ -1828,7 +2450,7 @@ export function DesignCanvas() {
       handleMouseDown = (opt) => {
         const evt = opt.e as MouseEvent
         if (evt.button !== 0 || evt.altKey) return
-        const pt = getCanvasCoords(evt)
+        const pt = getSnappedCoords(evt, arcPoints.length > 0 ? arcPoints[arcPoints.length - 1] : null)
         arcPoints.push(pt)
         canvas.requestRenderAll()
 
@@ -1840,8 +2462,10 @@ export function DesignCanvas() {
       }
 
       handleMouseMove = (opt) => {
-        if (arcPoints.length === 0) return
-        drawingMousePos = getCanvasCoords(opt.e as MouseEvent)
+        const evt = opt.e as MouseEvent
+        const pt = getSnappedCoords(evt, arcPoints.length > 0 ? arcPoints[arcPoints.length - 1] : null)
+        if (arcPoints.length === 0) { canvas.requestRenderAll(); return }
+        drawingMousePos = pt
         canvas.requestRenderAll()
       }
 
@@ -1869,14 +2493,15 @@ export function DesignCanvas() {
       handleMouseDown = (opt) => {
         const evt = opt.e as MouseEvent
         if (evt.button !== 0 || evt.altKey) return
-        const { x, y } = getCanvasCoords(evt)
+        const { x, y } = getSnappedCoords(evt, lastDrawingPoint())
         if (isNearFirst(x, y)) { finishBezier(true); return }
         drawingPoints.push({ x, y }); canvas.requestRenderAll()
       }
 
       handleMouseMove = (opt) => {
-        if (drawingPoints.length === 0) return
-        const { x, y } = getCanvasCoords(opt.e as MouseEvent)
+        const evt = opt.e as MouseEvent
+        const { x, y } = getSnappedCoords(evt, lastDrawingPoint())
+        if (drawingPoints.length === 0) { canvas.requestRenderAll(); return }
         drawingMousePos = { x, y }; drawingNearStart = isNearFirst(x, y)
         canvas.requestRenderAll()
       }
@@ -1890,12 +2515,53 @@ export function DesignCanvas() {
         if (e.key === 'Escape') { e.preventDefault(); cancelAll() }
         else if (e.key === 'Enter') { e.preventDefault(); finishBezier() }
       }
+    } else if (drawingMode === 'rect' || drawingMode === 'circle' || drawingMode === 'ellipse') {
+      // ===== FORMAS POR ARRASTRE =====
+      const shapeType = drawingMode
+
+      handleMouseDown = (opt) => {
+        const evt = opt.e as MouseEvent
+        if (evt.button !== 0 || evt.altKey) return
+        // Sin referencia: aca Shift significa proporcion 1:1, no ortho
+        const pt = resolveSnappedPoint(canvas, getCanvasCoords(evt), null, false).point
+        dragShapeStart = pt
+        dragShapeCurrent = pt
+        canvas.requestRenderAll()
+      }
+
+      handleMouseMove = (opt) => {
+        const evt = opt.e as MouseEvent
+        shiftHeld = evt.shiftKey
+        const pt = resolveSnappedPoint(canvas, getCanvasCoords(evt), null, false).point
+        if (!dragShapeStart) { canvas.requestRenderAll(); return }
+        dragShapeCurrent = pt
+        canvas.requestRenderAll()
+      }
+
+      handleMouseUp = (opt) => {
+        const evt = opt.e as MouseEvent
+        if (!dragShapeStart) return
+        const box = dragShapeBox(evt.shiftKey)
+        dragShapeStart = null
+        dragShapeCurrent = null
+        clearSnapFeedback()
+        if (box && box.width >= 2 && box.height >= 2) {
+          cm.addShapeAt(shapeType, box)
+          setDrawingMode(null)
+        } else {
+          canvas.requestRenderAll()
+        }
+      }
+
+      handleKeyDown = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); cancelAll() }
+      }
     } else if (drawingMode === 'cota') {
       // ===== COTA DRAWING MODE =====
       handleMouseDown = (opt) => {
         const evt = opt.e as MouseEvent
         if (evt.button !== 0 || evt.altKey) return
-        const pt = getCanvasCoords(evt)
+        const pt = getSnappedCoords(evt, lastDrawingPoint())
         drawingPoints.push(pt)
         if (drawingPoints.length === 2) {
           cm.addCota(drawingPoints[0], drawingPoints[1])
@@ -1906,8 +2572,10 @@ export function DesignCanvas() {
       }
 
       handleMouseMove = (opt) => {
-        if (drawingPoints.length === 0) return
-        drawingMousePos = getCanvasCoords(opt.e as MouseEvent)
+        const evt = opt.e as MouseEvent
+        const pt = getSnappedCoords(evt, lastDrawingPoint())
+        if (drawingPoints.length === 0) { canvas.requestRenderAll(); return }
+        drawingMousePos = pt
         canvas.requestRenderAll()
       }
 
@@ -1919,7 +2587,7 @@ export function DesignCanvas() {
       handleMouseDown = (opt) => {
         const evt = opt.e as MouseEvent
         if (evt.button !== 0 || evt.altKey) return
-        const pt = getCanvasCoords(evt)
+        const pt = getSnappedCoords(evt, measureStart)
         if (!measureStart) {
           measureStart = new Point(pt.x, pt.y)
         } else {
@@ -1931,8 +2599,9 @@ export function DesignCanvas() {
       }
 
       handleMouseMove = (opt) => {
-        if (!measureStart) return
-        const pt = getCanvasCoords(opt.e as MouseEvent)
+        const evt = opt.e as MouseEvent
+        const pt = getSnappedCoords(evt, measureStart)
+        if (!measureStart) { canvas.requestRenderAll(); return }
         measureEnd = new Point(pt.x, pt.y)
         canvas.requestRenderAll()
       }
@@ -1950,7 +2619,10 @@ export function DesignCanvas() {
       handleMouseDown = (opt) => {
         const evt = opt.e as MouseEvent
         if (evt.button !== 0 || evt.altKey) return
-        const pt = getCanvasCoords(evt)
+        const angleRef = measureAnglePoints.length > 0
+          ? measureAnglePoints[measureAnglePoints.length - 1]
+          : null
+        const pt = getSnappedCoords(evt, angleRef)
         measureAnglePoints.push(new Point(pt.x, pt.y))
 
         if (measureAnglePoints.length === 3) {
@@ -1964,8 +2636,15 @@ export function DesignCanvas() {
       }
 
       handleMouseMove = (opt) => {
-        if (measureAnglePoints.length < 2 || measureAnglePoints.length >= 3) return
-        const pt = getCanvasCoords(opt.e as MouseEvent)
+        const evt = opt.e as MouseEvent
+        const angleRef = measureAnglePoints.length > 0
+          ? measureAnglePoints[measureAnglePoints.length - 1]
+          : null
+        const pt = getSnappedCoords(evt, angleRef)
+        if (measureAnglePoints.length < 2 || measureAnglePoints.length >= 3) {
+          canvas.requestRenderAll()
+          return
+        }
         measureEnd = new Point(pt.x, pt.y)
         canvas.requestRenderAll()
       }
@@ -2113,18 +2792,38 @@ export function DesignCanvas() {
 
     canvas.on('mouse:down', handleMouseDown)
     canvas.on('mouse:move', handleMouseMove)
+    if (handleMouseUp) canvas.on('mouse:up', handleMouseUp)
     if (handleDblClick) canvas.on('mouse:dblclick', handleDblClick)
     window.addEventListener('keydown', handleKeyDown)
 
     return () => {
       canvas.off('mouse:down', handleMouseDown)
       canvas.off('mouse:move', handleMouseMove)
+      if (handleMouseUp) canvas.off('mouse:up', handleMouseUp)
       if (handleDblClick) canvas.off('mouse:dblclick', handleDblClick)
       window.removeEventListener('keydown', handleKeyDown)
+      clearSnapFeedback()
+      canvas.requestRenderAll()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [drawingMode, measuringMode, trimMode, extendMode])
   // ------------------------------------------
+  // Recoloca el overlay sobre el tramo recien editado
+  const repositionDrawingOverlay = useCallback(() => {
+    const canvas = fabricRef.current
+    if (!canvas || drawingPoints.length < 2) return
+    const prev = drawingPoints[drawingPoints.length - 2]
+    const curr = drawingPoints[drawingPoints.length - 1]
+    const vpt = canvas.viewportTransform!
+    const zoom = canvas.getZoom()
+    setDistanceOverlay(o => o ? {
+      ...o,
+      screenX: ((prev.x + curr.x) / 2) * zoom + vpt[4],
+      screenY: ((prev.y + curr.y) / 2) * zoom + vpt[5] - 30,
+    } : null)
+    canvas.requestRenderAll()
+  }, [])
+
   // Handle distance input change — adjust last point in real time
   // ------------------------------------------
   const handleDistanceChange = useCallback((newValue: string) => {
@@ -2147,17 +2846,33 @@ export function DesignCanvas() {
       y: prev.y + dy * scale,
     }
 
-    const canvas = fabricRef.current
-    if (canvas) {
-      const newCurr = drawingPoints[drawingPoints.length - 1]
-      const vpt = canvas.viewportTransform!
-      const zoom = canvas.getZoom()
-      const midX = ((prev.x + newCurr.x) / 2) * zoom + vpt[4]
-      const midY = ((prev.y + newCurr.y) / 2) * zoom + vpt[5]
-      setDistanceOverlay({ screenX: midX, screenY: midY - 30, valueMm: newValue })
-      canvas.requestRenderAll()
-    }
+    repositionDrawingOverlay()
   }, [])
+
+  // ------------------------------------------
+  // Handle angle input change — rota el ultimo tramo manteniendo su largo
+  // ------------------------------------------
+  const handleAngleChange = useCallback((newValue: string) => {
+    setDistanceOverlay(prev => prev ? { ...prev, angleDeg: newValue } : null)
+
+    const deg = parseFloat(newValue)
+    if (isNaN(deg) || drawingPoints.length < 2) return
+
+    const prev = drawingPoints[drawingPoints.length - 2]
+    const curr = drawingPoints[drawingPoints.length - 1]
+    const len = distancePxBetween(prev, curr)
+    if (len === 0) return
+
+    // Grados CAD (Y hacia arriba) -> radianes de canvas (Y hacia abajo)
+    const rad = (-deg * Math.PI) / 180
+    drawingPoints[drawingPoints.length - 1] = {
+      x: prev.x + Math.cos(rad) * len,
+      y: prev.y + Math.sin(rad) * len,
+    }
+
+    repositionDrawingOverlay()
+  }, [])
+
 
   // ------------------------------------------
   // Apply cota edit — adjust object dimension
@@ -2266,6 +2981,7 @@ export function DesignCanvas() {
             type="number"
             step="0.1"
             min="0"
+            title={t('distanceMm')}
             className="w-20 h-6 text-xs text-center bg-transparent border rounded px-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             value={distanceOverlay.valueMm}
             onChange={(e) => handleDistanceChange(e.target.value)}
@@ -2273,11 +2989,34 @@ export function DesignCanvas() {
               if (e.key === 'Enter') {
                 e.preventDefault()
                 distanceInputRef.current?.blur()
+              } else if (e.key === 'Tab' && !e.shiftKey) {
+                e.preventDefault()
+                angleInputRef.current?.select()
               }
               e.stopPropagation()
             }}
           />
           <span className="text-xs text-muted-foreground">mm</span>
+          <input
+            ref={angleInputRef}
+            type="number"
+            step="1"
+            title={t('angleDeg')}
+            className="w-16 h-6 text-xs text-center bg-transparent border rounded px-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            value={distanceOverlay.angleDeg}
+            onChange={(e) => handleAngleChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                angleInputRef.current?.blur()
+              } else if (e.key === 'Tab' && e.shiftKey) {
+                e.preventDefault()
+                distanceInputRef.current?.select()
+              }
+              e.stopPropagation()
+            }}
+          />
+          <span className="text-xs text-muted-foreground">°</span>
         </div>
       )}
 
