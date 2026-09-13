@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
-import type { GlobalConfig } from '@/lib/types'
+import { normalizeConfig } from '@/lib/config-defaults'
+import type { GlobalConfig, Stock } from '@/lib/types'
 
 export interface CAMOperation {
   id: string
@@ -45,6 +46,9 @@ export interface CAMSetup {
   toolChangePosition: ParkPosition // center of tool change area
   toolChangeSize: { width: number; height: number } // area size (0 = point)
   clamps: CAMClamp[] // visual clamp positions
+  stock: Stock // bloque de material sobre la mesa
+  /** Reordena las operaciones por cercania antes de generar. */
+  optimizeOrder: boolean
 }
 
 interface CAMState {
@@ -55,6 +59,8 @@ interface CAMState {
   selectedMarkerId: string | null
   soloOperationId: string | null
   operationOrder: string[]
+  /** Ids apagados que vinieron del proyecto y aun no se reconciliaron. */
+  restoredDisabled?: Set<string>
 
   // Actions
   syncFromCanvas: () => void
@@ -64,6 +70,15 @@ interface CAMState {
   soloOperation: (id: string | null) => void
   updateOperationConfig: (id: string, updates: Partial<GlobalConfig>) => void
   reorderOperations: (fromIndex: number, toIndex: number) => void
+  /** Mueve `dragId` justo antes de `targetId` en el orden del arbol. */
+  moveOperationBefore: (dragId: string, targetId: string) => void
+  /** Agrega una operacion mas al elemento de `id`, copiando su config. */
+  addOperation: (opId: string) => void
+  duplicateOperation: (opId: string) => void
+  /** Solo se puede borrar si al elemento le queda al menos una operacion. */
+  removeOperation: (opId: string) => boolean
+  /** Copia la config de `opId` a todas las operaciones del mismo tipo. */
+  applyConfigToAll: (opId: string, onlySameWorkType?: boolean) => number
   validateOperation: (op: CAMOperation) => { status: 'valid' | 'warning' | 'error'; warnings: string[] }
   // Timeline markers
   addTimelineMarker: (progress: number, type: CAMMarkerType) => void
@@ -75,9 +90,20 @@ interface CAMState {
   addClamp: () => void
   updateClamp: (id: string, updates: Partial<Omit<CAMClamp, 'id'>>) => void
   removeClamp: (id: string) => void
+  // Persistencia en el proyecto
+  serialize: () => CAMSnapshot
+  restore: (snapshot: CAMSnapshot | null | undefined) => void
 }
 
-function validateOp(op: CAMOperation): { status: 'valid' | 'warning' | 'error'; warnings: string[] } {
+/** Lo que del CAM vale la pena guardar en el proyecto. */
+export interface CAMSnapshot {
+  setup: CAMSetup
+  markers: CAMMarker[]
+  operationOrder: string[]
+  disabledOperations: string[]
+}
+
+function validateOp(op: CAMOperation, stock?: Stock): { status: 'valid' | 'warning' | 'error'; warnings: string[] } {
   const warnings: string[] = []
   const cfg = op.config
 
@@ -93,6 +119,33 @@ function validateOp(op: CAMOperation): { status: 'valid' | 'warning' | 'error'; 
     }
     if (cfg.feedRate <= 0) {
       warnings.push('Feedrate = 0')
+    }
+
+    // Profundidad contra el bloque de material definido en el setup
+    if (stock?.enabled && stock.thickness > 0) {
+      const cut = Math.abs(cfg.depth)
+      if (cut > stock.thickness + 0.001) {
+        warnings.push(`Corta ${cut.toFixed(1)}mm en un stock de ${stock.thickness}mm`)
+      } else if (cfg.workType === 'outside' || cfg.workType === 'inside' || cfg.workType === 'outline') {
+        if (cut < stock.thickness) {
+          warnings.push(`El corte no atraviesa el stock (${cut.toFixed(1)} de ${stock.thickness}mm)`)
+        }
+      }
+    }
+
+    if (cfg.finishPassEnabled && cfg.finishAllowance <= 0) {
+      warnings.push('Pasada de acabado sin sobremedida: no deja material que sacar')
+    }
+    if (cfg.toolDiameter > 0 && cfg.finishAllowance >= cfg.toolDiameter) {
+      warnings.push('Sobremedida mayor que la fresa')
+    }
+    if (cfg.tabMode === 'manual' && cfg.tabsEnabled && cfg.tabPositions.length === 0) {
+      warnings.push('Tabs manuales sin posiciones definidas')
+    }
+    // Un control que compensa el radio necesita entrar al contorno con un
+    // movimiento previo; sin lead-in la compensacion arranca sobre la pieza.
+    if (cfg.cutterComp !== 'off' && cfg.leadType === 'none') {
+      warnings.push('G41/G42 sin entrada tangente')
     }
   }
 
@@ -113,11 +166,25 @@ function validateOp(op: CAMOperation): { status: 'valid' | 'warning' | 'error'; 
 
 const DEFAULT_PARK: ParkPosition = { x: 0, y: 0, z: 30 }
 
+const DEFAULT_STOCK: Stock = {
+  enabled: false,
+  auto: true,
+  x: 0,
+  y: 0,
+  width: 200,
+  height: 200,
+  thickness: 12,
+  margin: 5,
+  zeroAt: 'top',
+}
+
 const DEFAULT_SETUP: CAMSetup = {
   safeZ: 5,
   toolChangePosition: { x: 0, y: 0, z: 30 },
   toolChangeSize: { width: 0, height: 0 },
   clamps: [],
+  stock: { ...DEFAULT_STOCK },
+  optimizeOrder: false,
 }
 
 export const useCAMStore = create<CAMState>((set, get) => ({
@@ -128,9 +195,11 @@ export const useCAMStore = create<CAMState>((set, get) => ({
   selectedMarkerId: null,
   soloOperationId: null,
   operationOrder: [],
+  restoredDisabled: undefined,
 
   syncFromCanvas: () => {
-    const { elements, globalConfig, getElementConfig, layers } = useCanvasStore.getState()
+    const { elements, getElementConfig, layers } = useCanvasStore.getState()
+    const stock = get().setup.stock
     const ops: CAMOperation[] = []
 
     const sortedLayers = [...layers].sort((a, b) => a.order - b.order)
@@ -156,7 +225,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
 
       if (hasMultiOps) {
         for (let i = 0; i < el.operations!.length; i++) {
-          const config = el.operations![i]
+          const config = normalizeConfig(el.operations![i])
           const op: CAMOperation = {
             id: `${el.id}:op${i}`,
             elementId: el.id,
@@ -167,13 +236,13 @@ export const useCAMStore = create<CAMState>((set, get) => ({
             status: 'valid',
             warnings: [],
           }
-          const v = validateOp(op)
+          const v = validateOp(op, stock)
           op.status = v.status
           op.warnings = v.warnings
           ops.push(op)
         }
       } else {
-        const config = getElementConfig(el)
+        const config = normalizeConfig(getElementConfig(el))
         const op: CAMOperation = {
           id: `${el.id}:op-1`,
           elementId: el.id,
@@ -184,7 +253,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
           status: 'valid',
           warnings: [],
         }
-        const v = validateOp(op)
+        const v = validateOp(op, stock)
         op.status = v.status
         op.warnings = v.warnings
         ops.push(op)
@@ -198,6 +267,9 @@ export const useCAMStore = create<CAMState>((set, get) => ({
       const existing = prevMap.get(op.id)
       if (existing) {
         op.enabled = existing.enabled
+      } else if (prev.restoredDisabled?.has(op.id)) {
+        // Primer sync despues de abrir un proyecto: recupera lo apagado
+        op.enabled = false
       }
     }
 
@@ -216,6 +288,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
     set({
       operations: ops,
       operationOrder: ordered,
+      restoredDisabled: undefined,
       selectedOperationId: selectedStillExists ? prev.selectedOperationId : null,
       soloOperationId: prev.soloOperationId && ops.some((o) => o.id === prev.soloOperationId) ? prev.soloOperationId : null,
     })
@@ -255,7 +328,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
     }
 
     const newOp = { ...op, config: newConfig }
-    const v = validateOp(newOp)
+    const v = validateOp(newOp, state.setup.stock)
     newOp.status = v.status
     newOp.warnings = v.warnings
 
@@ -263,6 +336,107 @@ export const useCAMStore = create<CAMState>((set, get) => ({
       operations: s.operations.map((o) => (o.id === id ? newOp : o)),
     }))
   },
+
+  /**
+   * Convierte el elemento a lista de operaciones si todavia no lo es y le
+   * agrega una. Un elemento sin `operations` corre una sola operacion tomada
+   * de su config (o de la capa/global), asi que esa es la semilla de la lista.
+   */
+  addOperation: (opId) => {
+    const op = get().operations.find((o) => o.id === opId)
+    if (!op) return
+
+    const { findElementById, updateElement, getElementConfig } = useCanvasStore.getState()
+    const element = findElementById(op.elementId)
+    if (!element) return
+
+    const base = element.operations && element.operations.length > 0
+      ? element.operations
+      : [normalizeConfig(getElementConfig(element))]
+
+    const seed = normalizeConfig(base[base.length - 1])
+    updateElement(op.elementId, { operations: [...base, { ...seed }] })
+    get().syncFromCanvas()
+    set({ selectedOperationId: `${op.elementId}:op${base.length}` })
+  },
+
+  duplicateOperation: (opId) => {
+    const op = get().operations.find((o) => o.id === opId)
+    if (!op) return
+
+    const { findElementById, updateElement, getElementConfig } = useCanvasStore.getState()
+    const element = findElementById(op.elementId)
+    if (!element) return
+
+    const base = element.operations && element.operations.length > 0
+      ? element.operations
+      : [normalizeConfig(getElementConfig(element))]
+
+    const index = op.operationIndex >= 0 ? op.operationIndex : 0
+    const copy = { ...normalizeConfig(base[index] ?? op.config) }
+    const next = [...base]
+    next.splice(index + 1, 0, copy)
+
+    updateElement(op.elementId, { operations: next })
+    get().syncFromCanvas()
+    set({ selectedOperationId: `${op.elementId}:op${index + 1}` })
+  },
+
+  removeOperation: (opId) => {
+    const op = get().operations.find((o) => o.id === opId)
+    if (!op) return false
+
+    const { findElementById, updateElement } = useCanvasStore.getState()
+    const element = findElementById(op.elementId)
+    if (!element) return false
+
+    const list = element.operations ?? []
+    // Sin lista de operaciones el elemento corre su config implicita: no hay
+    // nada que borrar, se apaga con el ojo.
+    if (list.length <= 1) return false
+
+    const index = op.operationIndex >= 0 ? op.operationIndex : 0
+    const next = list.filter((_, i) => i !== index)
+    updateElement(op.elementId, { operations: next })
+
+    set({ selectedOperationId: null })
+    get().syncFromCanvas()
+    return true
+  },
+
+  applyConfigToAll: (opId, onlySameWorkType = false) => {
+    const state = get()
+    const source = state.operations.find((o) => o.id === opId)
+    if (!source) return 0
+
+    const targets = state.operations.filter((o) => {
+      if (o.id === opId) return false
+      if (o.config.operationType !== source.config.operationType) return false
+      if (onlySameWorkType && o.config.workType !== source.config.workType) return false
+      return true
+    })
+
+    for (const target of targets) {
+      // El tipo de trabajo de cada operacion se respeta salvo que se pida
+      // explicitamente igualarlo: copiar parametros no es re-estrategiar.
+      const { workType, ...rest } = source.config
+      state.updateOperationConfig(target.id, onlySameWorkType ? { ...rest, workType } : rest)
+    }
+
+    return targets.length
+  },
+
+  moveOperationBefore: (dragId, targetId) =>
+    set((s) => {
+      if (dragId === targetId) return {}
+      const order = s.operationOrder.filter((id) => id !== dragId)
+      const at = order.indexOf(targetId)
+      if (at < 0) return {}
+      order.splice(at, 0, dragId)
+      const gc = useGCodeStore.getState()
+      if (gc.gcodeGenerated) gc.setGCodeNeedsRegeneration(true)
+      return { operationOrder: order }
+    }),
 
   reorderOperations: (fromIndex, toIndex) =>
     set((s) => {
@@ -272,7 +446,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
       return { operationOrder: order }
     }),
 
-  validateOperation: (op) => validateOp(op),
+  validateOperation: (op) => validateOp(op, get().setup.stock),
 
   // Timeline markers — placed at any progress % on the timeline
   addTimelineMarker: (progress, type) => {
@@ -355,5 +529,52 @@ export const useCAMStore = create<CAMState>((set, get) => ({
     }))
     const gc = useGCodeStore.getState()
     if (gc.gcodeGenerated) gc.setGCodeNeedsRegeneration(true)
+  },
+
+  serialize: () => {
+    const s = get()
+    return {
+      setup: s.setup,
+      markers: s.markers,
+      operationOrder: s.operationOrder,
+      disabledOperations: s.operations.filter((o) => !o.enabled).map((o) => o.id),
+    }
+  },
+
+  restore: (snapshot) => {
+    if (!snapshot) {
+      set({
+        setup: { ...DEFAULT_SETUP, stock: { ...DEFAULT_STOCK } },
+        markers: [],
+        operationOrder: [],
+        operations: [],
+        selectedOperationId: null,
+        selectedMarkerId: null,
+        soloOperationId: null,
+      })
+      return
+    }
+
+    // Los campos que no existan en proyectos viejos se completan con el default
+    const setup: CAMSetup = {
+      ...DEFAULT_SETUP,
+      ...snapshot.setup,
+      stock: { ...DEFAULT_STOCK, ...(snapshot.setup?.stock ?? {}) },
+    }
+    const disabled = new Set(snapshot.disabledOperations ?? [])
+
+    set((s) => ({
+      setup,
+      markers: snapshot.markers ?? [],
+      operationOrder: snapshot.operationOrder ?? [],
+      // El arbol se rearma en el proximo sync; hasta entonces se respeta el
+      // apagado guardado sobre lo que ya haya en memoria.
+      operations: s.operations.map((o) => ({ ...o, enabled: !disabled.has(o.id) })),
+      selectedOperationId: null,
+      selectedMarkerId: null,
+      soloOperationId: null,
+    }))
+
+    set({ restoredDisabled: disabled })
   },
 }))

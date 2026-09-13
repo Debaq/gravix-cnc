@@ -11,6 +11,7 @@ import { useSerialStore } from '@/stores/useSerialStore'
 import { useSerial } from '@/hooks/useSerial'
 import { useProject } from '@/hooks/useProject'
 import { GCodeGenerator } from '@/lib/gcode-generator'
+import { applyCAMPlan, jobsBBox, resolveStock, checkStockCoverage } from '@/lib/cam-jobs'
 import { withGenerating } from '@/lib/gcode-run'
 import { validateToolVsPaths } from '@/lib/geometry'
 import { generateBoundaryGCode, computeBBox } from '@/components/modals/SetupWizardModal'
@@ -18,6 +19,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { Switch } from '@/components/ui/switch'
 import { Progress } from '@/components/ui/progress'
 import {
   Eye,
@@ -49,6 +51,8 @@ import {
   Wrench,
   Plus,
   Trash2,
+  Package,
+  Route,
 } from 'lucide-react'
 
 const WORK_TYPE_ICONS: Record<string, typeof Box> = {
@@ -102,8 +106,17 @@ function OperationRow({ op, isSelected, onSelect }: {
   onSelect: () => void
 }) {
   const { t: ts } = useTranslation('settings')
-  const { toggleOperationEnabled, soloOperation, soloOperationId } = useCAMStore()
+  const {
+    toggleOperationEnabled,
+    soloOperation,
+    soloOperationId,
+    moveOperationBefore,
+    duplicateOperation,
+    removeOperation,
+  } = useCAMStore()
   const { tools } = useLibraryStore()
+  const { addConsoleLine } = useAppStore()
+  const [dragOver, setDragOver] = useState(false)
 
   const Icon = getOpIcon(op.config)
   const label = getOpLabel(op.config, ts)
@@ -118,11 +131,29 @@ function OperationRow({ op, isSelected, onSelect }: {
 
   return (
     <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/cam-op', op.id)
+        e.dataTransfer.effectAllowed = 'move'
+      }}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes('text/cam-op')) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        setDragOver(true)
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDragOver(false)
+        const dragId = e.dataTransfer.getData('text/cam-op')
+        if (dragId) moveOperationBefore(dragId, op.id)
+      }}
       className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer transition-colors ${
         isSelected
           ? 'bg-primary/15 border border-primary/30'
           : 'hover:bg-muted/80 border border-transparent'
-      }`}
+      } ${dragOver ? 'border-t-2 border-t-primary' : ''} ${op.enabled ? '' : 'opacity-50'}`}
       onClick={onSelect}
     >
       <GripVertical className="h-3 w-3 text-muted-foreground/40 shrink-0 cursor-grab" />
@@ -162,12 +193,40 @@ function OperationRow({ op, isSelected, onSelect }: {
         <Focus className="h-3 w-3" />
       </Button>
 
-      {/* Visibility toggle */}
+      {/* Duplicar */}
       <Button
         variant="ghost"
         size="icon"
         className="h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100"
+        onClick={(e) => { e.stopPropagation(); duplicateOperation(op.id) }}
+        title="Duplicar operacion"
+      >
+        <Copy className="h-3 w-3" />
+      </Button>
+
+      {/* Eliminar */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100"
+        onClick={(e) => {
+          e.stopPropagation()
+          if (!removeOperation(op.id)) {
+            addConsoleLine('Es la unica operacion del elemento: apagala con el ojo')
+          }
+        }}
+        title="Eliminar operacion"
+      >
+        <Trash2 className="h-3 w-3 text-red-500" />
+      </Button>
+
+      {/* Visibility toggle */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className={`h-5 w-5 shrink-0 ${op.enabled ? 'opacity-0 group-hover:opacity-100' : 'opacity-100'}`}
         onClick={(e) => { e.stopPropagation(); toggleOperationEnabled(op.id) }}
+        title={op.enabled ? 'Excluir del G-code' : 'Incluir en el G-code'}
       >
         {op.enabled ? (
           <Eye className="h-3 w-3" />
@@ -332,19 +391,43 @@ function OperationsList() {
 }
 
 function OperationsSummary() {
-  const { operations } = useCAMStore()
-  const validCount = operations.filter((o) => o.status === 'valid').length
+  const { operations, setup, soloOperationId } = useCAMStore()
   const warnCount = operations.filter((o) => o.status === 'warning').length
   const errCount = operations.filter((o) => o.status === 'error').length
+  const offCount = operations.filter((o) => !o.enabled).length
 
   // Unique tools
   const toolIds = new Set(operations.map((o) => o.config.tool).filter(Boolean))
 
   return (
-    <div className="flex items-center gap-2 text-[10px] text-muted-foreground px-1">
+    <div className="flex flex-wrap items-center gap-x-2 text-[10px] text-muted-foreground px-1">
       <span>{operations.length} ops</span>
       <span>&middot;</span>
       <span>{toolIds.size} herramientas</span>
+      {offCount > 0 && (
+        <>
+          <span>&middot;</span>
+          <span>{offCount} apagadas</span>
+        </>
+      )}
+      {soloOperationId && (
+        <>
+          <span>&middot;</span>
+          <span className="text-primary">solo</span>
+        </>
+      )}
+      {setup.stock.enabled && (
+        <>
+          <span>&middot;</span>
+          <span>stock {setup.stock.thickness}mm</span>
+        </>
+      )}
+      {setup.optimizeOrder && (
+        <>
+          <span>&middot;</span>
+          <span>orden auto</span>
+        </>
+      )}
       {warnCount > 0 && (
         <>
           <span>&middot;</span>
@@ -398,12 +481,40 @@ function GenerateActions() {
       return
     }
 
-    const jobs = getJobsForGCode()
+    const camState = useCAMStore.getState()
+    const rawJobs = getJobsForGCode()
+
+    // El arbol de CAM manda: apagar, reordenar o aislar una operacion ahi
+    // tiene que verse en el G-code.
+    const jobs = applyCAMPlan(rawJobs, {
+      order: camState.operationOrder,
+      disabled: new Set(camState.operations.filter((o) => !o.enabled).map((o) => o.id)),
+      soloId: camState.soloOperationId,
+      optimize: camState.setup.optimizeOrder,
+    })
+
+    if (rawJobs.length > 0 && jobs.length === 0) {
+      addConsoleLine('Todas las operaciones estan apagadas')
+      return
+    }
+    if (camState.setup.optimizeOrder) {
+      addConsoleLine('Orden optimizado por cercania entre operaciones')
+    }
+
     const isRaster = globalConfig.operationType === 'laser' && globalConfig.laserMode === 'raster'
 
     if (jobs.length === 0 && !isRaster) {
       addConsoleLine('No se encontraron elementos validos en el canvas')
       return
+    }
+
+    // Avisos de stock (la profundidad por operacion ya la valida el arbol)
+    const stock = camState.setup.stock
+    if (stock.enabled) {
+      const resolved = resolveStock(stock, jobsBBox(jobs))
+      for (const warn of checkStockCoverage(resolved, jobsBBox(jobs))) {
+        addConsoleLine(`WARN: ${warn}`)
+      }
     }
     if (isRaster && !rasterData) {
       addConsoleLine('No hay imagen raster cargada')
@@ -489,6 +600,7 @@ function GenerateActions() {
     addConsoleLine('Generando G-code...')
     const { result, est } = await withGenerating(async () => {
       const generator = new GCodeGenerator()
+      generator.setSafeZ(useCAMStore.getState().setup.safeZ)
       const out = await generator.generateFromJobs(jobs, rasterData, gcodeMarkers, clampRects)
       return { result: out, est: generator.getEstimates() }
     })
@@ -634,6 +746,93 @@ function GenerateActions() {
   )
 }
 
+
+/**
+ * Bloque de material. En `auto` el bloque se calcula del dibujo mas el margen,
+ * asi que solo el espesor importa; en manual se fijan posicion y tamano.
+ */
+function StockSettings() {
+  const stock = useCAMStore((s) => s.setup.stock)
+  const { updateSetup } = useCAMStore()
+  const setStock = (updates: Partial<typeof stock>) => updateSetup({ stock: { ...stock, ...updates } })
+
+  return (
+    <div className="rounded border px-1.5 py-1 space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <label className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+          <Package className="h-2.5 w-2.5" />
+          Bloque de material
+        </label>
+        <Switch checked={stock.enabled} onCheckedChange={(v) => setStock({ enabled: v })} />
+      </div>
+
+      {stock.enabled && (
+        <>
+          <div className="flex items-center gap-1">
+            <span className="text-[9px] text-muted-foreground/60 w-12 shrink-0">Espesor</span>
+            <Input
+              type="number"
+              className="h-5 text-[9px] flex-1 px-0.5"
+              value={stock.thickness}
+              onChange={(e) => setStock({ thickness: Math.max(0.1, parseFloat(e.target.value) || 0.1) })}
+              step={1}
+              min={0.1}
+            />
+            <span className="text-[9px] text-muted-foreground/50 w-4">mm</span>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <span className="text-[9px] text-muted-foreground/60 w-12 shrink-0">Cero Z</span>
+            <select
+              className="h-5 text-[9px] flex-1 bg-background border rounded px-0.5"
+              value={stock.zeroAt}
+              onChange={(e) => setStock({ zeroAt: e.target.value as 'top' | 'bottom' })}
+            >
+              <option value="top">Cara superior</option>
+              <option value="bottom">Mesa</option>
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[9px] text-muted-foreground/60">Ajustar al dibujo</span>
+            <Switch checked={stock.auto} onCheckedChange={(v) => setStock({ auto: v })} />
+          </div>
+
+          {stock.auto ? (
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] text-muted-foreground/60 w-12 shrink-0">Margen</span>
+              <Input
+                type="number"
+                className="h-5 text-[9px] flex-1 px-0.5"
+                value={stock.margin}
+                onChange={(e) => setStock({ margin: Math.max(0, parseFloat(e.target.value) || 0) })}
+                step={1}
+                min={0}
+              />
+              <span className="text-[9px] text-muted-foreground/50 w-4">mm</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <span className="text-[8px] text-muted-foreground/50 w-3">X</span>
+              <Input type="number" className="h-5 text-[9px] flex-1 px-0.5" value={stock.x}
+                onChange={(e) => setStock({ x: parseFloat(e.target.value) || 0 })} />
+              <span className="text-[8px] text-muted-foreground/50 w-3">Y</span>
+              <Input type="number" className="h-5 text-[9px] flex-1 px-0.5" value={stock.y}
+                onChange={(e) => setStock({ y: parseFloat(e.target.value) || 0 })} />
+              <span className="text-[8px] text-muted-foreground/50 w-3">W</span>
+              <Input type="number" className="h-5 text-[9px] flex-1 px-0.5" value={stock.width}
+                onChange={(e) => setStock({ width: Math.max(1, parseFloat(e.target.value) || 1) })} />
+              <span className="text-[8px] text-muted-foreground/50 w-3">H</span>
+              <Input type="number" className="h-5 text-[9px] flex-1 px-0.5" value={stock.height}
+                onChange={(e) => setStock({ height: Math.max(1, parseFloat(e.target.value) || 1) })} />
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 function CAMSetupSection() {
   const [expanded, setExpanded] = useState(false)
   const { setup, updateSetup, addClamp, updateClamp, removeClamp } = useCAMStore()
@@ -653,6 +852,25 @@ function CAMSetupSection() {
 
       {expanded && (
         <div className="space-y-2 px-1 pb-1">
+          <StockSettings />
+
+          {/* Orden de operaciones */}
+          <div className="flex items-center justify-between gap-2 rounded border px-1.5 py-1">
+            <div className="min-w-0">
+              <label className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+                <Route className="h-2.5 w-2.5" />
+                Optimizar recorrido
+              </label>
+              <p className="text-[9px] text-muted-foreground/60">
+                Ignora el orden del arbol y encadena por cercania
+              </p>
+            </div>
+            <Switch
+              checked={setup.optimizeOrder}
+              onCheckedChange={(v) => updateSetup({ optimizeOrder: v })}
+            />
+          </div>
+
           {/* Safe Z */}
           <div className="flex items-center gap-2">
             <label className="text-[10px] text-muted-foreground w-14 shrink-0">Safe Z</label>

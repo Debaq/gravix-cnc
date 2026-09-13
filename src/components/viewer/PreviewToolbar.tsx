@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useGCodeStore } from '@/stores/useGCodeStore'
+import { useGCodeStore, type ViewerColorMode } from '@/stores/useGCodeStore'
 import { useCAMStore, type CAMMarker, type ParkPosition } from '@/stores/useCAMStore'
 import { useAppStore } from '@/stores/useAppStore'
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,10 @@ import {
   Check,
   Trash2,
   MapPin,
+  Palette,
+  Box,
+  Grid3x3,
+  Move3d,
 } from 'lucide-react'
 
 const MARKER_STYLES: Record<string, { color: string; label: string }> = {
@@ -247,6 +251,14 @@ export function PreviewToolbar() {
     setAnimationSpeed,
     setViewer3DPlaying,
     setAnimationProgress,
+    viewerColorMode,
+    setViewerColorMode,
+    showStock,
+    toggleStock,
+    show3DGrid,
+    toggle3DGrid,
+    show3DAxes,
+    toggle3DAxes,
   } = useGCodeStore()
 
   const {
@@ -401,6 +413,70 @@ export function PreviewToolbar() {
               <>{Math.round(animationProgress)}%</>
             )}
           </span>
+        </div>
+
+        {/* Vista: color del recorrido, stock, grilla y ejes */}
+        <div className="flex items-center gap-0.5 border-r pr-2 mr-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <Select value={viewerColorMode} onValueChange={(v) => setViewerColorMode(v as ViewerColorMode)}>
+                  <SelectTrigger className="h-7 w-[104px] text-[11px] gap-1">
+                    <Palette className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">Operacion</SelectItem>
+                    <SelectItem value="feed">Avance</SelectItem>
+                    <SelectItem value="depth">Profundidad</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>Con que se pinta el recorrido</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={showStock ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-7 w-7"
+                onClick={toggleStock}
+              >
+                <Box className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Bloque de material</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={show3DGrid ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-7 w-7"
+                onClick={toggle3DGrid}
+              >
+                <Grid3x3 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Grilla</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={show3DAxes ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-7 w-7"
+                onClick={toggle3DAxes}
+              >
+                <Move3d className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Ejes y origen</TooltipContent>
+          </Tooltip>
         </div>
 
         {/* Speed control */}

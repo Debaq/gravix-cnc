@@ -5,6 +5,7 @@ import { useGCodeStore } from '@/stores/useGCodeStore'
 import { isTauri, tauriInvoke } from '@/lib/tauri'
 import { getSharedCanvas, ELEMENT_ID_KEY, NON_INTERACTIVE_KEY } from '@/hooks/useCanvasManager'
 import type { ProjectData } from '@/lib/types'
+import { useCAMStore, type CAMSnapshot } from '@/stores/useCAMStore'
 
 /**
  * Intenta importar el plugin dialog de Tauri dinamicamente.
@@ -99,6 +100,9 @@ export function useProject() {
       extensions: {
         sheets,
         activeSheetId,
+        // Setup de CAM (stock, clamps, safe Z, marcadores, orden de ops):
+        // sin esto se perdia entero al cerrar el proyecto
+        cam: useCAMStore.getState().serialize(),
         canvas: getSharedCanvas()
           ? (getSharedCanvas() as unknown as { toObject(props: string[]): object }).toObject([
               ELEMENT_ID_KEY,
@@ -192,8 +196,10 @@ export function useProject() {
       sheets?: { id: string; name: string }[]
       activeSheetId?: string
       canvas?: unknown
+      cam?: CAMSnapshot
     } | undefined
     setSheets(ext?.sheets ?? [], ext?.activeSheetId)
+    useCAMStore.getState().restore(ext?.cam ?? null)
 
     setElements(data.elements as ReturnType<typeof useCanvasStore.getState>['elements'])
 

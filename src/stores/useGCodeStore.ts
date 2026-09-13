@@ -1,6 +1,9 @@
 import { create } from 'zustand'
 import type { MachiningEstimates } from '@/lib/types'
 
+/** Criterio de color del toolpath en el visor 3D. */
+export type ViewerColorMode = 'default' | 'feed' | 'depth'
+
 interface GCodeState {
   // G-code
   gcode: string
@@ -22,6 +25,10 @@ interface GCodeState {
   animationProgress: number
   show3DGrid: boolean
   show3DAxes: boolean
+  /** Con que se pinta el toolpath en el visor. */
+  viewerColorMode: ViewerColorMode
+  /** Dibujar el bloque de material. */
+  showStock: boolean
   viewer3DPlaying: boolean
   viewer3DCurrentPass: number
   currentGCodeLine: number
@@ -35,6 +42,8 @@ interface GCodeState {
   setAnimationProgress: (progress: number) => void
   toggle3DGrid: () => void
   toggle3DAxes: () => void
+  setViewerColorMode: (mode: ViewerColorMode) => void
+  toggleStock: () => void
   setViewer3DPlaying: (playing: boolean) => void
   setViewer3DCurrentPass: (pass: number) => void
   setCurrentGCodeLine: (line: number) => void
@@ -61,6 +70,8 @@ export const useGCodeStore = create<GCodeState>((set) => ({
   animationProgress: 0,
   show3DGrid: true,
   show3DAxes: true,
+  viewerColorMode: 'default',
+  showStock: true,
   viewer3DPlaying: false,
   viewer3DCurrentPass: 0,
   currentGCodeLine: 0,
@@ -87,6 +98,10 @@ export const useGCodeStore = create<GCodeState>((set) => ({
   toggle3DGrid: () => set((state) => ({ show3DGrid: !state.show3DGrid })),
 
   toggle3DAxes: () => set((state) => ({ show3DAxes: !state.show3DAxes })),
+
+  setViewerColorMode: (mode) => set({ viewerColorMode: mode }),
+
+  toggleStock: () => set((state) => ({ showStock: !state.showStock })),
 
   setViewer3DPlaying: (playing) => set({ viewer3DPlaying: playing }),
 

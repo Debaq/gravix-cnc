@@ -4,6 +4,7 @@ import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import type { CanvasElement, GlobalConfig, OperationType } from '@/lib/types'
 import type { Sheet } from '@/stores/useCanvasStore'
+import { useCAMStore, type CAMSnapshot } from '@/stores/useCAMStore'
 
 /**
  * Formato del archivo `.gravix`.
@@ -35,9 +36,14 @@ export interface GravixFile {
    * aparecia la lista llena y el lienzo vacio.
    */
   canvas?: unknown
+  /**
+   * Desde 1.4: setup de CAM (stock, clamps, safe Z, marcadores, orden y
+   * apagado de operaciones). Antes se perdia entero al cerrar el proyecto.
+   */
+  cam?: CAMSnapshot
 }
 
-export const GRAVIX_FILE_VERSION = '1.3.0'
+export const GRAVIX_FILE_VERSION = '1.4.0'
 
 /** Arma el contenido del `.gravix` con el estado actual de los stores. */
 export function serializeGravixProject(createdAt?: number): GravixFile {
@@ -73,6 +79,7 @@ export function serializeGravixProject(createdAt?: number): GravixFile {
     appVersion: __APP_VERSION__,
     sheets,
     activeSheetId,
+    cam: useCAMStore.getState().serialize(),
   }
 }
 
@@ -91,6 +98,9 @@ export function projectFingerprint(): string {
     sheets,
     activeSheetId,
     gcode.length,
+    // El setup de CAM tambien ensucia el proyecto: sin esto, mover un clamp o
+    // cambiar el stock no disparaba el autosave.
+    useCAMStore.getState().serialize(),
   ])
 }
 

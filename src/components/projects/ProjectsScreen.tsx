@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/stores/useAppStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { canvasSnapshotFromElements } from '@/lib/project-file'
+import { useCAMStore } from '@/stores/useCAMStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import { useLibraryStore } from '@/stores/useLibraryStore'
 import { useWorkspaceStore, type ProjectMeta } from '@/stores/useWorkspaceStore'
@@ -190,6 +191,8 @@ export function ProjectsScreen() {
     setSheets([])
     clearGuides()
     clearGCode()
+    // Proyecto nuevo: stock, clamps y marcadores arrancan de cero
+    useCAMStore.getState().restore(null)
 
     // Configurar proyecto
     setProjectName(name)
@@ -271,6 +274,9 @@ export function ProjectsScreen() {
         setPendingCanvasJSON(
           data.canvas ?? canvasSnapshotFromElements(data.elements ?? []),
         )
+
+        // Setup de CAM guardado (o defaults limpios si el archivo es viejo)
+        useCAMStore.getState().restore(data.cam ?? null)
 
         if (data.gcode?.code) {
           useGCodeStore.getState().setGCode(data.gcode.code)

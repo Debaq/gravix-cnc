@@ -2424,15 +2424,17 @@ export function useCanvasManager() {
         }
 
         // Support multiple operations per element
-        const ops =
-          element?.operations && element.operations.length > 0
-            ? element.operations
-            : [config]
+        const hasMultiOps = !!element?.operations && element.operations.length > 0
+        const ops = hasMultiOps ? element!.operations! : [config]
 
-        for (const opConfig of ops) {
+        for (let opIdx = 0; opIdx < ops.length; opIdx++) {
+          const opConfig = ops[opIdx]
           const job: GCodeJob = {
             elementId: elId ?? '',
             elementName,
+            // Mismo id que arma el arbol de CAM, para poder filtrar y
+            // reordenar los jobs con lo que el usuario definio ahi.
+            opId: `${elId ?? ''}:op${hasMultiOps ? opIdx : -1}`,
             config: opConfig,
             paths,
           }

@@ -17,6 +17,8 @@ export interface GCodeSegment {
   lineNumber: number
   color?: string  // hex color from plotter color groups or laser color mapping
   operationId?: string  // element name + work type from generator comments
+  /** Avance activo (mm/min) cuando se emitio el movimiento. */
+  feedRate?: number
 }
 
 export interface GCodePausePoint {
@@ -189,7 +191,11 @@ export function parseGCode(gcodeStr: string): GCodeParseResult {
         segType = 'cut'
       }
 
-      segments.push({ from, to, type: segType, lineNumber: i + 1, color: currentColor, operationId: currentOperationId })
+      segments.push({
+        from, to, type: segType, lineNumber: i + 1,
+        color: currentColor, operationId: currentOperationId,
+        feedRate: segType === 'rapid' ? rapidFeedRate : currentFeedRate,
+      })
 
       const dist = distance3D(from, to)
       totalDistance += dist

@@ -83,7 +83,19 @@ export interface RasterData {
 // Compensación de herramienta
 
 // Estrategia de cajeado (pocket)
-export type PocketStrategy = 'contour-parallel' | 'zigzag'
+export type PocketStrategy = 'contour-parallel' | 'zigzag' | 'spiral'
+
+// Sentido de fresado respecto al contorno
+export type MillDirection = 'climb' | 'conventional'
+
+// Entrada/salida tangente al contorno
+export type LeadType = 'none' | 'line' | 'arc'
+
+// Compensacion de radio en el controlador (en vez de offset geometrico)
+export type CutterComp = 'off' | 'g41' | 'g42'
+
+// Como se reparten los tabs alrededor del contorno
+export type TabMode = 'auto' | 'manual'
 
 // Posiciones de origen
 export type OriginPosition =
@@ -174,6 +186,21 @@ export interface GlobalConfig {
   tabWidth: number           // Ancho de cada tab (mm)
   tabHeight: number          // Altura del tab (mm, material que queda sin cortar)
   tabCount: number           // Cantidad de tabs alrededor del contorno
+  tabMode: TabMode           // auto = repartidos parejo, manual = tabPositions
+  tabPositions: number[]     // Posiciones manuales 0..1 sobre el perimetro
+  // Entrada/salida tangente CNC
+  leadType: LeadType         // Forma de entrada al contorno
+  leadLength: number         // Largo de la entrada (mm); el arco usa esto de radio
+  leadOutEnabled: boolean    // Repetir la entrada como salida al final
+  // Sentido de fresado y compensacion en controlador
+  millDirection: MillDirection
+  cutterComp: CutterComp     // G41/G42; 'off' = offset geometrico (default)
+  cutterCompD: number        // Numero de offset D para G41/G42
+  // Acabado
+  finishAllowance: number    // Material que deja el desbaste (mm, 0 = sin acabado)
+  finishPassEnabled: boolean // Pasada final a medida exacta
+  // Feeds & speeds
+  toolFlutes: number         // Filos de la fresa, para calcular chipload
 }
 
 // Posición de máquina
@@ -254,6 +281,8 @@ export interface GCodePath {
 export interface GCodeJob {
   elementId: string
   elementName: string
+  /** Id de la operacion CAM (`<elementId>:op<N>`) que produjo este job. */
+  opId?: string
   config: GlobalConfig
   paths: GCodePath[]
   colorMappings?: ColorMapping[]  // Laser color→config mappings
@@ -293,6 +322,22 @@ export interface ClampRect {
   width: number
   height: number
   zHeight: number // physical height in mm (0 = infinite)
+}
+
+// Bloque de material sobre la mesa
+export interface Stock {
+  enabled: boolean
+  /** El bloque se calcula del bounding box del diseno + margin. */
+  auto: boolean
+  x: number
+  y: number
+  width: number
+  height: number
+  thickness: number
+  /** Margen alrededor del diseno cuando `auto` esta activo (mm). */
+  margin: number
+  /** Donde esta Z0: en la cara superior o en la mesa. */
+  zeroAt: 'top' | 'bottom'
 }
 
 // Estimaciones de mecanizado

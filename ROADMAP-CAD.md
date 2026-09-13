@@ -1,8 +1,11 @@
 # Roadmap: CAD + CAM CNC
 
 Estado CAD: **COMPLETADO** — incluidos los pendientes de imagen e import (P5).
-Estado CAM: **PENDIENTE** — visor 3D funcional, falta el arbol de operaciones.
-El generador ya cubre contorno, cajeado, taladro, v-carve, chamfer y photo v-carve.
+Estado CAM: **CAM-P0 y CAM-P1/P2 parciales** (2026-09-13). Arbol de operaciones,
+editor completo, stock, entrada tangente, acabado, feeds & speeds y optimizacion
+de orden. Falta la simulacion de remocion de material (CAM-P3).
+El generador cubre contorno, cajeado (3 estrategias), taladro, v-carve, chamfer
+y photo v-carve.
 
 ---
 
@@ -224,16 +227,25 @@ Diferenciadores de calidad.
 | Tool changes M6 | ✅ YA EXISTE en generator | Agrupa por herramienta |
 | Laser modes completos | ✅ YA EXISTE | cut/engrave/fill/raster/color mapping |
 | Lead-in (laser) | ✅ YA EXISTE | laserLeadIn param |
-| **Arbol de operaciones** | ❌ FALTA | Nuevo componente UI — CAM-P0 |
-| **Editor de op en CAM** | ❌ FALTA | Reusar PropertiesPanel logic — CAM-P0 |
-| **Preview por operacion** | ❌ FALTA | Filtrar segments en GCodeViewer3D — CAM-P0 |
-| **Stock 3D** | ❌ FALTA | Three.js BoxGeometry — CAM-P1 |
-| **Lead-in CNC** | ❌ FALTA | Extender generator — CAM-P1 |
-| **Tabs manuales** | ❌ FALTA | Click en toolpath 3D — CAM-P1 |
-| **Calculadora feeds/speeds** | ❌ FALTA | Extender MaterialsModal — CAM-P2 |
-| **Optimizacion orden** | ❌ FALTA | TSP nearest neighbor — CAM-P2 |
+| Arbol de operaciones | ✅ YA EXISTE | `OperationsPanel.tsx` con drag & drop real |
+| Editor de op en CAM | ✅ YA EXISTE | `OperationEditor.tsx`, todos los params por tipo |
+| Preview por operacion | ✅ YA EXISTE | Solo/apagado filtran segments en el visor |
+| Stock 3D | ✅ YA EXISTE | Caja translucida + validacion profundidad |
+| Lead-in CNC | ✅ YA EXISTE | Linea perpendicular o arco tangente, con lead-out |
+| Espiral continua (pocket) | ✅ YA EXISTE | `generatePocketSpiral` — anillos encadenados |
+| Climb / conventional | ✅ YA EXISTE | `millingCounterClockwise` |
+| Sobremedida + acabado | ✅ YA EXISTE | Desbaste con allowance + pasada final exacta |
+| G41/G42 | ✅ YA EXISTE | Contorno nominal + G40; avisa que GRBL no lo soporta |
+| Calculadora feeds/speeds | ✅ YA EXISTE | `feeds-speeds.ts`, chipload por familia de material |
+| Optimizacion orden | ✅ YA EXISTE | `orderByNearestEntry` + toggle en el setup |
+| Color por avance/profundidad | ✅ YA EXISTE | Selector en la barra del visor |
+| Persistencia del setup CAM | ✅ YA EXISTE | `.gravix` 1.4 guarda stock, clamps, marcadores y orden |
+| **Tabs manuales en 3D** | 🟡 PARCIAL | Posiciones manuales por % de perimetro; falta click en el visor |
 | **Remocion de material** | ❌ FALTA | Heightmap o Three.js CSG — CAM-P3 |
 | **Adaptive clearing** | ❌ FALTA | Algoritmo trochoidal — CAM-P3 |
+| **Deteccion de colisiones 3D** | ❌ FALTA | Herramienta/holder vs clamps — CAM-P3 |
+| **Job sheet / hoja de setup** | ❌ FALTA | Export PDF — CAM-P3 |
+| **Undo/redo en CAM** | ❌ FALTA | Historial propio — CAM-P3 |
 | Photo V-Carve | ✅ YA EXISTE | `photo-vcarve.ts`, surcos de profundidad variable |
 | Import PDF/AI/EPS | ✅ YA EXISTE | `vector_import.rs` (DWG no) |
 | Auto-vectorizacion | ✅ YA EXISTE | contorno, silueta y eje medio |
@@ -264,3 +276,59 @@ Diferenciadores de calidad.
 5. Memory leak: `canvas.on` en vez de `canvas.off` en cleanup
 6. `moveNode` recalculaba coords 4x → simplificado a 1x
 7. `filletNode`/`chamferNode` tomaba Z como comando geométrico → fix con helpers
+
+
+---
+
+## CAM 2026-09-13 — de visor a CAM usable
+
+Lo que se sumo en esta pasada, con el detalle de por que.
+
+### Gestion de operaciones
+- **El arbol manda sobre el G-code**: antes apagar o reordenar una operacion en
+  CAM no cambiaba nada, porque `getJobsForGCode` armaba los jobs directo del
+  canvas. Ahora cada job lleva su `opId` y `applyCAMPlan` filtra, aisla (solo) y
+  ordena antes de generar
+- **Crear, duplicar y borrar operaciones desde CAM**. Un elemento sin lista de
+  operaciones corre su config implicita; al agregar la segunda se convierte a
+  `element.operations[]` usando esa config como semilla
+- **Drag & drop real** en la lista (antes el asa de arrastre era decorativa)
+- **"A todas"**: copia los parametros de corte a las demas operaciones del mismo
+  tipo sin tocarles la estrategia
+- **Plantillas de toolpath** aplicables desde el editor (`profiles.ts`)
+
+### Editor completo
+Todos los parametros que ya existian en `GlobalConfig` pero no tenian UI en CAM:
+chamfer, v-carve avanzado (resolucion, fondo plano), photo v-carve entero, laser
+raster con dithering y filtros de imagen, Z de foco, offset Z de herramienta,
+material por operacion y cantidad de filos.
+
+### Stock
+`Stock` en el setup de CAM: espesor, donde esta el cero Z, y bloque automatico
+(bounding box del dibujo + margen) o manual. Se dibuja como caja translucida en
+el visor y alimenta dos validaciones: corte mas profundo que el material, y
+corte que no lo atraviesa cuando la operacion es de corte pasante.
+
+### Calidad de corte
+- **Entrada y salida tangente** (linea perpendicular o arco de 90°), que evita la
+  marca de hundida en el canto
+- **Sentido de fresado** climb / conventional
+- **Sobremedida de desbaste + pasada de acabado** a medida exacta
+- **G41/G42** para controles que lo soporten (el G-code sale sin offset
+  geometrico; se avisa que GRBL no lo implementa)
+- **Pocket en espiral**: los anillos del contour-parallel encadenados en un solo
+  recorrido continuo, sin retraer entre anillo y anillo
+- **Tabs manuales** por posicion sobre el perimetro, ademas de los repartidos
+
+### Feeds, speeds y recorrido
+- `feeds-speeds.ts`: RPM desde velocidad de superficie, avance desde chipload
+  escalado por diametro, con avisos cuando la viruta queda demasiado fina
+- **Optimizacion de orden** por vecino mas cercano entre operaciones
+- **Color del toolpath por avance o por profundidad** en el visor
+
+### Persistencia
+El `.gravix` sube a 1.4 y guarda el setup de CAM completo (stock, clamps, safe Z,
+posicion de cambio de herramienta, marcadores, orden y operaciones apagadas).
+Antes todo eso se perdia al cerrar el proyecto.
+
+Archivos nuevos: `config-defaults.ts`, `feeds-speeds.ts`, `cam-jobs.ts`.

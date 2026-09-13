@@ -1,12 +1,12 @@
-import type { Point2D, GCodePath, GCodeJob, GlobalConfig, RasterData, ColorMapping, GCodeMarker, ClampRect, PocketStrategy } from './types'
+import type { Point2D, GCodePath, GCodeJob, GlobalConfig, RasterData, ColorMapping, GCodeMarker, ClampRect, PocketStrategy, LeadType, MillDirection, CutterComp, TabMode } from './types'
 import { generatePhotoVCarve } from './photo-vcarve'
 import type { MachineProfile } from './profiles'
-import { offsetPolygon, generatePocketContours, generatePocketZigzag, orderPaths, orderPathsInsideFirst, generateHatchLines, validateToolVsPaths } from './geometry'
+import { offsetPolygon, generatePocketContours, generatePocketZigzag, generatePocketSpiral, orderPaths, orderPathsInsideFirst, generateHatchLines, validateToolVsPaths, withOrientation, millingCounterClockwise, buildLead } from './geometry'
 import { useMachineStore } from '@/stores/useMachineStore'
 import { computeRestRegions } from './boolean-ops'
 import { tauriInvoke } from './tauri'
 
-const SAFE_Z = 5
+const DEFAULT_SAFE_Z = 5
 const FINAL_RETRACT_Z = 10
 
 /**
@@ -52,6 +52,13 @@ export class GCodeGenerator {
   private totalTime = 0
   private machine: MachineProfile | null
   private clamps: ClampRect[] = []
+  /** Altura de retraccion entre movimientos. La fija el setup de CAM. */
+  private safeZ = DEFAULT_SAFE_Z
+
+  /** Altura de retraccion (mm sobre el cero de pieza) para todos los rapidos. */
+  setSafeZ(z: number) {
+    if (Number.isFinite(z) && z > 0) this.safeZ = z
+  }
 
   constructor(machine?: MachineProfile | null) {
     // Si no se provee, lee la máquina activa del store.
@@ -219,7 +226,7 @@ export class GCodeGenerator {
           } else if (isLaser) {
             lines.push(this.laserOff('Laser OFF'))
           }
-          lines.push(`G0 Z${SAFE_Z} ; Safe height`)
+          lines.push(`G0 Z${this.safeZ} ; Safe height`)
           if (isPlotter) {
             lines.push('M0 ; Pause for pen/tool change')
           }
@@ -253,7 +260,7 @@ export class GCodeGenerator {
         const rpm = parseFloat(String(firstJob.config.spindleRPM))
         lines.push(this.spindleOn(rpm))
         lines.push(this.dwell(2, 'Dwell for spindle startup'))
-        lines.push(`G0 Z${SAFE_Z} ; Safe height`)
+        lines.push(`G0 Z${this.safeZ} ; Safe height`)
         lines.push('')
       }
 
@@ -301,7 +308,7 @@ export class GCodeGenerator {
                 lines.push(`G0 Z${park.z} ; Park height`)
                 lines.push(`G0 X${park.x} Y${park.y} ; Park position`)
               } else {
-                lines.push(`G0 Z${SAFE_Z} ; Safe height`)
+                lines.push(`G0 Z${this.safeZ} ; Safe height`)
               }
               lines.push(`M0 ; ${m.message}`)
               lines.push('; Resume after tool change')
@@ -311,7 +318,7 @@ export class GCodeGenerator {
                 lines.push(`G0 Z${park.z} ; Park height`)
                 lines.push(`G0 X${park.x} Y${park.y} ; Park position`)
               } else {
-                lines.push(`G0 Z${SAFE_Z} ; Safe height`)
+                lines.push(`G0 Z${this.safeZ} ; Safe height`)
               }
               lines.push(`M0 ; ${m.message}`)
             } else {
@@ -432,7 +439,7 @@ export class GCodeGenerator {
     const result: string[] = []
     let curX = 0
     let curY = 0
-    let curZ = SAFE_Z
+    let curZ = this.safeZ
     let currentMode: 'G0' | 'G1' | '' = ''
     const MARGIN = 3 // mm clearance around clamps
 
@@ -471,7 +478,7 @@ export class GCodeGenerator {
 
         if (hitsInfinite) {
           // Route XY around ALL infinite clamps using visibility graph
-          result.push(`G0 Z${SAFE_Z} ; Clamp avoidance`)
+          result.push(`G0 Z${this.safeZ} ; Clamp avoidance`)
           const waypoints = this.findPathAroundClamps(curX, curY, nx, ny, infiniteClamps, MARGIN)
           for (const wp of waypoints) {
             result.push(`G0 X${wp.x.toFixed(3)} Y${wp.y.toFixed(3)} ; Clamp detour`)
@@ -572,7 +579,7 @@ export class GCodeGenerator {
         lines.push('; WARNING: No drill points found')
       } else {
         lines.push(`; ${holes.length} holes`)
-        lines.push(`G0 Z${SAFE_Z}`)
+        lines.push(`G0 Z${this.safeZ}`)
 
         if (isPeck) {
           // G83 peck drill cycle
@@ -655,7 +662,7 @@ export class GCodeGenerator {
           lines.push('; ---- REST MACHINING ----')
           lines.push(`; Finishing tool: ${config.restToolDiameter}mm | ${restRegions.length} uncleared region(s)`)
           lines.push(this.spindleOff('Spindle OFF for tool change'))
-          lines.push(`G0 Z${SAFE_Z}`)
+          lines.push(`G0 Z${this.safeZ}`)
           lines.push(this.pause('Pause for tool change'))
           lines.push(this.spindleOn(parseFloat(String(config.spindleRPM))))
           lines.push(this.dwell(2))
@@ -676,8 +683,18 @@ export class GCodeGenerator {
         tabWidth: config.tabWidth,
         tabHeight: config.tabHeight,
         tabCount: config.tabCount,
+        tabMode: config.tabMode,
+        tabPositions: config.tabPositions,
         rampEnabled: config.rampEnabled,
         rampAngle: config.rampAngle,
+        leadType: config.leadType,
+        leadLength: config.leadLength,
+        leadOutEnabled: config.leadOutEnabled,
+        millDirection: config.millDirection,
+        cutterComp: config.cutterComp,
+        cutterCompD: config.cutterCompD,
+        finishAllowance: config.finishAllowance,
+        finishPassEnabled: config.finishPassEnabled,
       })
     }
 
@@ -699,71 +716,153 @@ export class GCodeGenerator {
       tabWidth?: number
       tabHeight?: number
       tabCount?: number
+      tabMode?: TabMode
+      tabPositions?: number[]
       rampEnabled?: boolean
       rampAngle?: number
+      leadType?: LeadType
+      leadLength?: number
+      leadOutEnabled?: boolean
+      millDirection?: MillDirection
+      cutterComp?: CutterComp
+      cutterCompD?: number
+      finishAllowance?: number
+      finishPassEnabled?: boolean
     }
   ) {
-    const processedPaths: { points: Point2D[]; closed: boolean }[] = []
+    const comp: CutterComp = opts.cutterComp ?? 'off'
+    const useComp = comp !== 'off'
+    const allowance = Math.max(0, opts.finishAllowance ?? 0)
+    const wantsFinish = (opts.finishPassEnabled ?? false) && allowance > 0
+    const direction: MillDirection = opts.millDirection ?? 'climb'
+    const ccw = millingCounterClockwise(opts.workType, direction)
 
-    for (const path of paths) {
-      if (opts.workType === 'outline' || !path.closed) {
-        processedPaths.push({ points: path.points, closed: path.closed })
-      } else if (opts.workType === 'inside') {
-        const offset = -opts.toolRadius
+    // Cuando compensa el control, el G-code lleva el contorno nominal: el
+    // offset lo aplica la maquina con el radio de su tabla de herramientas.
+    const offsetFor = (extra: number) => {
+      if (useComp) return 0
+      if (opts.workType === 'inside') return -(opts.toolRadius + extra)
+      if (opts.workType === 'outside') return opts.toolRadius + extra
+      return 0
+    }
+
+    const buildPaths = async (extra: number) => {
+      const out: { points: Point2D[]; closed: boolean }[] = []
+      for (const path of paths) {
+        const isContourOffset = opts.workType === 'inside' || opts.workType === 'outside'
+        if (!isContourOffset || !path.closed || useComp) {
+          out.push({ points: path.points, closed: path.closed })
+          continue
+        }
+        const offset = offsetFor(extra)
         const result = await offsetPolygon(path.points, offset, true, 'round')
         if (result.length === 0) {
-          lines.push(`; WARNING: Shape too small for tool (inside offset failed)`)
+          if (extra === 0) {
+            lines.push('; WARNING: Shape too small for tool (inside offset failed)')
+          }
           continue
         }
         for (const contour of result) {
-          processedPaths.push({ points: contour, closed: true })
-        }
-      } else if (opts.workType === 'outside') {
-        const offset = opts.toolRadius
-        const result = await offsetPolygon(path.points, offset, true, 'round')
-        for (const contour of result) {
-          processedPaths.push({ points: contour, closed: true })
+          out.push({ points: contour, closed: true })
         }
       }
+      return out
     }
 
-    const orderedPoints = orderPaths(processedPaths.map(p => p.points))
-    const orderedPaths = orderedPoints.map((pts, i) => ({
-      points: pts,
-      closed: processedPaths[i]?.closed ?? false,
-    }))
+    const orderProcessed = (processed: { points: Point2D[]; closed: boolean }[]) => {
+      // `orderPaths` reordena y deduplica, asi que el flag `closed` se sigue
+      // por referencia del array y no por indice.
+      const closedByRef = new Map<Point2D[], boolean>()
+      for (const p of processed) closedByRef.set(p.points, p.closed)
+
+      return orderPaths(processed.map((p) => p.points)).map((pts) => {
+        const closed = closedByRef.get(pts) ?? false
+        return { points: closed ? withOrientation(pts, ccw) : pts, closed }
+      })
+    }
+
+    const roughPaths = orderProcessed(await buildPaths(wantsFinish ? allowance : 0))
+    const finishPaths = wantsFinish ? orderProcessed(await buildPaths(0)) : []
 
     const useTabs = opts.tabsEnabled && (opts.tabCount ?? 0) > 0
-
     const useRamp = opts.rampEnabled && (opts.rampAngle ?? 0) > 0
+    const leadType: LeadType = opts.leadType ?? 'none'
+    const leadLength = opts.leadLength ?? 0
+    const leadOutward = opts.workType !== 'inside'
+    const manualTabs = opts.tabMode === 'manual' && (opts.tabPositions?.length ?? 0) > 0
 
     if (useTabs) {
-      lines.push(`; Tabs: ${opts.tabCount} x ${opts.tabWidth}mm (height: ${opts.tabHeight}mm)`)
+      lines.push(`; Tabs: ${manualTabs ? `${opts.tabPositions!.length} manuales` : `${opts.tabCount} auto`} x ${opts.tabWidth}mm (height: ${opts.tabHeight}mm)`)
     }
     if (useRamp) {
-      lines.push(`; Ramp entry: ${opts.rampAngle}°`)
+      lines.push(`; Ramp entry: ${opts.rampAngle}\u00b0`)
+    }
+    if (leadType !== 'none' && leadLength > 0) {
+      lines.push(`; Lead-in: ${leadType} ${leadLength}mm${opts.leadOutEnabled ? ' (+ lead-out)' : ''}`)
+    }
+    lines.push(`; Milling: ${direction === 'climb' ? 'concordancia (climb)' : 'oposicion (conventional)'}`)
+    if (wantsFinish) {
+      lines.push(`; Finish allowance: ${allowance}mm + pasada de acabado final`)
+    }
+    if (useComp) {
+      lines.push(`; Cutter comp: ${comp.toUpperCase()} D${opts.cutterCompD ?? 1} — el contorno va sin offset`)
+      lines.push('; *** WARNING: GRBL no implementa G41/G42. Usar solo en controles que lo soporten')
+      lines.push(`${comp.toUpperCase()} D${opts.cutterCompD ?? 1}`)
+    }
+
+    const emitPass = (
+      pass: { points: Point2D[]; closed: boolean }[],
+      currentDepth: number,
+      withTabs: boolean,
+    ) => {
+      for (const path of pass) {
+        if (path.points.length === 0) continue
+
+        if (withTabs && path.closed) {
+          this.emitPathGCodeWithTabs(
+            lines, path.points, currentDepth, opts.feedRate, opts.plungeRate,
+            opts.tabHeight ?? 1, opts.tabWidth ?? 5, opts.tabCount ?? 4,
+            manualTabs ? opts.tabPositions : undefined,
+          )
+          continue
+        }
+
+        const leadIn = buildLead(path.points, leadType, leadLength, leadOutward, false)
+        // En un contorno cerrado el ultimo movimiento vuelve al primer punto,
+        // asi que la salida se calcula sobre el lazo cerrado y no sobre el
+        // ultimo tramo de la lista.
+        const exitRef = path.closed && path.points.length > 2
+          ? [...path.points, path.points[0]]
+          : path.points
+        const leadOut = opts.leadOutEnabled
+          ? buildLead(exitRef, leadType, leadLength, leadOutward, true)
+          : []
+
+        this.emitPathGCode(
+          lines, path.points, path.closed, currentDepth, opts.feedRate, opts.plungeRate,
+          useRamp ? opts.rampAngle : undefined,
+          leadIn, leadOut,
+        )
+      }
     }
 
     for (let pass = 1; pass <= opts.numPasses; pass++) {
       const currentDepth = -Math.min(opts.depth, opts.depthStep * pass)
       const isLastPass = pass === opts.numPasses
+      // Con pasada de acabado los tabs van en el acabado, no en el desbaste
+      const tabsHere = !!useTabs && isLastPass && !wantsFinish
 
-      lines.push(`; Pass ${pass}/${opts.numPasses} Z${currentDepth.toFixed(3)}${isLastPass && useTabs ? ' (with tabs)' : ''}`)
+      lines.push(`; Pass ${pass}/${opts.numPasses} Z${currentDepth.toFixed(3)}${tabsHere ? ' (with tabs)' : ''}`)
+      emitPass(roughPaths, currentDepth, tabsHere)
+    }
 
-      for (let idx = 0; idx < orderedPaths.length; idx++) {
-        const path = orderedPaths[idx]
-        if (path.points.length === 0) continue
+    if (wantsFinish && finishPaths.length > 0) {
+      lines.push(`; Pasada de acabado Z${(-opts.depth).toFixed(3)}${useTabs ? ' (with tabs)' : ''}`)
+      emitPass(finishPaths, -opts.depth, !!useTabs)
+    }
 
-        if (useTabs && isLastPass && path.closed) {
-          this.emitPathGCodeWithTabs(
-            lines, path.points, currentDepth, opts.feedRate, opts.plungeRate,
-            opts.tabHeight ?? 1, opts.tabWidth ?? 5, opts.tabCount ?? 4,
-          )
-        } else {
-          this.emitPathGCode(lines, path.points, path.closed, currentDepth, opts.feedRate, opts.plungeRate,
-            useRamp ? opts.rampAngle : undefined)
-        }
-      }
+    if (useComp) {
+      lines.push('G40 ; Cancel cutter compensation')
     }
   }
 
@@ -789,6 +888,8 @@ export class GCodeGenerator {
       roughing: Point2D[][]
       hatch: { start: Point2D; end: Point2D }[]
       finishing: Point2D[][]
+      /** Recorrido continuo (espiral): se emite como polilinea abierta. */
+      spiral: Point2D[][]
     }[] = []
 
     let openPathCount = 0
@@ -819,14 +920,21 @@ export class GCodeGenerator {
           lines.push(`; WARNING: Shape ${i + 1} too small for pocket with tool radius ${opts.toolRadius}mm`)
           continue
         }
-        pocketData.push({ roughing: [], hatch: pocket.hatch, finishing: pocket.finishing })
+        pocketData.push({ roughing: [], hatch: pocket.hatch, finishing: pocket.finishing, spiral: [] })
+      } else if (strategy === 'spiral') {
+        const spiral = await generatePocketSpiral(boundary, opts.toolRadius, opts.stepover, initialInset)
+        if (spiral.length === 0) {
+          lines.push(`; WARNING: Shape ${i + 1} too small for pocket with tool radius ${opts.toolRadius}mm`)
+          continue
+        }
+        pocketData.push({ roughing: [], hatch: [], finishing: [], spiral })
       } else {
         const pocket = await generatePocketContours(boundary, opts.toolRadius, opts.stepover, initialInset)
         if (pocket.roughing.length === 0 && pocket.finishing.length === 0) {
           lines.push(`; WARNING: Shape ${i + 1} too small for pocket with tool radius ${opts.toolRadius}mm`)
           continue
         }
-        pocketData.push({ roughing: pocket.roughing, hatch: [], finishing: [pocket.finishing] })
+        pocketData.push({ roughing: pocket.roughing, hatch: [], finishing: [pocket.finishing], spiral: [] })
       }
     }
 
@@ -839,7 +947,12 @@ export class GCodeGenerator {
       return
     }
 
-    lines.push(`; Pocket strategy: ${strategy === 'zigzag' ? 'zigzag (45\u00b0 raster)' : 'contour-parallel'}`)
+    const strategyLabel = strategy === 'zigzag'
+      ? 'zigzag (45\u00b0 raster)'
+      : strategy === 'spiral'
+        ? 'espiral continua (sin retracciones entre anillos)'
+        : 'contour-parallel'
+    lines.push(`; Pocket strategy: ${strategyLabel}`)
 
     for (let pass = 1; pass <= opts.numPasses; pass++) {
       const currentDepth = -Math.min(opts.depth, opts.depthStep * pass)
@@ -847,6 +960,11 @@ export class GCodeGenerator {
       lines.push(`; Pass ${pass}/${opts.numPasses} Z${currentDepth.toFixed(3)}`)
 
       for (const pocket of pocketData) {
+        for (const spiral of pocket.spiral) {
+          if (spiral.length === 0) continue
+          this.emitPathGCode(lines, spiral, false, currentDepth, opts.feedRate, opts.plungeRate)
+        }
+
         if (pocket.roughing.length > 0) {
           const orderedRoughing = orderPaths(pocket.roughing)
           for (const contour of orderedRoughing) {
@@ -897,7 +1015,7 @@ export class GCodeGenerator {
         this.totalDistance += link
         this.totalTime += (link / feedRate) * 60
       } else {
-        if (atDepth) lines.push(`G0 Z${SAFE_Z}`)
+        if (atDepth) lines.push(`G0 Z${this.safeZ}`)
         lines.push(`G0 X${seg.start.x.toFixed(3)} Y${seg.start.y.toFixed(3)}`)
         lines.push(`G1 Z${depth.toFixed(3)} F${plungeRate}`)
         atDepth = true
@@ -910,7 +1028,7 @@ export class GCodeGenerator {
       current = seg.end
     }
 
-    if (atDepth) lines.push(`G0 Z${SAFE_Z}`)
+    if (atDepth) lines.push(`G0 Z${this.safeZ}`)
   }
 
   private emitPathGCode(
@@ -921,20 +1039,66 @@ export class GCodeGenerator {
     feedRate: number,
     plungeRate: number,
     rampAngle?: number,
+    /** Puntos de aproximacion antes del contorno (entrada tangente). */
+    leadIn?: Point2D[],
+    /** Puntos de salida despues del contorno. */
+    leadOut?: Point2D[],
   ) {
     if (points.length === 0) return
 
-    const start = points[0]
+    const hasLeadIn = !!leadIn && leadIn.length > 0
+    // Con entrada tangente la fresa baja fuera del contorno y entra cortando,
+    // asi que la rampa no aporta nada y solo alarga el recorrido.
+    const entry = hasLeadIn ? leadIn! : []
+    const start = entry.length > 0 ? entry[0] : points[0]
     lines.push(`G0 X${start.x.toFixed(3)} Y${start.y.toFixed(3)}`)
+
+    if (hasLeadIn) {
+      lines.push(`G1 Z${depth.toFixed(3)} F${plungeRate}`)
+      let prev = start
+      for (let i = 1; i < entry.length; i++) {
+        const pt = entry[i]
+        lines.push(`G1 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${feedRate}`)
+        const d = this.distance(prev, pt)
+        this.totalDistance += d
+        this.totalTime += (d / feedRate) * 60
+        prev = pt
+      }
+      // Enlace con el arranque del contorno
+      const first = points[0]
+      lines.push(`G1 X${first.x.toFixed(3)} Y${first.y.toFixed(3)} F${feedRate}`)
+      const dLink = this.distance(prev, first)
+      this.totalDistance += dLink
+      this.totalTime += (dLink / feedRate) * 60
+
+      for (let i = 1; i < points.length; i++) {
+        const pt = points[i]
+        lines.push(`G1 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${feedRate}`)
+        const d = this.distance(points[i - 1], pt)
+        this.totalDistance += d
+        this.totalTime += (d / feedRate) * 60
+      }
+
+      if (closed && points.length > 2) {
+        lines.push(`G1 X${first.x.toFixed(3)} Y${first.y.toFixed(3)} F${feedRate}`)
+        const d = this.distance(points[points.length - 1], first)
+        this.totalDistance += d
+        this.totalTime += (d / feedRate) * 60
+      }
+
+      this.emitLeadOut(lines, closed && points.length > 2 ? points[0] : points[points.length - 1], leadOut, feedRate)
+      lines.push(`G0 Z${this.safeZ}`)
+      return
+    }
 
     // Ramp entry: descend gradually along the first segment(s) instead of plunge
     if (rampAngle && rampAngle > 0 && points.length >= 2) {
-      const zDrop = Math.abs(depth) + SAFE_Z  // Total Z to descend (from safe to depth)
+      const zDrop = Math.abs(depth) + this.safeZ  // Total Z to descend (from safe to depth)
       const rampRad = (rampAngle * Math.PI) / 180
       const rampLength = zDrop / Math.tan(rampRad)  // Horizontal distance needed
 
       // Move to safe Z first, then ramp down along path segments
-      lines.push(`G0 Z${SAFE_Z}`)
+      lines.push(`G0 Z${this.safeZ}`)
       let remaining = rampLength
       let currentZ = 0  // Start from Z0 level
       let ptIdx = 0
@@ -1008,7 +1172,27 @@ export class GCodeGenerator {
       this.totalTime += (dist / feedRate) * 60
     }
 
-    lines.push(`G0 Z${SAFE_Z}`)
+    this.emitLeadOut(lines, closed && points.length > 2 ? points[0] : points[points.length - 1], leadOut, feedRate)
+
+    lines.push(`G0 Z${this.safeZ}`)
+  }
+
+  /** Salida tangente: se aleja del contorno cortando antes de retraer. */
+  private emitLeadOut(
+    lines: string[],
+    from: Point2D,
+    leadOut: Point2D[] | undefined,
+    feedRate: number,
+  ) {
+    if (!leadOut || leadOut.length === 0) return
+    let prev = from
+    for (const pt of leadOut) {
+      lines.push(`G1 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${feedRate}`)
+      const d = this.distance(prev, pt)
+      this.totalDistance += d
+      this.totalTime += (d / feedRate) * 60
+      prev = pt
+    }
   }
 
   /**
@@ -1024,6 +1208,8 @@ export class GCodeGenerator {
     tabHeight: number,
     tabWidth: number,
     tabCount: number,
+    /** Posiciones manuales 0..1 sobre el perimetro. Si falta, se reparten parejo. */
+    tabPositions?: number[],
   ) {
     if (points.length < 2) return
 
@@ -1038,11 +1224,19 @@ export class GCodeGenerator {
     const perimeter = cumDist[cumDist.length - 1]
     if (perimeter === 0) return
 
-    // Tab center positions (evenly spaced)
-    const tabSpacing = perimeter / tabCount
+    // Tab center positions: manuales (fraccion del perimetro) o repartidos
     const tabCenters: number[] = []
-    for (let i = 0; i < tabCount; i++) {
-      tabCenters.push(tabSpacing / 2 + tabSpacing * i)
+    if (tabPositions && tabPositions.length > 0) {
+      for (const frac of tabPositions) {
+        const clamped = Math.min(1, Math.max(0, frac))
+        tabCenters.push(clamped * perimeter)
+      }
+      tabCenters.sort((a, b) => a - b)
+    } else {
+      const tabSpacing = perimeter / tabCount
+      for (let i = 0; i < tabCount; i++) {
+        tabCenters.push(tabSpacing / 2 + tabSpacing * i)
+      }
     }
 
     // Enrich path: insert interpolated points at tab entry/exit boundaries
@@ -1121,7 +1315,7 @@ export class GCodeGenerator {
       this.totalTime += (dist / feedRate) * 60
     }
 
-    lines.push(`G0 Z${SAFE_Z}`)
+    lines.push(`G0 Z${this.safeZ}`)
   }
 
   // ============================================
@@ -1464,7 +1658,7 @@ export class GCodeGenerator {
         if (hasMultipleColors) {
           lines.push(`; --- Color group: ${group.color === '__default__' ? 'default' : group.color} (${group.paths.length} paths) ---`)
           if (gi > 0) {
-            lines.push(`G0 Z${SAFE_Z}`)
+            lines.push(`G0 Z${this.safeZ}`)
             lines.push('M0 ; Pause for pen change')
           }
         }
@@ -1473,7 +1667,7 @@ export class GCodeGenerator {
         if (path.points.length === 0) continue
 
         const start = path.points[0]
-        lines.push(`G0 Z${SAFE_Z}`)
+        lines.push(`G0 Z${this.safeZ}`)
         lines.push(`G0 X${start.x.toFixed(3)} Y${start.y.toFixed(3)}`)
         if (penDownCmd) lines.push(penDownCmd)
         lines.push(`G1 Z${penDown.toFixed(3)} F${feedRate}`)
@@ -1496,7 +1690,7 @@ export class GCodeGenerator {
           this.totalTime += (dist / feedRate) * 60
         }
 
-        lines.push(`G0 Z${SAFE_Z}`)
+        lines.push(`G0 Z${this.safeZ}`)
         if (usePressure) lines.push('M5 ; Release pen/blade pressure')
       }
       } // end color group
@@ -1532,7 +1726,7 @@ export class GCodeGenerator {
       bidirectional: config.photoBidirectional !== false,
       feedRate: parseFloat(String(config.feedRate)) || 600,
       plungeRate: parseFloat(String(config.plungeRate)) || 200,
-      safeZ: SAFE_Z,
+      safeZ: this.safeZ,
       stepMm: config.photoStepMm ?? 0,
     })
 

@@ -788,3 +788,216 @@ export function sampleCatmullRom(
 
   return result
 }
+
+// ============================================
+// ORIENTACION Y SENTIDO DE FRESADO
+// ============================================
+
+/** Area con signo. Positiva = antihorario (CCW) en ejes de maquina (Y arriba). */
+export function signedArea(points: Point2D[]): number {
+  let a = 0
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i]
+    const q = points[(i + 1) % points.length]
+    a += p.x * q.y - q.x * p.y
+  }
+  return a / 2
+}
+
+export function isCounterClockwise(points: Point2D[]): boolean {
+  return signedArea(points) > 0
+}
+
+/** Devuelve el path recorrido en el sentido pedido (no muta el original). */
+export function withOrientation(points: Point2D[], counterClockwise: boolean): Point2D[] {
+  if (points.length < 3) return points
+  return isCounterClockwise(points) === counterClockwise ? points : [...points].reverse()
+}
+
+/**
+ * Sentido de recorrido para un contorno cerrado.
+ *
+ * Con la fresa girando en horario (lo normal en un router), el fresado en
+ * concordancia (climb) deja la fresa empujando contra material sin cortar: por
+ * fuera de la pieza se recorre en horario y por dentro en antihorario. El
+ * fresado en oposicion (conventional) es al reves.
+ */
+export function millingCounterClockwise(
+  workType: string,
+  direction: 'climb' | 'conventional',
+): boolean {
+  // Por fuera del contorno la fresa deja la pieza a su izquierda en CW
+  const outside = workType === 'outside'
+  const climbCCW = !outside
+  return direction === 'climb' ? climbCCW : !climbCCW
+}
+
+// ============================================
+// ENTRADA / SALIDA TANGENTE (LEAD-IN / LEAD-OUT)
+// ============================================
+
+/**
+ * Normal unitaria del path en su primer (o ultimo) punto, apuntando al lado
+ * donde NO hay material, que es por donde tiene que venir la fresa.
+ */
+function leadNormal(points: Point2D[], atEnd: boolean, outward: boolean): { n: Point2D; t: Point2D } | null {
+  const n = points.length
+  if (n < 2) return null
+
+  const a = atEnd ? points[n - 2] : points[0]
+  const b = atEnd ? points[n - 1] : points[1]
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const len = Math.hypot(dx, dy)
+  if (len < 1e-9) return null
+
+  const t = { x: dx / len, y: dy / len }
+  // Normal izquierda respecto al avance
+  const left = { x: -t.y, y: t.x }
+  const ccw = isCounterClockwise(points)
+  // En CCW el interior queda a la izquierda del avance
+  const interior = ccw ? left : { x: -left.x, y: -left.y }
+  const nrm = outward ? { x: -interior.x, y: -interior.y } : interior
+  return { n: nrm, t }
+}
+
+/**
+ * Puntos de aproximacion al contorno. `line` entra perpendicular al contorno
+ * desde el lado libre; `arc` describe un cuarto de circunferencia tangente al
+ * contorno, que es lo que evita la marca de entrada en el canto.
+ *
+ * Devuelve los puntos ANTES del inicio del path (entrada) o DESPUES del final
+ * (salida, con `atEnd`). Vacio si no corresponde.
+ */
+export function buildLead(
+  points: Point2D[],
+  type: 'none' | 'line' | 'arc',
+  length: number,
+  outward: boolean,
+  atEnd = false,
+  arcSegments = 8,
+): Point2D[] {
+  if (type === 'none' || length <= 0 || points.length < 2) return []
+  const base = leadNormal(points, atEnd, outward)
+  if (!base) return []
+
+  const p = atEnd ? points[points.length - 1] : points[0]
+  const { n, t } = base
+
+  if (type === 'line') {
+    const start = { x: p.x + n.x * length, y: p.y + n.y * length }
+    return atEnd ? [start] : [start]
+  }
+
+  // Arco tangente: centro desplazado una normal, barrido de 90 grados
+  const r = length
+  const cx = p.x + n.x * r
+  const cy = p.y + n.y * r
+  // Angulo del punto de contacto visto desde el centro
+  const a0 = Math.atan2(p.y - cy, p.x - cx)
+  // Con el angulo creciendo, la velocidad sobre el circulo en `p` apunta a
+  // (n.y, -n.x). El signo dice si hay que recorrerlo en ese sentido o al reves
+  // para que la tangente del arco coincida con el avance del contorno.
+  const sign = (t.x * n.y - t.y * n.x) >= 0 ? 1 : -1
+  const sweep = (Math.PI / 2) * sign * (atEnd ? 1 : -1)
+
+  const out: Point2D[] = []
+  for (let i = 0; i <= arcSegments; i++) {
+    const f = i / arcSegments
+    const ang = atEnd ? a0 + sweep * f : a0 + sweep * (1 - f)
+    out.push({ x: cx + r * Math.cos(ang), y: cy + r * Math.sin(ang) })
+  }
+  // El extremo que coincide con el contorno lo aporta el propio path
+  if (atEnd) out.shift()
+  else out.pop()
+  return out
+}
+
+// ============================================
+// POCKET EN ESPIRAL
+// ============================================
+
+/** Rota un anillo cerrado para que empiece en el punto mas cercano a `ref`. */
+function rotateRingToNearest(ring: Point2D[], ref: Point2D): Point2D[] {
+  let best = 0
+  let bestD = Infinity
+  for (let i = 0; i < ring.length; i++) {
+    const d = (ring[i].x - ref.x) ** 2 + (ring[i].y - ref.y) ** 2
+    if (d < bestD) { bestD = d; best = i }
+  }
+  const rotated = [...ring.slice(best), ...ring.slice(0, best)]
+  rotated.push(rotated[0])
+  return rotated
+}
+
+/**
+ * Cajeado en espiral: los mismos anillos del contour-parallel pero encadenados
+ * de adentro hacia afuera en un solo recorrido continuo, sin levantar la fresa
+ * entre anillo y anillo. Cada anillo arranca en el punto mas cercano al final
+ * del anterior, que es el paso lateral de la espiral.
+ *
+ * Devuelve una polilinea ABIERTA por isla.
+ */
+export async function generatePocketSpiral(
+  boundary: Point2D[],
+  toolRadius: number,
+  stepover: number,
+  initialInset: number = toolRadius,
+): Promise<Point2D[][]> {
+  const { roughing } = await generatePocketContours(
+    boundary, toolRadius, stepover, initialInset,
+  )
+  if (roughing.length === 0) return []
+
+  // `generatePocketContours` entrega de afuera hacia adentro; la espiral va al
+  // reves y termina en el anillo exterior, que hace de pasada de acabado. El
+  // `finishing` que devuelve es ese mismo anillo, asi que no se agrega aparte.
+  const inward = [...roughing].reverse().filter((r) => r.length >= 3)
+  if (inward.length === 0) return []
+
+  const spiral: Point2D[] = []
+  let ref = inward[0][0]
+
+  for (const ring of inward) {
+    const rotated = rotateRingToNearest(ring, ref)
+    spiral.push(...rotated)
+    ref = rotated[rotated.length - 1]
+  }
+
+  return [spiral]
+}
+
+// ============================================
+// ORDEN DE OPERACIONES (minimizar rapidos)
+// ============================================
+
+/**
+ * Ordena bloques (operaciones) por vecino mas cercano entre el punto donde
+ * termina uno y donde empieza el siguiente. Trabaja sobre indices para no
+ * copiar geometria: devuelve el orden de los indices originales.
+ */
+export function orderByNearestEntry(
+  entries: { start: Point2D; end: Point2D }[],
+  origin: Point2D = { x: 0, y: 0 },
+): number[] {
+  if (entries.length <= 1) return entries.map((_, i) => i)
+
+  const remaining = entries.map((_, i) => i)
+  const order: number[] = []
+  let cursor = origin
+
+  while (remaining.length > 0) {
+    let bestIdx = 0
+    let bestD = Infinity
+    for (let i = 0; i < remaining.length; i++) {
+      const e = entries[remaining[i]]
+      const d = (e.start.x - cursor.x) ** 2 + (e.start.y - cursor.y) ** 2
+      if (d < bestD) { bestD = d; bestIdx = i }
+    }
+    const chosen = remaining.splice(bestIdx, 1)[0]
+    order.push(chosen)
+    cursor = entries[chosen].end
+  }
+
+  return order
+}

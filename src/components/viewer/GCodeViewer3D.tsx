@@ -208,6 +208,25 @@ function Toolpath({ segments }: ToolpathProps) {
     return { highlightSet: hSet, disabledSet: dSet }
   }, [selectedOpId, soloOpId, camOps])
 
+  const colorMode = useGCodeStore((s) => s.viewerColorMode)
+
+  // Rango de avance y de profundidad, para los modos de color por magnitud
+  const ranges = useMemo(() => {
+    let minFeed = Infinity, maxFeed = -Infinity, maxDepth = 0
+    for (const seg of segments) {
+      if (seg.type !== 'cut') continue
+      const f = seg.feedRate ?? 0
+      if (f > 0) {
+        if (f < minFeed) minFeed = f
+        if (f > maxFeed) maxFeed = f
+      }
+      const d = Math.max(-seg.from.z, -seg.to.z)
+      if (d > maxDepth) maxDepth = d
+    }
+    if (!Number.isFinite(minFeed)) { minFeed = 0; maxFeed = 0 }
+    return { minFeed, maxFeed, maxDepth }
+  }, [segments])
+
   const { rapidPoints, rapidColors, cutPoints, cutColors, totalSegments } = useMemo(() => {
     const rp: number[] = []
     const rc: number[] = []
@@ -234,7 +253,19 @@ function Toolpath({ segments }: ToolpathProps) {
       } else {
         cp.push(fx, fy, fz, tx, ty, tz)
         let r: number, g: number, b: number
-        if (seg.color) {
+        if (colorMode === 'feed' || colorMode === 'depth') {
+          // Gradiente azul (bajo) -> rojo (alto) sobre el rango real del trabajo
+          const t = colorMode === 'feed'
+            ? (ranges.maxFeed > ranges.minFeed
+                ? ((seg.feedRate ?? ranges.minFeed) - ranges.minFeed) / (ranges.maxFeed - ranges.minFeed)
+                : 0.5)
+            : (ranges.maxDepth > 0
+                ? Math.min(1, Math.max(0, Math.max(-seg.from.z, -seg.to.z) / ranges.maxDepth))
+                : 0)
+          r = t
+          g = 0.25 + 0.35 * (1 - Math.abs(t * 2 - 1))
+          b = 1 - t
+        } else if (seg.color) {
           const hex = seg.color.replace('#', '')
           r = parseInt(hex.slice(0, 2), 16) / 255
           g = parseInt(hex.slice(2, 4), 16) / 255
@@ -261,7 +292,7 @@ function Toolpath({ segments }: ToolpathProps) {
       cutColors: new Float32Array(cc),
       totalSegments: segments.length,
     }
-  }, [segments, highlightSet, disabledSet])
+  }, [segments, highlightSet, disabledSet, colorMode, ranges])
 
   const rapidRef = useRef<THREE.LineSegments>(null)
   const cutRef = useRef<THREE.LineSegments>(null)
@@ -612,6 +643,75 @@ function ParkingPositions() {
   )
 }
 
+
+/**
+ * Bloque de material. Se dibuja translucido para ver el recorrido adentro.
+ * Con `auto` el bloque se ajusta al recorrido de corte mas el margen, que es
+ * lo mismo que usa la validacion antes de generar.
+ */
+function StockBox({ segments }: { segments: GCodeSegment[] }) {
+  const stock = useCAMStore((s) => s.setup.stock)
+  const showStock = useGCodeStore((s) => s.showStock)
+
+  const resolved = useMemo(() => {
+    if (!stock.enabled) return null
+    if (!stock.auto) return stock
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const seg of segments) {
+      if (seg.type !== 'cut') continue
+      minX = Math.min(minX, seg.from.x, seg.to.x)
+      maxX = Math.max(maxX, seg.from.x, seg.to.x)
+      minY = Math.min(minY, seg.from.y, seg.to.y)
+      maxY = Math.max(maxY, seg.from.y, seg.to.y)
+    }
+    if (!Number.isFinite(minX)) return stock
+
+    const m = Math.max(0, stock.margin)
+    return {
+      ...stock,
+      x: minX - m,
+      y: minY - m,
+      width: (maxX - minX) + m * 2,
+      height: (maxY - minY) + m * 2,
+    }
+  }, [stock, segments])
+
+  if (!resolved || !showStock || resolved.width <= 0 || resolved.height <= 0) return null
+
+  const thickness = Math.max(0.1, resolved.thickness)
+  // zeroAt 'top': el cero de pieza esta en la cara de arriba, el bloque cuelga
+  // hacia abajo. 'bottom': el cero esta en la mesa y el bloque sube.
+  const top = resolved.zeroAt === 'top' ? 0 : thickness
+  const centerY = top - thickness / 2
+
+  const [cx, , cz] = gcodeToThree(
+    resolved.x + resolved.width / 2,
+    resolved.y + resolved.height / 2,
+    0,
+  )
+
+  return (
+    <group position={[cx, centerY, cz]}>
+      <mesh>
+        <boxGeometry args={[resolved.width, thickness, resolved.height]} />
+        <meshStandardMaterial
+          color="#c8a27a"
+          transparent
+          opacity={0.22}
+          roughness={0.9}
+          metalness={0}
+          depthWrite={false}
+        />
+      </mesh>
+      <lineSegments>
+        <edgesGeometry args={[new THREE.BoxGeometry(resolved.width, thickness, resolved.height)]} />
+        <lineBasicMaterial color="#8a6a45" transparent opacity={0.8} />
+      </lineSegments>
+    </group>
+  )
+}
+
 /**
  * CAM Setup visuals: draggable tool change area + draggable clamps.
  */
@@ -900,6 +1000,7 @@ function Scene() {
       <directionalLight position={[centerX, 400, centerZ]} intensity={0.8} />
       <CameraSetup bounds={bounds} />
       <WorkArea bounds={bounds} width={workArea.width} height={workArea.height} />
+      <StockBox segments={segments} />
       {segments.length > 0 && (
         <>
           <Toolpath segments={segments} />
