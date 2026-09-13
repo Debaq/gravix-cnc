@@ -12,6 +12,9 @@ import {
   MIN_ZOOM,
   MAX_ZOOM,
   effectiveGridSpacing,
+  GRID_MINOR_COLOR,
+  GRID_MAJOR_COLOR,
+  OBJECT_STROKE_COLOR,
   niceStepMm,
   canvasToMm,
   mmToCanvas,
@@ -1394,7 +1397,7 @@ export function DesignCanvas() {
         const totalRows = Math.floor(workH / gridPx)
 
         // Minor lines
-        ctx.strokeStyle = '#C9BEE6'
+        ctx.strokeStyle = GRID_MINOR_COLOR
         ctx.lineWidth = 0.5 / z
         ctx.setLineDash([])
         ctx.beginPath()
@@ -1411,7 +1414,7 @@ export function DesignCanvas() {
         ctx.stroke()
 
         // Major lines
-        ctx.strokeStyle = '#8B7BBF'
+        ctx.strokeStyle = GRID_MAJOR_COLOR
         ctx.lineWidth = 1 / z
         ctx.beginPath()
         for (let i = major; i <= totalCols; i += major) {

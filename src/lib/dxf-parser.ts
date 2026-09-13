@@ -2,6 +2,8 @@ import { Path, Circle, Line, Point } from 'fabric'
 import type { Point2D } from './types'
 
 // Factor de escala DXF (generalmente mm) a Pixeles del canvas
+import { OBJECT_STROKE_COLOR } from '@/lib/canvas-theme'
+
 const PIXELS_PER_MM = 3.78
 
 interface DxfEntity {
@@ -184,7 +186,7 @@ export function dxfToFabricObjects(entities: DxfEntity[]): any[] {
           (ent.x2 || 0) * PIXELS_PER_MM,
           -(ent.y2 || 0) * PIXELS_PER_MM
         ], {
-          stroke: '#333',
+          stroke: OBJECT_STROKE_COLOR,
           strokeWidth: 1
         }))
         break
@@ -196,7 +198,7 @@ export function dxfToFabricObjects(entities: DxfEntity[]): any[] {
           top: -(ent.centerY || 0) * PIXELS_PER_MM - r,
           radius: r,
           fill: 'transparent',
-          stroke: '#333',
+          stroke: OBJECT_STROKE_COLOR,
           strokeWidth: 1
         }))
         break
@@ -221,7 +223,7 @@ export function dxfToFabricObjects(entities: DxfEntity[]): any[] {
         
         objects.push(new Path(pathStr, {
           fill: 'transparent',
-          stroke: '#333',
+          stroke: OBJECT_STROKE_COLOR,
           strokeWidth: 1
         }))
         break
@@ -238,7 +240,7 @@ export function dxfToFabricObjects(entities: DxfEntity[]): any[] {
 
         objects.push(new Path(pStr, {
           fill: 'transparent',
-          stroke: '#333',
+          stroke: OBJECT_STROKE_COLOR,
           strokeWidth: 1
         }))
         break
@@ -268,7 +270,7 @@ export function dxfToFabricObjects(entities: DxfEntity[]): any[] {
         }
         if (Math.abs(eEnd - eStart - Math.PI * 2) < 0.01) ePath += ' Z'
 
-        objects.push(new Path(ePath, { fill: 'transparent', stroke: '#333', strokeWidth: 1 }))
+        objects.push(new Path(ePath, { fill: 'transparent', stroke: OBJECT_STROKE_COLOR, strokeWidth: 1 }))
         break
       }
 
@@ -303,7 +305,7 @@ export function dxfToFabricObjects(entities: DxfEntity[]): any[] {
         }
 
         if (ent.closed) sPath += ' Z'
-        objects.push(new Path(sPath, { fill: 'transparent', stroke: '#333', strokeWidth: 1 }))
+        objects.push(new Path(sPath, { fill: 'transparent', stroke: OBJECT_STROKE_COLOR, strokeWidth: 1 }))
         break
       }
 

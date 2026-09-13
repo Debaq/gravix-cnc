@@ -30,6 +30,12 @@ import { booleanOperation } from '@/lib/boolean-ops'
 import { autoJoinPaths, removeTinySpans, removeDuplicatePaths } from '@/lib/vector-diagnostics'
 import { offsetPolygon } from '@/lib/geometry'
 import { parseDxf, dxfToFabricObjects } from '@/lib/dxf-parser'
+import {
+  GRID_MINOR_COLOR,
+  GRID_MAJOR_COLOR,
+  OBJECT_STROKE_COLOR,
+  OBJECT_STROKE_SOFT_COLOR,
+} from '@/lib/canvas-theme'
 
 // ============================================
 // Shared canvas reference for cross-component access
@@ -917,7 +923,7 @@ export function useCanvasManager() {
 
       const elementId = generateId()
       const defaultSize = 50 * PIXELS_PER_MM // 50mm
-      const stroke = '#333333'
+      const stroke = OBJECT_STROKE_COLOR
       const baseProps = { fill: 'transparent', stroke, strokeWidth: 1 }
 
       // Determine object dimensions for placement
@@ -1228,7 +1234,7 @@ export function useCanvasManager() {
       if (box.width < 2 || box.height < 2) return
 
       const elementId = generateId()
-      const baseProps = { fill: 'transparent', stroke: '#333333', strokeWidth: 1 }
+      const baseProps = { fill: 'transparent', stroke: OBJECT_STROKE_COLOR, strokeWidth: 1 }
 
       let fabricObj: FabricObject
       let makerType: string | undefined
@@ -1317,7 +1323,7 @@ export function useCanvasManager() {
 
       const fabricObj = new Path(d, {
         fill: 'transparent',
-        stroke: '#333333',
+        stroke: OBJECT_STROKE_COLOR,
         strokeWidth: 1,
         lockScalingX: true,
         lockScalingY: true,
@@ -1381,7 +1387,7 @@ export function useCanvasManager() {
 
       const fabricObj = new Path(d, {
         fill: 'transparent',
-        stroke: '#333333',
+        stroke: OBJECT_STROKE_COLOR,
         strokeWidth: 1,
         lockScalingX: true,
         lockScalingY: true,
@@ -1442,7 +1448,7 @@ export function useCanvasManager() {
 
       const fabricObj = new Path(d, {
         fill: 'transparent',
-        stroke: '#333333',
+        stroke: OBJECT_STROKE_COLOR,
         strokeWidth: 1,
         lockScalingX: true,
         lockScalingY: true,
@@ -1488,7 +1494,7 @@ export function useCanvasManager() {
 
       const fabricObj = new Path(svgPathD, {
         fill: 'transparent',
-        stroke: '#333333',
+        stroke: OBJECT_STROKE_COLOR,
         strokeWidth: 1,
         lockScalingX: true,
         lockScalingY: true,
@@ -2724,7 +2730,7 @@ export function useCanvasManager() {
       const centerY = oldBounds.top + oldBounds.height / 2
       const savedAngle = oldObj.angle ?? 0
 
-      const stroke = '#333333'
+      const stroke = OBJECT_STROKE_COLOR
       const baseProps = { fill: 'transparent', stroke, strokeWidth: 1 }
       const mergedParams = { ...element.makerParams, ...newParams }
       const params = mergedParams as Record<string, number> // legacy numeric access
@@ -3335,7 +3341,7 @@ export function useCanvasManager() {
 
     const newPath = new Path(pathString, {
       fill: 'rgba(0,0,0,0.1)',
-      stroke: '#333',
+      stroke: OBJECT_STROKE_COLOR,
       strokeWidth: 1,
     })
 
@@ -3418,7 +3424,7 @@ export function useCanvasManager() {
           
           const newPath = new Path(pathString, {
             fill: 'rgba(0,0,0,0.05)',
-            stroke: '#666',
+            stroke: OBJECT_STROKE_SOFT_COLOR,
             strokeWidth: 1,
             strokeDashArray: [5, 5]
           })
@@ -4152,6 +4158,10 @@ export function mmToCanvas(
 // Re-export constants for use in DesignCanvas
 export {
   PIXELS_PER_MM,
+  GRID_MINOR_COLOR,
+  GRID_MAJOR_COLOR,
+  OBJECT_STROKE_COLOR,
+  OBJECT_STROKE_SOFT_COLOR,
   WORK_AREA_PADDING,
   MIN_ZOOM,
   MAX_ZOOM,
