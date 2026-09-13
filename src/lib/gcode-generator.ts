@@ -1,7 +1,8 @@
-import type { Point2D, GCodePath, GCodeJob, GlobalConfig, RasterData, ColorMapping, GCodeMarker, ClampRect } from './types'
+import type { Point2D, GCodePath, GCodeJob, GlobalConfig, RasterData, ColorMapping, GCodeMarker, ClampRect, PocketStrategy } from './types'
 import type { MachineProfile } from './profiles'
-import { offsetPolygon, generatePocketContours, orderPaths, orderPathsInsideFirst, generateHatchLines, validateToolVsPaths } from './geometry'
+import { offsetPolygon, generatePocketContours, generatePocketZigzag, orderPaths, orderPathsInsideFirst, generateHatchLines, validateToolVsPaths } from './geometry'
 import { useMachineStore } from '@/stores/useMachineStore'
+import { computeRestRegions } from './boolean-ops'
 import { tauriInvoke } from './tauri'
 
 const SAFE_Z = 5
@@ -621,28 +622,44 @@ export class GCodeGenerator {
         lines.push(...emitVCarveGCode(passes, feedRate, plungeRate))
       }
     } else if (workType === 'pocket') {
+      const pocketStrategy: PocketStrategy = config.pocketStrategy ?? 'contour-parallel'
+
       await this.generatePocketGCode(paths, lines, {
         depth, depthStep, numPasses, toolRadius, stepover, feedRate, plungeRate,
+        strategy: pocketStrategy,
       })
 
-      // Rest machining: second pocket pass with smaller tool in corners
+      // Rest machining: segunda pasada con fresa menor SÓLO sobre el material
+      // que la fresa de desbaste no pudo alcanzar (esquinas y ranuras)
       if (config.restMachiningEnabled && config.restToolDiameter > 0 && config.restToolDiameter < toolDiameter) {
         const restRadius = config.restToolDiameter / 2
-        const restStepover = stepover
-        lines.push('')
-        lines.push('; ---- REST MACHINING ----')
-        lines.push(`; Finishing tool: ${config.restToolDiameter}mm`)
-        lines.push(this.spindleOff('Spindle OFF for tool change'))
-        lines.push(`G0 Z${SAFE_Z}`)
-        lines.push(this.pause('Pause for tool change'))
-        lines.push(this.spindleOn(parseFloat(String(config.spindleRPM))))
-        lines.push(this.dwell(2))
-        lines.push('')
+        const restRegions: Point2D[][] = []
+        for (const path of paths) {
+          if (!path.closed || path.points.length < 3) continue
+          restRegions.push(...await computeRestRegions(path.points, toolRadius, restRadius))
+        }
 
-        await this.generatePocketGCode(paths, lines, {
-          depth, depthStep, numPasses, toolRadius: restRadius, stepover: restStepover,
-          feedRate: feedRate * 0.8, plungeRate: plungeRate * 0.8,
-        })
+        if (restRegions.length === 0) {
+          lines.push('')
+          lines.push(`; NOTE: rest machining skipped — the ${toolDiameter}mm tool already cleared every corner`)
+        } else {
+          lines.push('')
+          lines.push('; ---- REST MACHINING ----')
+          lines.push(`; Finishing tool: ${config.restToolDiameter}mm | ${restRegions.length} uncleared region(s)`)
+          lines.push(this.spindleOff('Spindle OFF for tool change'))
+          lines.push(`G0 Z${SAFE_Z}`)
+          lines.push(this.pause('Pause for tool change'))
+          lines.push(this.spindleOn(parseFloat(String(config.spindleRPM))))
+          lines.push(this.dwell(2))
+          lines.push('')
+
+          await this.generatePocketGCode([], lines, {
+            depth, depthStep, numPasses, toolRadius: restRadius, stepover,
+            feedRate: feedRate * 0.8, plungeRate: plungeRate * 0.8,
+            strategy: pocketStrategy,
+            regions: restRegions,
+          })
+        }
       }
     } else {
       await this.generateContourGCode(paths, lines, {
@@ -753,34 +770,56 @@ export class GCodeGenerator {
       stepover: number
       feedRate: number
       plungeRate: number
+      strategy?: PocketStrategy
+      /** Geometría ya calculada (rest machining); si falta se usa `paths` */
+      regions?: Point2D[][]
     }
   ) {
+    const strategy: PocketStrategy = opts.strategy ?? 'contour-parallel'
+
     const pocketData: {
       roughing: Point2D[][]
-      finishing: Point2D[]
-      originalIdx: number
+      hatch: { start: Point2D; end: Point2D }[]
+      finishing: Point2D[][]
     }[] = []
 
     let openPathCount = 0
 
-    for (let i = 0; i < paths.length; i++) {
-      const path = paths[i]
-
-      if (!path.closed) {
-        openPathCount++
-        continue
+    // Fuente de geometría: regiones explícitas (rest machining) o los paths cerrados
+    const boundaries: Point2D[][] = opts.regions ?? []
+    if (!opts.regions) {
+      for (const path of paths) {
+        if (!path.closed) {
+          openPathCount++
+          continue
+        }
+        if (path.points.length < 3) continue
+        boundaries.push(path.points)
       }
+    }
 
-      if (path.points.length < 3) continue
+    for (let i = 0; i < boundaries.length; i++) {
+      const boundary = boundaries[i]
 
-      const pocket = await generatePocketContours(path.points, opts.toolRadius, opts.stepover)
+      // Las regiones de rest machining ya vienen como recorrido de centro
+      // de herramienta: cajearlas erosionando otra vez las dejaría vacías
+      const initialInset = opts.regions ? 0 : opts.toolRadius
 
-      if (pocket.roughing.length === 0 && pocket.finishing.length === 0) {
-        lines.push(`; WARNING: Shape ${i + 1} too small for pocket with tool radius ${opts.toolRadius}mm`)
-        continue
+      if (strategy === 'zigzag') {
+        const pocket = await generatePocketZigzag(boundary, opts.toolRadius, opts.stepover, 45, initialInset)
+        if (pocket.hatch.length === 0 && pocket.finishing.length === 0) {
+          lines.push(`; WARNING: Shape ${i + 1} too small for pocket with tool radius ${opts.toolRadius}mm`)
+          continue
+        }
+        pocketData.push({ roughing: [], hatch: pocket.hatch, finishing: pocket.finishing })
+      } else {
+        const pocket = await generatePocketContours(boundary, opts.toolRadius, opts.stepover, initialInset)
+        if (pocket.roughing.length === 0 && pocket.finishing.length === 0) {
+          lines.push(`; WARNING: Shape ${i + 1} too small for pocket with tool radius ${opts.toolRadius}mm`)
+          continue
+        }
+        pocketData.push({ roughing: pocket.roughing, hatch: [], finishing: [pocket.finishing] })
       }
-
-      pocketData.push({ ...pocket, originalIdx: i })
     }
 
     if (openPathCount > 0) {
@@ -791,6 +830,8 @@ export class GCodeGenerator {
       lines.push('; WARNING: No valid pocket shapes found')
       return
     }
+
+    lines.push(`; Pocket strategy: ${strategy === 'zigzag' ? 'zigzag (45\u00b0 raster)' : 'contour-parallel'}`)
 
     for (let pass = 1; pass <= opts.numPasses; pass++) {
       const currentDepth = -Math.min(opts.depth, opts.depthStep * pass)
@@ -806,12 +847,62 @@ export class GCodeGenerator {
           }
         }
 
-        if (pocket.finishing.length > 0) {
+        if (pocket.hatch.length > 0) {
+          this.emitHatchGCode(
+            lines, pocket.hatch, currentDepth, opts.feedRate, opts.plungeRate,
+            opts.toolRadius * 2 * opts.stepover,
+          )
+        }
+
+        for (const contour of pocket.finishing) {
+          if (contour.length === 0) continue
           lines.push('; Finishing pass')
-          this.emitPathGCode(lines, pocket.finishing, true, currentDepth, opts.feedRate, opts.plungeRate)
+          this.emitPathGCode(lines, contour, true, currentDepth, opts.feedRate, opts.plungeRate)
         }
       }
     }
+  }
+
+  /**
+   * Emite segmentos de barrido zigzag. Si el final de un segmento queda a
+   * menos de dos stepovers del inicio del siguiente, enlaza a profundidad
+   * (sin retraer) en vez de levantar y volver a hundir la fresa.
+   */
+  private emitHatchGCode(
+    lines: string[],
+    segments: { start: Point2D; end: Point2D }[],
+    depth: number,
+    feedRate: number,
+    plungeRate: number,
+    stepDistance: number,
+  ) {
+    const linkThreshold = stepDistance * 2
+    let atDepth = false
+    let current: Point2D | null = null
+
+    for (const seg of segments) {
+      const canLink = atDepth && current !== null && this.distance(current, seg.start) <= linkThreshold
+
+      if (canLink) {
+        lines.push(`G1 X${seg.start.x.toFixed(3)} Y${seg.start.y.toFixed(3)} F${feedRate}`)
+        const link = this.distance(current!, seg.start)
+        this.totalDistance += link
+        this.totalTime += (link / feedRate) * 60
+      } else {
+        if (atDepth) lines.push(`G0 Z${SAFE_Z}`)
+        lines.push(`G0 X${seg.start.x.toFixed(3)} Y${seg.start.y.toFixed(3)}`)
+        lines.push(`G1 Z${depth.toFixed(3)} F${plungeRate}`)
+        atDepth = true
+      }
+
+      lines.push(`G1 X${seg.end.x.toFixed(3)} Y${seg.end.y.toFixed(3)} F${feedRate}`)
+      const dist = this.distance(seg.start, seg.end)
+      this.totalDistance += dist
+      this.totalTime += (dist / feedRate) * 60
+      current = seg.end
+    }
+
+    if (atDepth) lines.push(`G0 Z${SAFE_Z}`)
   }
 
   private emitPathGCode(
@@ -1304,8 +1395,14 @@ export class GCodeGenerator {
     const penDown = parseFloat(String(config.pressureZ || -1))
     const passes = Math.max(1, config.passes || 1)
     const bladeOffset = config.bladeOffset || 0
+    // Presión de pluma/cuchilla: se emite como palabra S en el pen-down.
+    // En plotters y cortadoras con servo la S controla la fuerza aplicada.
+    const pressure = Math.max(0, Math.min(1000, parseFloat(String(config.pressure ?? 0))))
+    const usePressure = pressure > 0
+    const penDownCmd = usePressure ? `M3 S${pressure.toFixed(0)}` : null
 
     lines.push(`; Speed: ${feedRate} | Z down: ${penDown} | Passes: ${passes}`)
+    if (usePressure) lines.push(`; Pen/blade pressure: S${pressure.toFixed(0)}`)
 
     // Blade offset compensation: expand closed paths outward by blade radius
     let processedPaths = paths
@@ -1370,6 +1467,7 @@ export class GCodeGenerator {
         const start = path.points[0]
         lines.push(`G0 Z${SAFE_Z}`)
         lines.push(`G0 X${start.x.toFixed(3)} Y${start.y.toFixed(3)}`)
+        if (penDownCmd) lines.push(penDownCmd)
         lines.push(`G1 Z${penDown.toFixed(3)} F${feedRate}`)
 
         for (let i = 1; i < path.points.length; i++) {
@@ -1391,6 +1489,7 @@ export class GCodeGenerator {
         }
 
         lines.push(`G0 Z${SAFE_Z}`)
+        if (usePressure) lines.push('M5 ; Release pen/blade pressure')
       }
       } // end color group
     } // end passes

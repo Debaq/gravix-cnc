@@ -53,15 +53,6 @@ export function applyConstraints(
   return { x, y }
 }
 
-// Check if a constraint already exists for a node
-export function hasConstraint(
-  constraints: NodeConstraint[],
-  nodeIndex: number,
-  type: ConstraintType,
-): boolean {
-  return constraints.some(c => c.nodeIndex === nodeIndex && c.type === type)
-}
-
 // Toggle a constraint on a node
 export function toggleConstraint(
   constraints: NodeConstraint[],
@@ -82,14 +73,6 @@ export function toggleConstraint(
     type,
     nodeIndex,
   }]
-}
-
-// Get constraints for a specific node
-export function getNodeConstraints(
-  constraints: NodeConstraint[],
-  nodeIndex: number,
-): NodeConstraint[] {
-  return constraints.filter(c => c.nodeIndex === nodeIndex)
 }
 
 // Render constraint indicator data for overlay drawing

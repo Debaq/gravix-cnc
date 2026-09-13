@@ -1,10 +1,34 @@
 # Plan de Paridad: Mach3 + LightBurn + Vectric Aspire + Plotter Profesional
 
-> Estado actual estimado (post P0s + P1s):
-> - vs Mach3: **~80%** (+lead-in, color mapping, rest machining, vector diagnostics, DXF completo)
-> - vs LightBurn: **~62%** (+lead-in/out, color mapping por capa, DXF completo)
-> - vs Vectric Aspire: **~40%** (+rest machining, node editing ~85%, vector diagnostics, tool DB export)
-> - vs Plotter pro (Silhouette/Cricut): **~62%** (+vector diagnostics, DXF completo, undo robusto)
+> Ultima auditoria de codigo: **2026-09-12**
+>
+> Estado actual estimado (corregido tras auditar los imports reales):
+> - vs Mach3: **~78%**
+> - vs LightBurn: **~62%**
+> - vs Vectric Aspire: **~38%**
+> - vs Plotter pro (Silhouette/Cricut): **~62%**
+
+---
+
+## Auditoria 2026-09-12: modulos escritos pero nunca conectados
+
+La revision cruzo cada item marcado ✅ contra los imports reales del proyecto.
+Varios modulos existian en `src/lib/` **sin un solo consumidor**: codigo muerto
+que el plan contaba como feature entregada. Se corrigieron los estados abajo y
+se conectaron los mas baratos en esta misma pasada.
+
+| Modulo | Estado antes de la auditoria | Estado ahora |
+|--------|------------------------------|--------------|
+| `vector-diagnostics.ts` | ✅ segun plan, 0 imports | ✅ conectado (modal + auto-limpieza en el pipeline) |
+| `grbl-diagnostics.ts` | ✅ segun plan, 0 imports | ✅ conectado (status crudo desde Rust + panel I/O) |
+| `profiles.ts` → `ToolpathTemplate` | ✅ segun plan, 0 consumidores | ✅ conectado (guardar/aplicar/exportar en GlobalConfigModal) |
+| `ColorMapping` (store + generador) | ✅ segun plan, sin UI | ✅ conectado (editor de capas por color) |
+| `tiling.ts` | ✅ segun plan, 0 imports | ✅ conectado (modal de tiles + export de un G-code por tile) |
+| `variable-text.ts` | ✅ segun plan, 0 imports | ✅ conectado (modal de merge CSV → N textos en el lienzo) |
+| `sheets[]` en `useCanvasStore` | ✅ segun plan | ❌ eliminado — era estructura sin feature; se rehace cuando se implemente de verdad |
+
+Regla que sale de esto: **un modulo sin import no cuenta como completado.**
+Un item se marca ✅ solo cuando hay camino desde la UI hasta el G-code.
 
 ---
 
@@ -39,8 +63,10 @@ Cosas que bloquean uso real en las 3 modalidades.
 
 Estado actual: ALPHA ROTO. Múltiples campos dead code, sin optimización, sin multi-color.
 
-### 2.1 ~~Pressure Output Real~~ ✅ COMPLETADO
-- **Qué**: Plotter ahora usa `config.pressureZ` para Z down (antes hardcoded -1)
+### 2.1 ~~Pressure Output Real~~ ✅ COMPLETADO (completado 2026-09-12)
+- **Qué**: Plotter usa `config.pressureZ` para Z down (antes hardcoded -1)
+- **Faltaba**: el campo `config.pressure` — el que el usuario edita en OperationEditor, PropertiesPanel y GlobalConfigModal bajo la etiqueta "Presion" — **no lo leia nadie**. El item se daba por cerrado con `pressureZ`, que es otro campo
+- **2026-09-12**: `emitPlotterBody()` emite la presion como palabra S en el pen-down (`M3 S<pressure>`, `M5` al levantar), que es como la consumen plotters y cortadoras con servo. Con `pressure = 0` no se emite ninguna S
 - **Archivos**: `gcode-generator.ts` emitPlotterBody()
 - **Esfuerzo**: S
 
@@ -110,16 +136,17 @@ Estado actual: raster bueno, vectorial básico, sin optimización avanzada.
 - **Qué**: Campo `laserLeadIn` en GlobalConfig + arco de aproximación en `generateLaserContour()` para paths cerrados. UI en GlobalConfigModal sección laser
 - **Archivos**: `types.ts`, `useCanvasStore.ts`, `gcode-generator.ts`, `GlobalConfigModal.tsx`
 
-### 3.7 Más Dithering + Filtros de Imagen
+### 3.7 Más Dithering + Filtros de Imagen — ⚠️ PARCIAL (dithering listo 2026-09-12)
 - **Referencia**: LightBurn
-- **Qué**: Agregar: Stucki, Burkes, Sierra, Jarvis. Filtros: brillo, contraste, sharpen, gamma
-- **Por qué**: 5 modos vs 10+ de LightBurn. Filtros permiten mejor resultado sin Photoshop
-- **Archivos**: `image_processing.rs`
-- **Esfuerzo**: M
+- **2026-09-12 ✅ dithering**: `diffuse_error()` generico con tabla de kernel + Jarvis-Judice-Ninke, Stucki, Burkes y Sierra. 9 modos en total. Floyd-Steinberg y Atkinson quedan con su funcion propia; todo kernel nuevo entra por la generica
+- **Falta**: filtros de imagen (brillo, contraste, sharpen, gamma) antes del dithering
+- **Archivos**: `image_processing.rs`, `types.ts`, `ImageWizardModal.tsx`, i18n
+- **Esfuerzo restante**: S
 
-### ~~3.8 Color Mapping (Capas por Color)~~ ✅ COMPLETADO
+### ~~3.8 Color Mapping (Capas por Color)~~ ✅ COMPLETADO (UI 2026-09-12)
 - **Qué**: Tipo `ColorMapping` + paleta default de 5 colores en canvasStore. `emitLaserBody()` agrupa paths por strokeColor y aplica power/speed/passes por color
-- **Archivos**: `types.ts`, `useCanvasStore.ts`, `gcode-generator.ts`
+- **2026-09-12**: `ColorMappingModal.tsx` — editor de capas (color, nombre, modo, potencia, velocidad, pasadas, on/off) con acceso desde la seccion laser de GlobalConfigModal. Antes la paleta solo se podia cambiar editando el store a mano
+- **Archivos**: `types.ts`, `useCanvasStore.ts`, `gcode-generator.ts`, `ColorMappingModal.tsx`, `GlobalConfigModal.tsx`, i18n
 
 ### 3.9 ~~Focus Height / Z para Laser~~ ✅ COMPLETADO
 - **Qué**: `laserFocusZ` en GlobalConfig, G0 Z al inicio de emitLaserBody
@@ -160,9 +187,11 @@ Estado actual: raster bueno, vectorial básico, sin optimización avanzada.
 - **Qué**: WorkType `drill`, G81 simple y G83 peck drill. Holes extraídos de primer punto de cada path
 - **Archivos**: `gcode-generator.ts`, `types.ts`
 
-### 4.6 ~~Diagnóstico I/O~~ ✅ COMPLETADO
+### 4.6 ~~Diagnóstico I/O~~ ✅ COMPLETADO (2026-09-12)
 - **Qué**: Módulo `grbl-diagnostics.ts` con parseStatusReport() y parseParserState(). Parsea Pn:, Bf:, FS:, Ov:, A:, $G
-- **Archivos**: `grbl-diagnostics.ts`
+- **Estaba muerto**: el backend descartaba la linea cruda del status (`handle_line` hacia `return` despues de normalizar posicion y estado), asi que no habia forma de parsear pines ni buffers
+- **2026-09-12**: `GrblStatus` lleva ahora el campo `raw` con el reporte completo; `useSerial` lo parsea hacia `useSerialStore.diagnostics`, se pide `$G` al conectar y al cambiar de G54-G59, y ControlPanel muestra pines (X/Y/Z/P/D/H), buffers planner/rx, feed real, rapid override y el parser state
+- **Archivos**: `grbl-diagnostics.ts`, `src-tauri/src/commands/serial.rs`, `generated/GrblStatus.ts`, `useSerial.ts`, `useSerialStore.ts`, `ControlPanel.tsx`
 
 ### 4.7 Backlash Compensation
 - **Referencia**: Mach3
@@ -182,9 +211,10 @@ Features de toolpath que Aspire tiene y son críticas para CNC serio.
 - **Archivos**: `vcarve.ts` (nuevo), `types.ts`, `useCanvasStore.ts`, `gcode-generator.ts`, `GlobalConfigModal.tsx`, i18n
 - **Esfuerzo**: L
 
-### ~~4B.2 Toolpath de Pocket con Rest Machining~~ ✅ COMPLETADO
+### ~~4B.2 Toolpath de Pocket con Rest Machining~~ ✅ COMPLETADO (corregido 2026-09-12)
 - **Qué**: `restMachiningEnabled` + `restToolDiameter` en GlobalConfig. Segunda pasada de pocket con herramienta menor incluyendo pausa M0 para cambio de herramienta. UI toggle en GlobalConfigModal
-- **Archivos**: `types.ts`, `useCanvasStore.ts`, `gcode-generator.ts`, `GlobalConfigModal.tsx`
+- **Bug corregido 2026-09-12**: la segunda pasada volvia a cajear el bolsillo **entero** con la fresa chica (mismo `paths`), no el resto. Ahora `computeRestRegions()` (`boolean-ops.ts`) calcula por apertura morfologica el material que la fresa grande no alcanza y devuelve la region de **centro de herramienta** de la fresa chica; el cajeado la consume con `initialInset = 0`. Si la fresa grande ya despejo todo, no se emite la pasada
+- **Archivos**: `types.ts`, `useCanvasStore.ts`, `gcode-generator.ts`, `boolean-ops.ts`, `geometry.ts`, `GlobalConfigModal.tsx`
 
 ### 4B.3 ~~Ramping / Lead-In en Profile~~ ✅ COMPLETADO
 - **Qué**: `rampEnabled` + `rampAngle` en GlobalConfig. `emitPathGCode()` desciende gradualmente a lo largo de segmentos del path en vez de plunge directo. UI toggle + ángulo en GlobalConfigModal
@@ -228,13 +258,17 @@ Features de toolpath que Aspire tiene y son críticas para CNC serio.
 - **Archivos**: `gcode-generator.ts`
 - **Esfuerzo**: M
 
-### 4B.10 ~~Tiling de Toolpaths~~ ✅ COMPLETADO
-- **Qué**: Módulo `tiling.ts` con generateTiles(). Split paths en tiles con overlap, coordenadas locales por tile
-- **Archivos**: `tiling.ts`
+### ~~4B.10 Tiling de Toolpaths~~ ✅ COMPLETADO (UI 2026-09-12)
+- **Qué**: Módulo `tiling.ts` con generateTiles() y tileHeader(). Split paths en tiles con overlap, coordenadas locales por tile
+- **Estaba muerto**: **cero imports**, sin UI ni integracion con `generateFromJobs()`
+- **2026-09-12**: `TilingModal.tsx` (boton de grilla en GCodePanel) con tamaño de tile, solape y margen; vista previa de la grilla y export de un `.gcode` por tile. Dos bugs del modulo salieron al conectarlo: los tiles se filtraban por **vertices** dentro del tile (un rectangulo mas ancho que el tile perdia las columnas del medio) y los paths no se recortaban (cada tile emitia el path completo y la maquina se salia de recorrido). Ahora se recorta con Liang-Barsky y todos los jobs comparten una grilla global (`computeTileGrid`)
+- **Archivos**: `tiling.ts`, `TilingModal.tsx`, `GCodePanel.tsx`, `App.tsx`, i18n
 
-### 4B.11 ~~Toolpath Templates~~ ✅ COMPLETADO
+### 4B.11 ~~Toolpath Templates~~ ✅ COMPLETADO (UI 2026-09-12)
 - **Qué**: ToolpathTemplate type en `profiles.ts`. Save/load/export configs de toolpath
-- **Archivos**: `profiles.ts`
+- **Estaba sin consumidores**: las funciones existian pero ninguna pantalla las llamaba
+- **2026-09-12**: barra de plantillas al tope de GlobalConfigModal — guardar la config actual con nombre, aplicar con un click, borrar y exportar a JSON. Persistencia en localStorage
+- **Archivos**: `profiles.ts`, `GlobalConfigModal.tsx`, i18n
 
 ---
 
@@ -332,17 +366,22 @@ Feature set más ambicioso. Aspire se diferencia de VCarve Pro por su modelado 3
 - **Archivos**: Nuevos parsers o usar bibliotecas Rust
 - **Esfuerzo**: L
 
-### 4D.4 ~~Variable Text / Merge Codes~~ ✅ COMPLETADO
-- **Qué**: Módulo `variable-text.ts` con parseCSV(), mergeText(), extractVariables(). Soporta {{placeholders}} + variables built-in
-- **Archivos**: `variable-text.ts`
+### ~~4D.4 Variable Text / Merge Codes~~ ✅ COMPLETADO (UI 2026-09-12)
+- **Qué**: Módulo `variable-text.ts` con parseCSV(), mergeText(), extractVariables(), previewMerge(). Soporta placeholders + variables built-in (index/date/time)
+- **Estaba muerto**: **cero imports**. Sin carga de CSV, sin preview y sin conexion con el pipeline de texto
+- **2026-09-12**: `VariableTextModal.tsx` (menu Agregar del DesignPanel) — plantilla con placeholders, carga de CSV, aviso de columnas faltantes, preview de las primeras 20 filas y generacion de un text-path por registro via `addTextPath()`
+- **Archivos**: `variable-text.ts`, `VariableTextModal.tsx`, `DesignPanel.tsx`, `App.tsx`, i18n
 
-### ~~4D.5 Vector Diagnostics~~ ✅ COMPLETADO
-- **Qué**: Nuevo módulo `vector-diagnostics.ts` con `diagnoseVectors()`, `autoJoinPaths()`, `removeTinySpans()`, `removeDuplicatePaths()`
-- **Archivos**: `vector-diagnostics.ts`
+### ~~4D.5 Vector Diagnostics~~ ✅ COMPLETADO (2026-09-12)
+- **Qué**: Módulo `vector-diagnostics.ts` con `diagnoseVectors()`, `autoJoinPaths()`, `removeTinySpans()`, `removeDuplicatePaths()`
+- **Estaba muerto**: **cero imports**. Los SVG/DXF importados seguian entrando con paths casi cerrados, segmentos de longitud cero y contornos duplicados — justo lo que rompe pocket, kerf y offset
+- **2026-09-12**: `VectorDiagnosticsModal.tsx` (boton en CanvasToolbar) reporta los problemas sobre la geometria cruda, y la auto-limpieza configurable (`vectorCleanup` en el store) se aplica en `getPathsForGCode()` / `getJobsForGCode()`, el unico punto por el que pasan todos los toolpaths
+- **Archivos**: `vector-diagnostics.ts`, `VectorDiagnosticsModal.tsx`, `useCanvasManager.ts`, `useCanvasStore.ts`, `types.ts`, `CanvasToolbar.tsx`, i18n
 
-### 4D.6 ~~Multiple Sheets~~ ✅ COMPLETADO
-- **Qué**: sheets[] en useCanvasStore con add/remove/rename/setActive
-- **Archivos**: `useCanvasStore.ts`
+### 4D.6 Multiple Sheets — ❌ NO EMPEZADO
+- **Qué**: hojas multiples con pestañas y elementos asociados a cada hoja
+- **2026-09-12**: el stub `sheets[]` (add/remove/rename/setActive sin un solo consumidor) se **elimino** del store. Guardar la estructura sin la feature solo hacia que el plan se leyera como mas avanzado de lo que estaba
+- **Esfuerzo restante**: M (campo `sheetId` en CanvasElement, filtrado en canvas, barra de pestañas)
 
 ### 4D.7 ~~Array Circular~~ ✅ YA EXISTÍA
 - **Qué**: `arrayPolar()` en useCanvasManager + tab "Polar" en ArrayModal con count, totalAngle, centerX/Y
@@ -573,6 +612,27 @@ Cosas que ni Mach3 ni LightBurn tienen (o hacen mal).
 > **Ventaja competitiva**: FlatCAM es solo CAM (no controla máquina), bCNC es solo control
 > (no tiene CAD), Candle es básico. Nosotros podemos hacer Gerber→Isolation→Control
 > en una sola app. Con auto-leveling integrado sería la mejor solución desktop para PCB.
+
+---
+
+## Cola de quick wins (siguiente pasada)
+
+Ordenada por costo real medido contra el codigo actual, no por impacto teorico.
+Todo lo de esta lista es autocontenido: no toca el motor de toolpaths ni el
+canvas.
+
+| # | Feature | Por que es barato | Esfuerzo |
+|---|---------|-------------------|----------|
+| 3.7b | Filtros de imagen (brillo, contraste, sharpen, gamma) | Los kernels de dithering ya entraron; los filtros son un paso previo sobre el mismo `GrayImage` | S |
+| 7.2 | Excellon drill import | Parser de texto puro, sin dependencias; `drill` ya existe como WorkType con G81/G83 | M |
+| 7.7 | Agujeros de registro | Se reduce a generar 2-4 circulos en esquinas y mandarlos al drill toolpath existente | S |
+| 4.7 / 7.8 | Backlash compensation | Post-proceso sobre las lineas ya emitidas, detectando cambio de signo por eje | M |
+| 5.6 | Gamepad / pendant | Gamepad API del browser contra el `jog()` que ya existe en `useSerial` | M |
+| 4D.6 | Multiple sheets real | Campo `sheetId` en CanvasElement + filtrado en canvas + pestañas | M |
+
+Lo grande que sigue pendiente y **no** es barato: Gerber import (7.1), isolation
+routing (7.3), surface auto-leveling (7.4), auto-vectorizacion (3.5), nesting
+(5.4) y toda la Fase 4C de modelado 3D.
 
 ---
 

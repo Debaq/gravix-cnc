@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { MachineState, PositionMode, MachinePosition } from '@/lib/types'
+import type { GrblDiagnostics, GrblParserState } from '@/lib/grbl-diagnostics'
 
 interface SerialState {
   // Connection
@@ -14,8 +15,6 @@ interface SerialState {
   machineState: MachineState
   position: MachinePosition
   posMode: PositionMode
-  feedOverride: number
-  spindleOverride: number
 
   // Jog
   jogDistance: number
@@ -40,6 +39,10 @@ interface SerialState {
   lastError: string | null
   lastErrorTime: number | null
 
+  // Diagnostico I/O: pines, buffers, overrides y estado del parser ($G)
+  diagnostics: GrblDiagnostics
+  parserState: GrblParserState | null
+
   // Actions
   setConnected: (connected: boolean) => void
   setReconnecting: (reconnecting: boolean, attempt: number) => void
@@ -48,17 +51,16 @@ interface SerialState {
   setMachineState: (state: MachineState) => void
   setPosition: (pos: Partial<MachinePosition>) => void
   togglePosMode: () => void
-  setFeedOverride: (value: number) => void
-  setSpindleOverride: (value: number) => void
   setJogDistance: (distance: number) => void
   setJogSpeed: (speed: number) => void
   setMaxTravel: (travel: { x: number; y: number; z: number }) => void
   setSoftLimitsEnabled: (enabled: boolean) => void
   setActiveWorkspace: (ws: string) => void
   setLaserPower: (power: number) => void
-  setLaserTestDuration: (ms: number) => void
   setLastError: (error: string | null) => void
   clearLastError: () => void
+  setDiagnostics: (diag: Partial<GrblDiagnostics>) => void
+  setParserState: (state: GrblParserState | null) => void
   setSending: (sending: boolean) => void
   setSendProgress: (progress: number) => void
 }
@@ -75,8 +77,6 @@ export const useSerialStore = create<SerialState>((set) => ({
   machineState: 'Idle',
   position: { x: '0.000', y: '0.000', z: '0.000' },
   posMode: 'WPos',
-  feedOverride: 100,
-  spindleOverride: 100,
 
   // Jog
   jogDistance: 1,
@@ -101,6 +101,17 @@ export const useSerialStore = create<SerialState>((set) => ({
   lastError: null,
   lastErrorTime: null,
 
+  // Diagnostico I/O
+  diagnostics: {
+    limitX: false, limitY: false, limitZ: false,
+    probe: false, door: false, hold: false, softReset: false, cycleStart: false,
+    plannerBuffer: 0, rxBuffer: 0,
+    currentFeed: 0, currentSpindle: 0,
+    feedOverride: 100, rapidOverride: 100, spindleOverride: 100,
+    spindleCW: false, spindleCCW: false, floodCoolant: false, mistCoolant: false,
+  },
+  parserState: null,
+
   // Actions
   setConnected: (connected) => set({ connected }),
   setReconnecting: (reconnecting, attempt) =>
@@ -116,17 +127,19 @@ export const useSerialStore = create<SerialState>((set) => ({
     set((state) => ({
       posMode: state.posMode === 'WPos' ? 'MPos' : 'WPos',
     })),
-  setFeedOverride: (value) => set({ feedOverride: value }),
-  setSpindleOverride: (value) => set({ spindleOverride: value }),
   setJogDistance: (distance) => set({ jogDistance: distance }),
   setJogSpeed: (speed) => set({ jogSpeed: speed }),
   setMaxTravel: (travel) => set({ maxTravel: travel }),
   setSoftLimitsEnabled: (enabled) => set({ softLimitsEnabled: enabled }),
   setActiveWorkspace: (ws) => set({ activeWorkspace: ws }),
   setLaserPower: (power) => set({ laserPower: Math.max(0, Math.min(1000, power)) }),
-  setLaserTestDuration: (ms) => set({ laserTestDuration: Math.max(100, Math.min(5000, ms)) }),
   setLastError: (error) => set({ lastError: error, lastErrorTime: error ? Date.now() : null }),
   clearLastError: () => set({ lastError: null, lastErrorTime: null }),
+
+  setDiagnostics: (diag) => set((state) => ({
+    diagnostics: { ...state.diagnostics, ...diag },
+  })),
+  setParserState: (parserState) => set({ parserState }),
   setSending: (sending) => set({ sending }),
   setSendProgress: (progress) => set({ sendProgress: progress }),
 }))

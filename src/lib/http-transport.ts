@@ -12,11 +12,9 @@ const COMMAND_MAP: Record<string, (args?: Record<string, unknown>) => RouteInfo>
   get_materials: () => ({ method: 'GET', path: '/materials' }),
   save_material: () => ({ method: 'POST', path: '/materials' }),
   delete_material: (args) => ({ method: 'DELETE', path: `/materials/${args?.id}` }),
-  authenticate: () => ({ method: 'POST', path: '/auth' }),
   save_project: () => ({ method: 'POST', path: '/projects/save' }),
   load_project: () => ({ method: 'POST', path: '/projects/load' }),
   process_image_for_laser: () => ({ method: 'POST', path: '/image/process' }),
-  process_image_base64_for_laser: () => ({ method: 'POST', path: '/image/process' }),
   read_raster_pixels: (args) => ({
     method: 'GET',
     path: `/image/pixels?path=${encodeURIComponent(String(args?.pixelsPath ?? ''))}`,

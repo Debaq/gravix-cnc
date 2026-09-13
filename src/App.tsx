@@ -34,6 +34,10 @@ import { LicenseModal } from '@/components/modals/LicenseModal'
 import { GrblSettingsModal } from '@/components/modals/GrblSettingsModal'
 import { MachinesModal } from '@/components/modals/MachinesModal'
 import { UpdateModal } from '@/components/modals/UpdateModal'
+import { VectorDiagnosticsModal } from '@/components/modals/VectorDiagnosticsModal'
+import { ColorMappingModal } from '@/components/modals/ColorMappingModal'
+import { TilingModal } from '@/components/modals/TilingModal'
+import { VariableTextModal } from '@/components/modals/VariableTextModal'
 import { useLicense } from '@/hooks/useLicense'
 import { useUpdateStore } from '@/stores/useUpdateStore'
 import { startAutosave, stopAutosave, flushAutosave } from '@/lib/autosave'
@@ -239,6 +243,10 @@ function App() {
         <MachinesModal />
         <LicenseModal />
         <UpdateModal />
+        <VectorDiagnosticsModal />
+        <ColorMappingModal />
+        <TilingModal />
+        <VariableTextModal />
         <Toaster />
       </div>
     </TooltipProvider>

@@ -58,5 +58,18 @@
   "generating": "Generando…",
   "noGCodeHint": "El G-code se genera desde tu diseño en CAD. Dibujá al menos un elemento y asignale una operación.",
   "noActiveGcodeTitle": "Sin G-code cargado",
-  "noActiveGcodeHint": "Generá G-code en CAM, o cargá un archivo desde la cola de trabajos, para verlo línea a línea acá."
+  "noActiveGcodeHint": "Generá G-code en CAM, o cargá un archivo desde la cola de trabajos, para verlo línea a línea acá.",
+  "tiling": {
+    "title": "Dividir en tiles",
+    "hint": "Parte un trabajo más grande que el área de la máquina en varios G-code, uno por tile. Cada archivo usa coordenadas locales: reposiciona el material en el origen del tile antes de correrlo.",
+    "tileWidth": "Ancho del tile (mm)",
+    "tileHeight": "Alto del tile (mm)",
+    "overlap": "Solape (mm)",
+    "margin": "Margen (mm)",
+    "tiles": "tiles",
+    "noPaths": "No hay elementos válidos en el lienzo",
+    "overlapTooBig": "El solape debe ser menor que el tamaño del tile",
+    "export": "Exportar",
+    "exporting": "Exportando..."
+  }
 }

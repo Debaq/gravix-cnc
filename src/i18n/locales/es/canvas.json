@@ -71,7 +71,6 @@
   "param_boltRadius": "Radio agujero",
   "param_boltCount": "Cantidad agujeros",
   "param_inset": "Margen interior",
-
   "align": "Alinear",
   "alignToFirst": "Alinear al primero",
   "alignToWorkArea": "Alinear al area de trabajo",
@@ -89,7 +88,6 @@
   "snapToObjects": "Ajustar a objetos",
   "group": "Agrupar",
   "ungroup": "Desagrupar",
-
   "drawLine": "Dibujar linea",
   "drawLineHint": "Click para colocar puntos. Doble-click o Enter para terminar. Escape para cancelar.",
   "drawArc": "Dibujar arco",
@@ -107,7 +105,6 @@
   "letterSpacing": "Espaciado",
   "loadingFont": "Cargando fuente...",
   "addToCanvas": "Agregar al canvas",
-
   "boxGenerator": "Generador de Cajas",
   "boxJointType": "Tipo de union",
   "boxFingerJoint": "Dientes (Finger Joint)",
@@ -120,7 +117,6 @@
   "boxOpenTop": "Sin tapa superior",
   "boxInvalidParams": "Parametros invalidos. Verifica las dimensiones.",
   "boxPanelCount": "{{count}} paneles generados",
-
   "editNodes": "Editar nodos",
   "nodeEditHint": "Editando nodos de {{name}} — Click: seleccionar/agregar nodo, Supr: eliminar nodo, Escape: salir",
   "nodeDeleteNode": "Eliminar nodo",
@@ -172,5 +168,32 @@
     "centerX": "Centro X (mm)",
     "centerY": "Centro Y (mm)",
     "polarHint": "El centro por defecto es el centro del area de trabajo"
+  },
+  "vectorDiagnostics": "Diagnóstico de vectores",
+  "variableText": {
+    "menu": "Texto variable (CSV)",
+    "title": "Texto variable (CSV)",
+    "hint": "Genera una copia del texto por cada fila del CSV. En la plantilla, escribe el nombre de la columna entre llaves dobles; index, date y time son automáticas.",
+    "template": "Plantilla",
+    "loadCsv": "Cargar CSV",
+    "noCsv": "Sin archivo",
+    "rows": "filas",
+    "missingVars": "Sin columna en el CSV:",
+    "previewEmpty": "Carga un CSV para ver la vista previa",
+    "more": "más",
+    "adding": "Agregando..."
+  },
+  "tiling": {
+    "title": "Dividir en tiles",
+    "hint": "Parte un trabajo más grande que el área de la máquina en varios G-code, uno por tile. Cada archivo usa coordenadas locales: reposiciona el material en el origen del tile antes de correrlo.",
+    "tileWidth": "Ancho del tile (mm)",
+    "tileHeight": "Alto del tile (mm)",
+    "overlap": "Solape (mm)",
+    "margin": "Margen (mm)",
+    "tiles": "tiles",
+    "noPaths": "No hay elementos válidos en el lienzo",
+    "overlapTooBig": "El solape debe ser menor que el tamaño del tile",
+    "export": "Exportar",
+    "exporting": "Exportando..."
   }
 }

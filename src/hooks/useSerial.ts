@@ -17,6 +17,7 @@ import type { MachineState } from '@/lib/types'
 import type { Dialect } from '@/lib/generated/Dialect'
 import type { PortInfo } from '@/lib/generated/PortInfo'
 import type { GrblStatus } from '@/lib/generated/GrblStatus'
+import { parseStatusReport, parseParserState } from '@/lib/grbl-diagnostics'
 import type { GrblData } from '@/lib/generated/GrblData'
 import type { SendProgress } from '@/lib/generated/SendProgress'
 import type { RealtimeCmd } from '@/lib/generated/RealtimeCmd'
@@ -66,6 +67,9 @@ function setupSerialListeners(): Promise<() => void> {
       if (payload.data_type === 'error' || payload.data_type === 'alarm') {
         useSerialStore.getState().setLastError(payload.line)
       }
+      // Respuesta a `$G`: modos activos del parser (G54, G90, M5, T0...).
+      const parsed = parseParserState(payload.line)
+      if (parsed) useSerialStore.getState().setParserState(parsed)
     })
     unlisteners.push(unlData)
 
@@ -77,6 +81,11 @@ function setupSerialListeners(): Promise<() => void> {
       if (state === 'Idle' && lastError) clearLastError()
       const pos = posMode === 'WPos' ? payload.wpos : payload.mpos
       setPosition({ x: pos.x, y: pos.y, z: pos.z })
+      // Pines, buffers y overrides viven en el reporte crudo, no en los
+      // campos que el backend ya normaliza.
+      if (payload.raw) {
+        useSerialStore.getState().setDiagnostics(parseStatusReport(payload.raw))
+      }
     })
     unlisteners.push(unlStatus)
 
@@ -190,6 +199,15 @@ export function useSerial() {
       store.setBaudRate(effectiveBaud)
       rememberConnection(port, effectiveBaud)
       addConsoleLine(`Conectado a ${port}`)
+      // `$G` devuelve los modos activos del parser. GRBL no los manda solo, así
+      // que se pide una vez al conectar para poblar el panel de diagnostico.
+      if (dialect === 'grbl') {
+        try {
+          await tauriInvoke('serial_send', { command: '$G' })
+        } catch {
+          // Firmware sin soporte: el panel simplemente no muestra parser state.
+        }
+      }
     } catch (err) {
       addConsoleLine(`Error conectando: ${err}`)
       store.setConnected(false)

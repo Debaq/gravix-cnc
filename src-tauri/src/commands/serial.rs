@@ -172,6 +172,9 @@ pub struct GrblStatus {
     pub state: String,
     pub mpos: GrblPosition,
     pub wpos: GrblPosition,
+    /// Reporte crudo (`<Idle|MPos:...|Pn:XZ|Bf:15,128|Ov:100,100,100>`). La UI
+    /// lo parsea para pines, buffers y overrides; el backend solo mueve texto.
+    pub raw: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, TS)]
@@ -398,7 +401,12 @@ fn parse_grbl_status(line: &str, wco_cache: &mut Option<GrblPosition>) -> Option
         }
     };
 
-    Some(GrblStatus { state, mpos, wpos })
+    Some(GrblStatus {
+        state,
+        mpos,
+        wpos,
+        raw: line.trim().to_string(),
+    })
 }
 
 fn negate(p: &GrblPosition) -> GrblPosition {
@@ -449,6 +457,7 @@ fn parse_marlin_status(line: &str) -> Option<GrblStatus> {
         state: "Idle".to_string(),
         mpos: pos.clone(),
         wpos: pos,
+        raw: line.trim().to_string(),
     })
 }
 
@@ -1414,11 +1423,6 @@ pub fn serial_check_bounds(gcode: String, limits: AxisLimits) -> Result<(), Stri
 pub fn serial_cancel_send(state: State<'_, Arc<SerialState>>) -> Result<(), String> {
     // No falla si no hay job: el botón de parada debe frenar igual.
     state.send_request(IoRequest::AbortJob)
-}
-
-#[tauri::command]
-pub fn serial_get_status(state: State<'_, Arc<SerialState>>) -> Option<GrblStatus> {
-    state.last_status()
 }
 
 #[cfg(test)]

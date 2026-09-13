@@ -165,6 +165,10 @@ export function ImageWizardModal() {
                     <SelectItem value="floydSteinberg">{t('modes.floydSteinberg')}</SelectItem>
                     <SelectItem value="ordered">{t('modes.ordered')}</SelectItem>
                     <SelectItem value="atkinson">{t('modes.atkinson')}</SelectItem>
+                    <SelectItem value="jarvis">{t('modes.jarvis')}</SelectItem>
+                    <SelectItem value="stucki">{t('modes.stucki')}</SelectItem>
+                    <SelectItem value="burkes">{t('modes.burkes')}</SelectItem>
+                    <SelectItem value="sierra">{t('modes.sierra')}</SelectItem>
                     <SelectItem value="grayscale">{t('modes.grayscale')}</SelectItem>
                   </SelectContent>
                 </Select>

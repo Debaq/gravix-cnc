@@ -8,7 +8,7 @@ mod shared_state;
 mod web_server;
 mod workspace;
 
-use commands::{auth, files, image_processing, license_cmd, machines, materials, serial, tools, web_server_cmd, workspace_cmd};
+use commands::{files, image_processing, license_cmd, machines, materials, serial, tools, web_server_cmd, workspace_cmd};
 use shared_state::AppState;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU16};
@@ -89,7 +89,6 @@ pub fn run() {
             machines::save_machines,
             files::save_project,
             files::load_project,
-            auth::authenticate,
             serial::serial_list_ports,
             serial::serial_connect,
             serial::serial_disconnect,
@@ -98,15 +97,12 @@ pub fn run() {
             serial::serial_cancel_send,
             serial::serial_realtime,
             serial::serial_check_bounds,
-            serial::serial_get_status,
             image_processing::process_image_for_laser,
-            image_processing::process_image_base64_for_laser,
             image_processing::read_raster_pixels,
             web_server_cmd::get_server_status,
             web_server_cmd::start_web_server,
             web_server_cmd::stop_web_server,
             web_server_cmd::check_port,
-            web_server_cmd::get_local_ips,
             web_server_cmd::check_firewall,
             license_cmd::activate_license,
             license_cmd::get_license_status,
