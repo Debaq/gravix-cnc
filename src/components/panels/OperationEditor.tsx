@@ -390,6 +390,7 @@ export function OperationEditor() {
     addOperation,
     duplicateOperation,
     removeOperation,
+    canRemoveOperation,
     applyConfigToAll,
   } = useCAMStore()
   const { tools, materials } = useLibraryStore()
@@ -405,6 +406,10 @@ export function OperationEditor() {
   const update = (updates: Partial<GlobalConfig>) => {
     updateOperationConfig(op.id, updates)
   }
+
+  // Un elemento con una sola operacion no se puede vaciar: el boton queda
+  // apagado y dice por que, en vez de no hacer nada al tocarlo.
+  const canRemove = canRemoveOperation(op.id)
 
   const handleRemove = () => {
     if (!removeOperation(op.id)) {
@@ -467,7 +472,16 @@ export function OperationEditor() {
           A todas
         </Button>
         <div className="flex-1" />
-        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleRemove} title="Eliminar operacion">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6"
+          onClick={handleRemove}
+          disabled={!canRemove}
+          title={canRemove
+            ? 'Eliminar operacion'
+            : 'Unica operacion del elemento: excluila con el ojo en el arbol o borra el objeto en el CAD'}
+        >
           <Trash2 className="h-3 w-3 text-red-500" />
         </Button>
       </div>

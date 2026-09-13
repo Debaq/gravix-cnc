@@ -78,6 +78,8 @@ interface CAMState {
   duplicateOperation: (opId: string) => void
   /** Solo se puede borrar si al elemento le queda al menos una operacion. */
   removeOperation: (opId: string) => boolean
+  /** Si `removeOperation` va a poder borrar, para no mostrar un boton muerto. */
+  canRemoveOperation: (opId: string) => boolean
   /** Copia la config de `opId` a todas las operaciones del mismo tipo. */
   applyConfigToAll: (opId: string, onlySameWorkType?: boolean) => number
   validateOperation: (op: CAMOperation) => { status: 'valid' | 'warning' | 'error'; warnings: string[] }
@@ -186,6 +188,21 @@ const DEFAULT_SETUP: CAMSetup = {
   clamps: [],
   stock: { ...DEFAULT_STOCK },
   optimizeOrder: false,
+}
+
+/** Marca el G-code como desactualizado si ya habia uno generado. */
+function markGCodeStale() {
+  const gc = useGCodeStore.getState()
+  if (gc.gcodeGenerated) gc.setGCodeNeedsRegeneration(true)
+}
+
+/**
+ * Una operacion entra al G-code si esta encendida y, cuando hay una en modo
+ * solo, si es esa. Lo usa el arbol para no bloquear la generacion por errores
+ * de operaciones que no van a correr.
+ */
+export function opRunsInGCode(op: CAMOperation, soloId: string | null | undefined): boolean {
+  return soloId ? op.id === soloId : op.enabled
 }
 
 export const useCAMStore = create<CAMState>((set, get) => ({
@@ -305,11 +322,16 @@ export const useCAMStore = create<CAMState>((set, get) => ({
         op.id === id ? { ...op, enabled: !op.enabled } : op,
       ),
     }))
+    // Apagar una operacion cambia lo que va a salir: el G-code que ya estaba
+    // generado queda viejo y el boton tiene que pedir regenerar.
+    markGCodeStale()
     pushHistory()
   },
 
-  soloOperation: (id) =>
-    set((s) => ({ soloOperationId: s.soloOperationId === id ? null : id })),
+  soloOperation: (id) => {
+    set((s) => ({ soloOperationId: s.soloOperationId === id ? null : id }))
+    markGCodeStale()
+  },
 
   updateOperationConfig: (id, updates) => {
     const state = get()
@@ -413,6 +435,13 @@ export const useCAMStore = create<CAMState>((set, get) => ({
     return true
   },
 
+  canRemoveOperation: (opId) => {
+    const op = get().operations.find((o) => o.id === opId)
+    if (!op) return false
+    const element = useCanvasStore.getState().findElementById(op.elementId)
+    return (element?.operations?.length ?? 0) > 1
+  },
+
   applyConfigToAll: (opId, onlySameWorkType = false) => {
     const state = get()
     const source = state.operations.find((o) => o.id === opId)
@@ -444,8 +473,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
     order.splice(at, 0, dragId)
 
     set({ operationOrder: order })
-    const gc = useGCodeStore.getState()
-    if (gc.gcodeGenerated) gc.setGCodeNeedsRegeneration(true)
+    markGCodeStale()
     pushHistory()
   },
 
@@ -501,8 +529,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
   updateSetup: (updates) => {
     set((s) => ({ setup: { ...s.setup, ...updates } }))
     // Safe Z y stock cambian lo que va a salir generado
-    const gc = useGCodeStore.getState()
-    if (gc.gcodeGenerated) gc.setGCodeNeedsRegeneration(true)
+    markGCodeStale()
     pushHistory(`cam-setup:${Object.keys(updates).join(',')}`)
   },
 
@@ -524,8 +551,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
         ],
       },
     }))
-    const gc = useGCodeStore.getState()
-    if (gc.gcodeGenerated) gc.setGCodeNeedsRegeneration(true)
+    markGCodeStale()
     pushHistory()
   },
 
@@ -536,8 +562,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
         clamps: s.setup.clamps.map((c) => (c.id === id ? { ...c, ...updates } : c)),
       },
     }))
-    const gc = useGCodeStore.getState()
-    if (gc.gcodeGenerated) gc.setGCodeNeedsRegeneration(true)
+    markGCodeStale()
     // Arrastrar el clamp en el visor 3D emite un update por frame
     pushHistory(`cam-clamp:${id}`)
   },
@@ -549,8 +574,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
         clamps: s.setup.clamps.filter((c) => c.id !== id),
       },
     }))
-    const gc = useGCodeStore.getState()
-    if (gc.gcodeGenerated) gc.setGCodeNeedsRegeneration(true)
+    markGCodeStale()
     pushHistory()
   },
 

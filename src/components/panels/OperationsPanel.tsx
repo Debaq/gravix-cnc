@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useCAMStore, type CAMOperation, type CAMMarker } from '@/stores/useCAMStore'
+import { useCAMStore, opRunsInGCode, type CAMOperation, type CAMMarker } from '@/stores/useCAMStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import { useLibraryStore } from '@/stores/useLibraryStore'
@@ -15,6 +15,7 @@ import { applyCAMPlan, jobsBBox, resolveStock, checkStockCoverage } from '@/lib/
 import { findCollisions, summarizeCollisions, toolProfileFrom } from '@/lib/collision'
 import { parseGCode } from '@/lib/gcode-parser'
 import { withGenerating } from '@/lib/gcode-run'
+import { toast } from '@/lib/toast'
 import { validateToolVsPaths } from '@/lib/geometry'
 import { generateBoundaryGCode, computeBBox } from '@/components/modals/SetupWizardModal'
 import { Button } from '@/components/ui/button'
@@ -116,10 +117,14 @@ function OperationRow({ op, isSelected, onSelect }: {
     moveOperationBefore,
     duplicateOperation,
     removeOperation,
+    canRemoveOperation,
   } = useCAMStore()
   const { tools } = useLibraryStore()
   const { addConsoleLine } = useAppStore()
   const [dragOver, setDragOver] = useState(false)
+  // Un elemento con una sola operacion no se puede vaciar: el boton queda
+  // apagado en vez de fallar en silencio al tocarlo.
+  const canRemove = canRemoveOperation(op.id)
 
   const Icon = getOpIcon(op.config)
   const label = getOpLabel(op.config, ts)
@@ -211,14 +216,17 @@ function OperationRow({ op, isSelected, onSelect }: {
       <Button
         variant="ghost"
         size="icon"
-        className="h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100"
+        className="h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100 disabled:opacity-0 group-hover:disabled:opacity-40"
+        disabled={!canRemove}
         onClick={(e) => {
           e.stopPropagation()
           if (!removeOperation(op.id)) {
             addConsoleLine('Es la unica operacion del elemento: apagala con el ojo')
           }
         }}
-        title="Eliminar operacion"
+        title={canRemove
+          ? 'Eliminar operacion'
+          : 'Unica operacion del elemento: excluila con el ojo o borra el objeto en el CAD'}
       >
         <Trash2 className="h-3 w-3 text-red-500" />
       </Button>
@@ -470,17 +478,24 @@ function GenerateActions() {
   const { getJobsForGCode } = useCanvasManager()
 
   const camOps = useCAMStore((s) => s.operations)
-  const hasErrors = camOps.some((o) => o.status === 'error')
+  const soloOpId = useCAMStore((s) => s.soloOperationId)
+  // Una operacion excluida con el ojo (o fuera del solo) no entra al G-code, asi
+  // que sus errores no tienen por que bloquear la generacion.
+  const blockingErrors = camOps.filter((o) => o.status === 'error' && opRunsInGCode(o, soloOpId))
+  const hasErrors = blockingErrors.length > 0
 
   const handleGenerate = useCallback(async () => {
     // Block if CAM operations have errors
-    const { operations } = useCAMStore.getState()
-    const errors = operations.filter((o) => o.status === 'error')
+    const { operations, soloOperationId } = useCAMStore.getState()
+    const errors = operations.filter((o) => o.status === 'error' && opRunsInGCode(o, soloOperationId))
     if (errors.length > 0) {
       for (const err of errors) {
         addConsoleLine(`ERROR: ${err.elementName} — ${err.warnings.join(', ')}`)
       }
       addConsoleLine('Corrige los errores antes de generar G-code')
+      toast.error('G-code bloqueado por errores en el arbol', {
+        detail: errors.map((e) => `${e.elementName}: ${e.warnings.join(', ')}`).join(' | '),
+      })
       return
     }
 
@@ -498,6 +513,7 @@ function GenerateActions() {
 
     if (rawJobs.length > 0 && jobs.length === 0) {
       addConsoleLine('Todas las operaciones estan apagadas')
+      toast.warning('Todas las operaciones estan apagadas')
       return
     }
     if (camState.setup.optimizeOrder) {
@@ -508,6 +524,7 @@ function GenerateActions() {
 
     if (jobs.length === 0 && !isRaster) {
       addConsoleLine('No se encontraron elementos validos en el canvas')
+      toast.warning('No hay elementos validos en el canvas')
       return
     }
 
@@ -521,6 +538,7 @@ function GenerateActions() {
     }
     if (isRaster && !rasterData) {
       addConsoleLine('No hay imagen raster cargada')
+      toast.warning('No hay imagen raster cargada')
       return
     }
 
@@ -565,6 +583,9 @@ function GenerateActions() {
               }
               if (collision && u1 <= u2) {
                 addConsoleLine(`ERROR: "${job.elementName}" colisiona con clamp "${clamp.label}" — mueve el clamp o el elemento`)
+                toast.error('G-code bloqueado: colision con un clamp', {
+                  detail: `"${job.elementName}" pasa por "${clamp.label}"`,
+                })
                 return
               }
             }
@@ -597,6 +618,7 @@ function GenerateActions() {
 
     if (hasToolGeometryError) {
       addConsoleLine('Generacion bloqueada: herramienta demasiado grande para la geometria. Usa una herramienta mas pequena o cambia la estrategia.')
+      toast.error('G-code bloqueado: herramienta demasiado grande para la geometria')
       return
     }
 
@@ -682,7 +704,9 @@ function GenerateActions() {
         <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900">
           <AlertCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />
           <span className="text-[11px] text-red-700 dark:text-red-400">
-            Corrige los errores antes de generar
+            {blockingErrors.length === 1
+              ? `${blockingErrors[0].elementName}: ${blockingErrors[0].warnings.join(', ')}`
+              : `${blockingErrors.length} operaciones con errores: ${blockingErrors.map((o) => o.elementName).join(', ')}`}
           </span>
         </div>
       )}
@@ -696,6 +720,9 @@ function GenerateActions() {
           onClick={handleGenerate}
           disabled={hasErrors || generating}
           aria-busy={generating}
+          title={hasErrors
+            ? `Bloqueado por: ${blockingErrors.map((o) => `${o.elementName} (${o.warnings.join(', ')})`).join(' · ')}`
+            : gcodeNeedsRegeneration ? 'El G-code quedo viejo: regenera' : undefined}
         >
           {generating ? (
             <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
