@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useCanvasManager } from '@/hooks/useCanvasManager'
 import { useCanvasStore, GEOMETRIC_SNAP_KINDS } from '@/stores/useCanvasStore'
@@ -139,7 +140,7 @@ function AlignButton({
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <p className="col-span-full text-[9px] font-medium text-muted-foreground uppercase tracking-wider px-0.5 pt-1.5 pb-0">
+    <p className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider px-0.5 pt-1.5 pb-0">
       {children}
     </p>
   )
@@ -226,10 +227,6 @@ export function CanvasToolbar() {
   const compact = cols === 1
   const showTitles = cols === 3
   const columnsIcon = cols === 1 ? GripVertical : cols === 2 ? Columns2 : Columns3
-
-  const sep = showTitles ? null : (
-    <Separator className="col-span-full w-4/5 mx-auto" />
-  )
 
   const alignPopover = (
     <Popover>
@@ -536,6 +533,167 @@ export function CanvasToolbar() {
 
   const colWidth = compact ? '1.75rem' : '2rem'
 
+  // Grupos por tipo de herramienta: en 3 columnas cada grupo lleva titulo y su
+  // propia grilla, asi la barra crece a lo ancho y no se va al fondo de la pantalla.
+  const groups: { id: string; title: string; items: React.ReactNode[] }[] = [
+    {
+      id: 'history',
+      title: t('sectionHistory'),
+      items: [
+        <ToolbarButton icon={Undo2} label={t('undo')} onClick={cm.undo} shortcut="Ctrl+Z" compact={compact} />,
+        <ToolbarButton icon={Redo2} label={t('redo')} onClick={cm.redo} shortcut="Ctrl+Shift+Z" compact={compact} />,
+      ],
+    },
+    {
+      id: 'view',
+      title: t('sectionZoom'),
+      items: [
+        <ToolbarButton icon={ZoomIn} label={t('zoomIn')} onClick={cm.zoomIn} compact={compact} />,
+        <ToolbarButton icon={ZoomOut} label={t('zoomOut')} onClick={cm.zoomOut} compact={compact} />,
+        <ToolbarButton icon={Maximize} label={t('fitView')} onClick={cm.fitView} compact={compact} />,
+        <ToolbarButton icon={Focus} label={t('fitSelection')} onClick={cm.fitSelection} compact={compact} />,
+      ],
+    },
+    {
+      id: 'measure',
+      title: t('sectionMeasure'),
+      items: [
+        <ToolbarButton
+          icon={Ruler}
+          label={t('measure')}
+          onClick={() => setMeasuringMode(measuringMode === 'distance' ? false : 'distance')}
+          active={measuringMode === 'distance'}
+          compact={compact}
+        />,
+        <ToolbarButton
+          icon={Scaling}
+          label={t('measureAngle')}
+          onClick={() => setMeasuringMode(measuringMode === 'angle' ? false : 'angle')}
+          active={measuringMode === 'angle'}
+          compact={compact}
+        />,
+        <ToolbarButton
+          icon={ArrowLeftRight}
+          label={t('addCota') || 'Agregar Cota'}
+          onClick={() => setDrawingMode(drawingMode === 'cota' ? null : 'cota')}
+          active={drawingMode === 'cota'}
+          compact={compact}
+        />,
+      ],
+    },
+    {
+      id: 'geometry',
+      title: t('sectionGeometry'),
+      items: [
+        <ToolbarButton
+          icon={Scissors}
+          label={t('trim') || 'Recortar (Trim)'}
+          onClick={() => setTrimMode(!trimMode)}
+          active={trimMode}
+          compact={compact}
+        />,
+        <ToolbarButton
+          icon={ArrowRightToLine}
+          label={t('extend') || 'Extender hasta interseccion'}
+          onClick={() => setExtendMode(!extendMode)}
+          active={extendMode}
+          compact={compact}
+        />,
+        offsetPopover,
+        <ToolbarButton
+          icon={LayoutGrid}
+          label={t('array.title') || 'Patron (Array)'}
+          onClick={() => useAppStore.getState().openModal('array')}
+          disabled={!hasSelection}
+          compact={compact}
+        />,
+        <ToolbarButton
+          icon={Shapes}
+          label={t('nesting.title')}
+          onClick={() => useAppStore.getState().openModal('nesting')}
+          compact={compact}
+        />,
+      ],
+    },
+    {
+      id: 'transform',
+      title: t('sectionTransform'),
+      items: [
+        <ToolbarButton icon={FlipHorizontal2} label={t('flipH')} onClick={cm.flipH} disabled={!hasSelection} compact={compact} />,
+        <ToolbarButton icon={FlipVertical2} label={t('flipV')} onClick={cm.flipV} disabled={!hasSelection} compact={compact} />,
+        <ToolbarButton icon={FlipHorizontal} label={t('mirrorH')} onClick={() => cm.mirrorSelected('h')} disabled={!hasSelection} compact={compact} />,
+        <ToolbarButton icon={FlipVertical} label={t('mirrorV')} onClick={() => cm.mirrorSelected('v')} disabled={!hasSelection} compact={compact} />,
+        alignPopover,
+      ],
+    },
+    {
+      id: 'boolean',
+      title: t('sectionBoolean'),
+      items: [
+        <ToolbarButton icon={PlusSquare} label={t('boolUnion')} onClick={() => cm.booleanOperationSelected('union')} disabled={!hasMultipleSelection} compact={compact} />,
+        <ToolbarButton icon={MinusSquare} label={t('boolDifference')} onClick={() => cm.booleanOperationSelected('difference')} disabled={!hasMultipleSelection} compact={compact} />,
+        <ToolbarButton icon={SquareSlash} label={t('boolIntersection')} onClick={() => cm.booleanOperationSelected('intersection')} disabled={!hasMultipleSelection} compact={compact} />,
+        <ToolbarButton icon={SquareAsterisk} label={t('boolXor')} onClick={() => cm.booleanOperationSelected('xor')} disabled={!hasMultipleSelection} compact={compact} />,
+        <ToolbarButton icon={Group} label={t('group')} onClick={cm.groupSelected} disabled={!hasMultipleSelection} shortcut="Ctrl+G" compact={compact} />,
+        <ToolbarButton icon={Ungroup} label={t('ungroup')} onClick={cm.ungroupSelected} disabled={!hasSelection} shortcut="Ctrl+Shift+G" compact={compact} />,
+      ],
+    },
+    {
+      id: 'snap',
+      title: t('sectionSnap'),
+      items: [
+        <ToolbarButton icon={Grid3x3} label={t('snapToGrid')} onClick={toggleSnapToGrid} active={snapToGrid} compact={compact} />,
+        <ToolbarButton icon={Magnet} label={t('snapToObjects')} onClick={toggleSnapToObjects} active={snapToObjects} compact={compact} />,
+        snapGeometryPopover,
+        orthoPopover,
+        gridPopover,
+      ],
+    },
+    {
+      id: 'edit',
+      title: t('sectionEdit'),
+      items: [
+        <ToolbarButton icon={Copy} label={t('duplicate')} onClick={cm.duplicateSelected} disabled={!hasSelection} shortcut="Ctrl+D" compact={compact} />,
+        <ToolbarButton icon={Trash2} label={t('delete')} onClick={cm.deleteSelected} disabled={!hasSelection} shortcut="Supr" compact={compact} />,
+        <ToolbarButton icon={ChevronUp} label={t('bringForward')} onClick={cm.bringForward} disabled={!hasSelection} shortcut="Ctrl+]" compact={compact} />,
+        <ToolbarButton icon={ChevronDown} label={t('sendBackward')} onClick={cm.sendBackward} disabled={!hasSelection} shortcut="Ctrl+[" compact={compact} />,
+      ],
+    },
+    {
+      id: 'output',
+      title: t('sectionOutput'),
+      items: [
+        <ToolbarButton
+          icon={Stethoscope}
+          label={t('vectorDiagnostics') || 'Diagnostico de vectores'}
+          onClick={() => useAppStore.getState().openModal('vectorDiagnostics')}
+          compact={compact}
+        />,
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="default"
+              size="icon"
+              className={compact ? 'h-7 w-7' : 'h-8 w-8'}
+              onClick={handleGenerate}
+              disabled={generating}
+              aria-busy={generating}
+            >
+              {generating ? (
+                <Loader2 className={`animate-spin ${compact ? 'h-3.5 w-3.5' : 'h-4 w-4'}`} />
+              ) : (
+                <Cog className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {generating ? tg('generating') : tg('generate')}
+          </TooltipContent>
+        </Tooltip>,
+      ],
+    },
+  ]
+
   return (
     <div
       className={`absolute z-10 bg-background/90 backdrop-blur-sm border rounded-lg p-1 shadow-sm max-h-[calc(100%-3rem)] overflow-y-auto ${
@@ -554,188 +712,27 @@ export function CanvasToolbar() {
 
       {!compact && <Separator className="w-full my-0.5" />}
 
-      <div
-        className="grid"
-        style={{
-          gridTemplateColumns: `repeat(${cols}, ${colWidth})`,
-          justifyItems: 'center',
-          gap: compact ? '1px' : '0.25rem',
-        }}
-      >
-        {/* ── Undo / Redo ── */}
-        {showTitles && <SectionTitle>{t('sectionHistory')}</SectionTitle>}
-        <ToolbarButton icon={Undo2} label={t('undo')} onClick={cm.undo} shortcut="Ctrl+Z" compact={compact} />
-        <ToolbarButton icon={Redo2} label={t('redo')} onClick={cm.redo} shortcut="Ctrl+Shift+Z" compact={compact} />
-
-        {sep}
-
-        {/* ── Zoom ── */}
-        {showTitles && <SectionTitle>{t('sectionZoom')}</SectionTitle>}
-        <ToolbarButton icon={ZoomIn} label={t('zoomIn')} onClick={cm.zoomIn} compact={compact} />
-        <ToolbarButton icon={ZoomOut} label={t('zoomOut')} onClick={cm.zoomOut} compact={compact} />
-        <ToolbarButton icon={Maximize} label={t('fitView')} onClick={cm.fitView} compact={compact} />
-        <ToolbarButton icon={Focus} label={t('fitSelection')} onClick={cm.fitSelection} compact={compact} />
-
-        {sep}
-
-        {/* ── Measurement & Edit Tools ── */}
-        {showTitles && <SectionTitle>{t('sectionMeasure')}</SectionTitle>}
-        <ToolbarButton
-          icon={Ruler}
-          label={t('measure')}
-          onClick={() => setMeasuringMode(measuringMode === 'distance' ? false : 'distance')}
-          active={measuringMode === 'distance'}
-          compact={compact}
-        />
-        <ToolbarButton
-          icon={Scaling}
-          label={t('measureAngle')}
-          onClick={() => setMeasuringMode(measuringMode === 'angle' ? false : 'angle')}
-          active={measuringMode === 'angle'}
-          compact={compact}
-        />
-        <ToolbarButton
-          icon={ArrowLeftRight}
-          label={t('addCota') || 'Agregar Cota'}
-          onClick={() => setDrawingMode(drawingMode === 'cota' ? null : 'cota')}
-          active={drawingMode === 'cota'}
-          compact={compact}
-        />
-        <ToolbarButton
-          icon={Scissors}
-          label={t('trim') || 'Recortar (Trim)'}
-          onClick={() => setTrimMode(!trimMode)}
-          active={trimMode}
-          compact={compact}
-        />
-        <ToolbarButton
-          icon={ArrowRightToLine}
-          label={t('extend') || 'Extender hasta interseccion'}
-          onClick={() => setExtendMode(!extendMode)}
-          active={extendMode}
-          compact={compact}
-        />
-
-        {sep}
-
-        {/* ── Transform ── */}
-        {showTitles && <SectionTitle>{t('sectionTransform')}</SectionTitle>}
-        <ToolbarButton icon={FlipHorizontal2} label={t('flipH')} onClick={cm.flipH} disabled={!hasSelection} compact={compact} />
-        <ToolbarButton icon={FlipVertical2} label={t('flipV')} onClick={cm.flipV} disabled={!hasSelection} compact={compact} />
-
-        {sep}
-
-        {/* ── Mirror ── */}
-        {showTitles && <SectionTitle>{t('sectionMirror')}</SectionTitle>}
-        <ToolbarButton icon={FlipHorizontal} label={t('mirrorH')} onClick={() => cm.mirrorSelected('h')} disabled={!hasSelection} compact={compact} />
-        <ToolbarButton icon={FlipVertical} label={t('mirrorV')} onClick={() => cm.mirrorSelected('v')} disabled={!hasSelection} compact={compact} />
-
-        {sep}
-
-        {/* ── Align ── */}
-        {showTitles && <SectionTitle>{t('align')}</SectionTitle>}
-        {alignPopover}
-
-        {sep}
-
-        {/* ── Snap ── */}
-        {showTitles && <SectionTitle>{t('sectionSnap')}</SectionTitle>}
-        <ToolbarButton icon={Grid3x3} label={t('snapToGrid')} onClick={toggleSnapToGrid} active={snapToGrid} compact={compact} />
-        <ToolbarButton icon={Magnet} label={t('snapToObjects')} onClick={toggleSnapToObjects} active={snapToObjects} compact={compact} />
-        {snapGeometryPopover}
-        {orthoPopover}
-        {gridPopover}
-
-        {sep}
-
-        {/* ── Group / Ungroup ── */}
-        {showTitles && <SectionTitle>{t('sectionGroup')}</SectionTitle>}
-        <ToolbarButton icon={Group} label={t('group')} onClick={cm.groupSelected} disabled={!hasMultipleSelection} shortcut="Ctrl+G" compact={compact} />
-        <ToolbarButton icon={Ungroup} label={t('ungroup')} onClick={cm.ungroupSelected} disabled={!hasSelection} shortcut="Ctrl+Shift+G" compact={compact} />
-
-        {sep}
-
-        {/* ── Boolean Operations ── */}
-        {showTitles && <SectionTitle>{t('sectionBoolean')}</SectionTitle>}
-        <ToolbarButton icon={PlusSquare} label={t('boolUnion')} onClick={() => cm.booleanOperationSelected('union')} disabled={!hasMultipleSelection} compact={compact} />
-        <ToolbarButton icon={MinusSquare} label={t('boolDifference')} onClick={() => cm.booleanOperationSelected('difference')} disabled={!hasMultipleSelection} compact={compact} />
-        <ToolbarButton icon={SquareSlash} label={t('boolIntersection')} onClick={() => cm.booleanOperationSelected('intersection')} disabled={!hasMultipleSelection} compact={compact} />
-        <ToolbarButton icon={SquareAsterisk} label={t('boolXor')} onClick={() => cm.booleanOperationSelected('xor')} disabled={!hasMultipleSelection} compact={compact} />
-
-        {sep}
-
-        {/* ── Offset ── */}
-        {offsetPopover}
-
-        {sep}
-
-        {/* ── Pattern / Array ── */}
-        <ToolbarButton
-          icon={LayoutGrid}
-          label={t('array.title') || 'Patron (Array)'}
-          onClick={() => useAppStore.getState().openModal('array')}
-          disabled={!hasSelection}
-          compact={compact}
-        />
-
-        {/* ── Nesting / auto-layout ── */}
-        <ToolbarButton
-          icon={Shapes}
-          label={t('nesting.title')}
-          onClick={() => useAppStore.getState().openModal('nesting')}
-          compact={compact}
-        />
-
-        {sep}
-
-        {/* ── Diagnostico de vectores ── */}
-        <ToolbarButton
-          icon={Stethoscope}
-          label={t('vectorDiagnostics') || 'Diagnostico de vectores'}
-          onClick={() => useAppStore.getState().openModal('vectorDiagnostics')}
-          compact={compact}
-        />
-
-        {sep}
-
-        {/* ── Edit ── */}
-        {showTitles && <SectionTitle>{t('sectionEdit')}</SectionTitle>}
-        <ToolbarButton icon={Copy} label={t('duplicate')} onClick={cm.duplicateSelected} disabled={!hasSelection} shortcut="Ctrl+D" compact={compact} />
-        <ToolbarButton icon={Trash2} label={t('delete')} onClick={cm.deleteSelected} disabled={!hasSelection} shortcut="Supr" compact={compact} />
-
-        {sep}
-
-        {/* ── Z-Order ── */}
-        {showTitles && <SectionTitle>{t('sectionZOrder')}</SectionTitle>}
-        <ToolbarButton icon={ChevronUp} label={t('bringForward')} onClick={cm.bringForward} disabled={!hasSelection} shortcut="Ctrl+]" compact={compact} />
-        <ToolbarButton icon={ChevronDown} label={t('sendBackward')} onClick={cm.sendBackward} disabled={!hasSelection} shortcut="Ctrl+[" compact={compact} />
-
-        {sep}
-
-        {/* ── Generate G-code ── */}
-        <div className="col-span-full flex justify-center pt-0.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="default"
-                size="icon"
-                className={compact ? 'h-7 w-7' : 'h-8 w-8'}
-                onClick={handleGenerate}
-                disabled={generating}
-                aria-busy={generating}
-              >
-                {generating ? (
-                  <Loader2 className={`animate-spin ${compact ? 'h-3.5 w-3.5' : 'h-4 w-4'}`} />
-                ) : (
-                  <Cog className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {generating ? tg('generating') : tg('generate')}
-            </TooltipContent>
-          </Tooltip>
-        </div>
+      <div className={compact ? 'flex flex-col' : 'flex flex-col gap-0.5'}>
+        {groups.map((group, gi) => (
+          <div key={group.id}>
+            {showTitles && <SectionTitle>{group.title}</SectionTitle>}
+            <div
+              className="grid"
+              style={{
+                gridTemplateColumns: `repeat(${cols}, ${colWidth})`,
+                justifyItems: 'center',
+                gap: compact ? '1px' : '0.25rem',
+              }}
+            >
+              {group.items.map((item, ii) => (
+                <Fragment key={ii}>{item}</Fragment>
+              ))}
+            </div>
+            {!showTitles && gi < groups.length - 1 && (
+              <Separator className="w-4/5 mx-auto my-1" />
+            )}
+          </div>
+        ))}
       </div>
     </div>
   )

@@ -192,6 +192,7 @@
   "sectionHistory": "History",
   "sectionZoom": "Zoom",
   "sectionMeasure": "Measure",
+  "sectionGeometry": "Geometry",
   "sectionTransform": "Transform",
   "sectionMirror": "Mirror",
   "sectionSnap": "Snap",
@@ -199,6 +200,7 @@
   "sectionBoolean": "Boolean",
   "sectionEdit": "Edit",
   "sectionZOrder": "Z-Order",
+  "sectionOutput": "Output",
   "array": {
     "title": "Array Pattern",
     "rect": "Rectangular",

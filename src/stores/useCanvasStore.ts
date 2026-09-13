@@ -336,7 +336,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   rasterData: null,
 
   // Toolbar layout
-  toolbarColumns: 1 as 1 | 2 | 3,
+  toolbarColumns: 3 as 1 | 2 | 3,
   cycleToolbarColumns: () => set((state) => ({
     toolbarColumns: (state.toolbarColumns === 1 ? 2 : state.toolbarColumns === 2 ? 3 : 1) as 1 | 2 | 3,
   })),

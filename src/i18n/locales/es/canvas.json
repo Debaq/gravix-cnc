@@ -192,6 +192,7 @@
   "sectionHistory": "Historial",
   "sectionZoom": "Zoom",
   "sectionMeasure": "Medicion",
+  "sectionGeometry": "Geometria",
   "sectionTransform": "Transformar",
   "sectionMirror": "Espejo",
   "sectionSnap": "Ajuste",
@@ -199,6 +200,7 @@
   "sectionBoolean": "Booleanas",
   "sectionEdit": "Edicion",
   "sectionZOrder": "Orden Z",
+  "sectionOutput": "Salida",
   "array": {
     "title": "Patron (Array)",
     "rect": "Rectangular",
