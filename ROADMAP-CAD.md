@@ -1,7 +1,8 @@
 # Roadmap: CAD + CAM CNC
 
-Estado CAD: **COMPLETADO** — todas las features implementadas.
-Estado CAM: **PENDIENTE** — visor 3D funcional, falta generacion de toolpaths real.
+Estado CAD: **COMPLETADO** — incluidos los pendientes de imagen e import (P5).
+Estado CAM: **PENDIENTE** — visor 3D funcional, falta el arbol de operaciones.
+El generador ya cubre contorno, cajeado, taladro, v-carve, chamfer y photo v-carve.
 
 ---
 
@@ -68,6 +69,29 @@ Lo que faltaba para que el lienzo se sienta CAD y no editor vectorial.
 Archivos: `snap-engine.ts` (nuevo), `DesignCanvas.tsx`, `useCanvasManager.ts`,
 `useCanvasStore.ts`, `useKeyboardShortcuts.ts`, `CanvasToolbar.tsx`,
 `CanvasFooter.tsx`, `PropertiesPanel.tsx`, `DesignPanel.tsx`, `HelpModal.tsx`, i18n.
+
+## P5 — Imagen, vectorizacion e import ✅ (2026-09-13)
+
+Lo que faltaba para que una idea entre al lienzo sin pasar por otro programa.
+
+- **Filtros de imagen** (`image_processing.rs`): brillo, contraste, gamma y enfoque
+  antes del dithering. Los tres primeros en una LUT de 256 entradas; el enfoque es
+  un unsharp mask 3x3. Antes una foto plana salia como una mancha y no habia con
+  que corregirla
+- **Auto-vectorizacion** (`vectorize.rs`): bitmap a contornos por marching squares.
+  Tres modos — completo (con agujeros), **silueta** (solo el contorno exterior) y
+  **eje medio** (`centerline.rs`, esqueletizacion Zhang-Suen + grafo del esqueleto,
+  para line art de un trazo)
+- **Import PDF / AI / EPS** (`vector_import.rs`): el formato se decide por contenido.
+  PDF por streams, EPS con un interprete de pila que resuelve los atajos de los
+  generadores. El texto no se convierte a curvas y se avisa; DWG queda afuera
+- **Nesting por contorno real** (`nesting.ts`): rasterizado + bottom-left first-fit
+  con giros. Una pieza en U ahora anida otra en la muesca; antes el bbox lo impedia
+- **Photo V-Carve** (`photo-vcarve.ts`): la foto se talla con surcos de profundidad
+  variable. La separacion sale del angulo de la fresa y la profundidad maxima
+
+Archivos nuevos: `vectorize.rs`, `centerline.rs`, `vector_import.rs`,
+`photo-vcarve.ts`, `TraceImageModal.tsx`.
 
 ---
 
@@ -210,6 +234,10 @@ Diferenciadores de calidad.
 | **Optimizacion orden** | ❌ FALTA | TSP nearest neighbor — CAM-P2 |
 | **Remocion de material** | ❌ FALTA | Heightmap o Three.js CSG — CAM-P3 |
 | **Adaptive clearing** | ❌ FALTA | Algoritmo trochoidal — CAM-P3 |
+| Photo V-Carve | ✅ YA EXISTE | `photo-vcarve.ts`, surcos de profundidad variable |
+| Import PDF/AI/EPS | ✅ YA EXISTE | `vector_import.rs` (DWG no) |
+| Auto-vectorizacion | ✅ YA EXISTE | contorno, silueta y eje medio |
+| Nesting true-shape | ✅ YA EXISTE | grilla de ocupacion, no NFP |
 | **Rest machining** | ❌ FALTA | Requiere heightmap de P3 — CAM-P3 |
 
 ---
