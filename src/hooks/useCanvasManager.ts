@@ -438,8 +438,14 @@ export function pushToHistory(): void {
   // Truncate future entries
   historyStack.splice(historyIndex + 1)
 
+  // OJO: en Fabric 6 `toJSON()` ignora la lista de propiedades; hay que pasar
+  // por `toObject()` o el snapshot pierde el id de elemento y la marca de no
+  // interactivo — y al deshacer los objetos quedan huerfanos del store.
   const fabricJSON = JSON.stringify(
-    (canvas as unknown as { toJSON(props: string[]): object }).toJSON([ELEMENT_ID_KEY, NON_INTERACTIVE_KEY]),
+    (canvas as unknown as { toObject(props: string[]): object }).toObject([
+      ELEMENT_ID_KEY,
+      NON_INTERACTIVE_KEY,
+    ]),
   )
   const state = useCanvasStore.getState()
   const storeElements = JSON.stringify(state.elements, (key, val) =>

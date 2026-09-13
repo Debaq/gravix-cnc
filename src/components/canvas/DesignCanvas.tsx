@@ -908,6 +908,7 @@ export function DesignCanvas() {
     guides,
     showGuides,
     activeSheetId,
+    pendingCanvasJSON,
     selectElement, 
     setSelectedElements, 
     setIsGroupSelection,
@@ -2507,6 +2508,49 @@ export function DesignCanvas() {
     if (!canvas) return
     rebuildWorkArea(canvas)
   }, [rebuildWorkArea])
+
+  // ------------------------------------------
+  // Cargar el lienzo de un proyecto recien abierto
+  // ------------------------------------------
+  useEffect(() => {
+    const canvas = fabricRef.current
+    if (!canvas || !pendingCanvasJSON) return
+
+    let cancelled = false
+
+    const load = async () => {
+      await canvas.loadFromJSON(pendingCanvasJSON)
+      if (cancelled) return
+
+      // El snapshot trae su propia area de trabajo: se descarta y se rearma
+      // con la del proyecto que se acaba de abrir.
+      rebuildWorkArea(canvas)
+
+      // Reconectar cada elemento del store con su objeto Fabric: el panel de
+      // capas trabaja sobre esa referencia.
+      const state = useCanvasStore.getState()
+      const byId = new Map<string, FabricObject>()
+      for (const obj of canvas.getObjects()) {
+        const id = getCustomProp(obj, ELEMENT_ID_KEY)
+        if (typeof id === 'string') byId.set(id, obj)
+      }
+      for (const el of state.elements) {
+        const obj = byId.get(el.id)
+        if (obj) state.updateElement(el.id, { fabricObject: obj })
+      }
+
+      cm.applySheetVisibility()
+      invalidateSnapIndex()
+      canvas.requestRenderAll()
+      cm.fitView()
+      state.setPendingCanvasJSON(null)
+      pushToHistory()
+    }
+
+    void load()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingCanvasJSON])
 
   // ------------------------------------------
   // Hoja activa: mostrar solo lo que vive en ella

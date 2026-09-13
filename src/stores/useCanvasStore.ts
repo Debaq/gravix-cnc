@@ -84,6 +84,13 @@ interface CanvasState {
   guides: Guide[]
   showGuides: boolean
 
+  /**
+   * Snapshot Fabric esperando a que el lienzo se monte. Al abrir un proyecto
+   * desde la pantalla de proyectos el canvas todavia no existe, asi que la
+   * geometria queda aca y DesignCanvas la consume cuando arranca.
+   */
+  pendingCanvasJSON: unknown | null
+
   // Lectura del lienzo
   /** Posicion del cursor en mm respecto al origen del area de trabajo. */
   cursorMm: { x: number; y: number } | null
@@ -179,6 +186,7 @@ interface CanvasState {
   moveGuide: (id: string, mm: number) => void
   removeGuide: (id: string) => void
   clearGuides: () => void
+  setPendingCanvasJSON: (json: unknown | null) => void
   setCursorMm: (pos: { x: number; y: number } | null) => void
   setZoomLevel: (zoom: number) => void
   toggleSnapToGrid: () => void
@@ -293,6 +301,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   guides: [],
   showGuides: true,
+
+  pendingCanvasJSON: null,
 
   // Lectura del lienzo
   cursorMm: null,
@@ -496,6 +506,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   removeGuide: (id) =>
     set((state) => ({ guides: state.guides.filter((g) => g.id !== id) })),
   clearGuides: () => set({ guides: [] }),
+  setPendingCanvasJSON: (json) => set({ pendingCanvasJSON: json }),
   setCursorMm: (pos) => set({ cursorMm: pos }),
   setZoomLevel: (zoom) => set({ zoomLevel: zoom }),
   toggleSnapToGrid: () => set((state) => ({ snapToGrid: !state.snapToGrid })),

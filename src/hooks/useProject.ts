@@ -3,6 +3,7 @@ import { useAppStore } from '@/stores/useAppStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import { isTauri, tauriInvoke } from '@/lib/tauri'
+import { getSharedCanvas, ELEMENT_ID_KEY, NON_INTERACTIVE_KEY } from '@/hooks/useCanvasManager'
 import type { ProjectData } from '@/lib/types'
 
 /**
@@ -93,7 +94,18 @@ export function useProject() {
       },
       selectedTool: globalConfig.tool,
       selectedMaterial: globalConfig.material,
-      extensions: { sheets, activeSheetId },
+      // El lienzo tambien viaja en el export JSON: sin esto el proyecto
+      // importado traia la lista de elementos y el canvas vacio
+      extensions: {
+        sheets,
+        activeSheetId,
+        canvas: getSharedCanvas()
+          ? (getSharedCanvas() as unknown as { toObject(props: string[]): object }).toObject([
+              ELEMENT_ID_KEY,
+              NON_INTERACTIVE_KEY,
+            ])
+          : undefined,
+      },
     }
   }, [projectName, workArea, elements, globalConfig, gcode, gcodeGenerated, gcodeLines, sheets, activeSheetId])
 
@@ -167,7 +179,8 @@ export function useProject() {
   }, [addConsoleLine])
 
   const restoreProject = useCallback((data: ProjectData) => {
-    const { setElements, setWorkArea, setGlobalConfig, setSheets } = useCanvasStore.getState()
+    const { setElements, setWorkArea, setGlobalConfig, setSheets, setPendingCanvasJSON } =
+      useCanvasStore.getState()
     const { setGCode } = useGCodeStore.getState()
 
     setProjectName(data.metadata.projectName)
@@ -175,10 +188,17 @@ export function useProject() {
     setGlobalConfig(data.globalConfig)
 
     // Las hojas viajan en extensions para no romper archivos viejos
-    const ext = data.extensions as { sheets?: { id: string; name: string }[]; activeSheetId?: string } | undefined
+    const ext = data.extensions as {
+      sheets?: { id: string; name: string }[]
+      activeSheetId?: string
+      canvas?: unknown
+    } | undefined
     setSheets(ext?.sheets ?? [], ext?.activeSheetId)
 
     setElements(data.elements as ReturnType<typeof useCanvasStore.getState>['elements'])
+
+    // La geometria la levanta DesignCanvas cuando ve el snapshot pendiente
+    setPendingCanvasJSON(ext?.canvas ?? null)
 
     if (data.gcode.generated && data.gcode.code) {
       setGCode(data.gcode.code)
