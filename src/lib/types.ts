@@ -36,7 +36,7 @@ export interface ImageFilters {
 }
 
 // Vectorizacion: que contornos entran al resultado
-export type TraceMode = 'silhouette' | 'outline'
+export type TraceMode = 'silhouette' | 'outline' | 'centerline'
 
 export interface TraceOptions {
   mode: TraceMode

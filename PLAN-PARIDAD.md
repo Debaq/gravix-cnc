@@ -134,8 +134,9 @@ Estado actual: raster bueno, vectorial básico, sin optimización avanzada.
   obliga a etiquetar componentes antes para saber que es pieza y que es agujero.
   Aca los agujeros salen solos, con el sentido de giro invertido respecto del
   contorno que los contiene, y el area con signo los separa
-- **Dos modos**: `outline` (contorno + agujeros como subpaths del mismo path) y
+- **Tres modos**: `outline` (contorno + agujeros como subpaths del mismo path),
   **`silhouette`** (solo contorno exterior — la figura maciza, para recortarla entera)
+  y **`centerline`** (eje medio: la linea que recorre el trazo por el centro)
 - **Controles**: umbral, invertir, area minima (descarta ruido de escaneo),
   simplificacion en px, suavizado 0..1 y ancho de salida en mm. Preview del SVG en
   vivo con debounce, aviso cuando el trazado pasa de 4000 nodos
@@ -144,14 +145,29 @@ Estado actual: raster bueno, vectorial básico, sin optimización avanzada.
   simplificados los tramos quedan de largos muy distintos y la curva se disparaba —
   las puntas de una estrella salian abombadas. Ahora la tangente va normalizada y el
   largo del handle lo pone cada tramo
-- **Tests**: 10 en `vectorize.rs` (cuadrado, agujero con giro contrario, silueta vs
+- **Tests**: 13 en `vectorize.rs` (cuadrado, agujero con giro contrario, silueta vs
   completo, dos manchas, area minima, simplificacion, invertir, escala/proporcion,
-  imagen en blanco, recto vs curvo) + smoke con archivo real (`#[ignore]`, via
-  `TRACE_IN`/`TRACE_OUT`)
-- **Archivos**: `vectorize.rs` (nuevo), `TraceImageModal.tsx` (nuevo), `lib.rs`,
-  `commands/mod.rs`, `useCanvasManager.ts`, `DesignPanel.tsx`, `App.tsx`, `types.ts`, i18n
-- **Falta**: centerline / trazado de eje medio (line art de un trazo, tipo lapiz),
-  que necesita esqueletizacion — no es lo mismo que el contorno
+  imagen en blanco, recto vs curvo, y tres de centerline: linea abierta vs contorno,
+  anillo cerrado, poda de rama) + 5 en `centerline.rs` (barra a un pixel, cruz con
+  cuatro brazos, anillo cerrado, poda, trazos sueltos) + smoke con archivo real
+  (`#[ignore]`, via `TRACE_IN`/`TRACE_OUT`/`TRACE_MODE`)
+- **Archivos**: `vectorize.rs` (nuevo), `centerline.rs` (nuevo),
+  `TraceImageModal.tsx` (nuevo), `lib.rs`, `commands/mod.rs`, `useCanvasManager.ts`,
+  `DesignPanel.tsx`, `App.tsx`, `types.ts`, i18n
+- **Centerline** (`centerline.rs`): esqueletizacion Zhang-Suen a un pixel de ancho y
+  lectura del esqueleto como grafo — extremos y bifurcaciones son nodos, el resto son
+  tramos. Sin esto, un plano a lapiz sale como dos lineas paralelas por trazo y la
+  maquina repasa el borde en vez de dibujarlo. El area minima se reinterpreta como
+  largo minimo de rama (la UI muestra px) para podar los pelitos que deja la
+  esqueletizacion en los bordes irregulares
+- **Tres cosas que costaron en el grafo del esqueleto**: (1) el grado hay que
+  contarlo por **numero de cruces**, no por vecinos encendidos — en una escalera
+  diagonal un pixel de paso tiene tres vecinos y se leia como bifurcacion;
+  (2) al avanzar hay que tomar el vecino **mas cercano** (ortogonal antes que
+  diagonal), porque saltar al lejano saltea el pixel de la esquina y lo deja suelto;
+  (3) un pixel de paso pertenece a **un solo** tramo — sin eso, los cuatro vecinos de
+  una bifurcacion volvian como un rombo cerrado alrededor del centro
+- **Rendimiento**: 95 ms para 1200x800 en release, asi que entra en el preview en vivo
 
 ### ~~3.6 Lead-In / Lead-Out~~ ✅ COMPLETADO
 - **Qué**: Campo `laserLeadIn` en GlobalConfig + arco de aproximación en `generateLaserContour()` para paths cerrados. UI en GlobalConfigModal sección laser
@@ -682,9 +698,8 @@ canvas.
 | 5.6 | Gamepad / pendant | Gamepad API del browser contra el `jog()` que ya existe en `useSerial` | M |
 
 Lo grande que sigue pendiente y **no** es barato: Gerber import (7.1), isolation
-routing (7.3), surface auto-leveling (7.4), centerline trace (esqueletizacion, el
-contorno ya entro en 3.5), true-shape nesting con no-fit polygons (el empaque por
-bbox ya entro en 5.4) y toda la Fase 4C de modelado 3D.
+routing (7.3), surface auto-leveling (7.4), true-shape nesting con no-fit polygons
+(el empaque por bbox ya entro en 5.4) y toda la Fase 4C de modelado 3D.
 
 ---
 

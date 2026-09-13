@@ -39,13 +39,17 @@
       "outline": "Completo (con agujeros)",
       "outlineHint": "Traza el contorno exterior y los huecos interiores como subpaths.",
       "silhouette": "Silueta (solo contorno exterior)",
-      "silhouetteHint": "Ignora los huecos: queda la figura maciza, lista para recortarla entera."
+      "silhouetteHint": "Ignora los huecos: queda la figura maciza, lista para recortarla entera.",
+      "centerline": "Eje medio (centerline)",
+      "centerlineHint": "Sigue el centro de cada trazo en vez de su borde. Para line art de un trazo: planos a lapiz, firmas, letras de palo."
     },
     "simplify": "Simplificacion (px)",
     "smooth": "Suavizado",
     "outputWidth": "Ancho de salida (mm)",
     "minArea": "Area minima (px)",
     "minAreaHint": "Descarta manchas y agujeros mas chicos que esto. Sube para limpiar ruido de escaneo.",
+    "minBranch": "Rama minima (px)",
+    "minBranchHint": "Poda las ramas muertas que deja la esqueletizacion en los bordes irregulares.",
     "stats": "{{paths}} contornos, {{holes}} agujeros, {{points}} nodos",
     "heavy": "Muchos nodos: sube la simplificacion o el area minima",
     "tracing": "Trazando...",

@@ -124,6 +124,7 @@ export function TraceImageModal() {
   }
 
   const heavy = (result?.point_count ?? 0) > HEAVY_POINT_COUNT
+  const isCenterline = mode === 'centerline'
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && closeModal()}>
@@ -196,10 +197,11 @@ export function TraceImageModal() {
                 <SelectContent>
                   <SelectItem value="outline">{t('trace.modes.outline')}</SelectItem>
                   <SelectItem value="silhouette">{t('trace.modes.silhouette')}</SelectItem>
+                  <SelectItem value="centerline">{t('trace.modes.centerline')}</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-[10px] text-muted-foreground mt-1">
-                {mode === 'silhouette' ? t('trace.modes.silhouetteHint') : t('trace.modes.outlineHint')}
+                {t(`trace.modes.${mode}Hint`)}
               </p>
             </div>
 
@@ -244,16 +246,25 @@ export function TraceImageModal() {
             </div>
 
             <div>
-              <Label className="text-xs">{t('trace.minArea')}</Label>
+              <Label className="text-xs">
+                {isCenterline ? t('trace.minBranch') : t('trace.minArea')}
+              </Label>
               <Input
                 type="number"
-                value={minArea}
+                value={isCenterline ? Math.round(Math.sqrt(minArea)) : minArea}
                 min={0}
                 max={100000}
-                onChange={(e) => setMinArea(Math.max(0, parseInt(e.target.value) || 0))}
+                onChange={(e) => {
+                  const v = Math.max(0, parseFloat(e.target.value) || 0)
+                  // El backend recibe siempre area; en eje medio la usa como
+                  // largo de rama vía su raiz, asi que el control muestra px
+                  setMinArea(isCenterline ? Math.round(v * v) : Math.round(v))
+                }}
                 className="mt-1"
               />
-              <p className="text-[10px] text-muted-foreground mt-1">{t('trace.minAreaHint')}</p>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {isCenterline ? t('trace.minBranchHint') : t('trace.minAreaHint')}
+              </p>
             </div>
 
             <div className="flex items-center justify-between">

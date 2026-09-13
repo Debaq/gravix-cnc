@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
+use super::centerline::{skeleton_to_strokes, thin};
 use super::image_processing::ImageFilters;
 
 /// Que contornos entran al SVG final.
@@ -25,6 +26,11 @@ pub enum TraceMode {
     /// Contorno exterior + agujeros, como subpaths del mismo path.
     #[serde(rename = "outline")]
     Outline,
+    /// Eje medio: la linea que recorre la tinta por el centro, no su borde. Es
+    /// lo que sirve para line art de un trazo (planos a lapiz, firmas), donde
+    /// el contorno devuelve dos lineas paralelas por cada trazo.
+    #[serde(rename = "centerline")]
+    Centerline,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -109,6 +115,20 @@ pub fn trace_image(
     }
 
     let mask = binarize(&gray, options.threshold, options.invert);
+
+    // El escalado mantiene la proporcion dentro del area util
+    let aspect = w as f64 / h as f64;
+    let (out_w_mm, out_h_mm) = if width_mm / aspect <= height_mm {
+        (width_mm, width_mm / aspect)
+    } else {
+        (height_mm * aspect, height_mm)
+    };
+    let scale = out_w_mm / w as f64;
+
+    if options.mode == TraceMode::Centerline {
+        return trace_centerline(&mask, w, h, scale, out_w_mm, out_h_mm, &options);
+    }
+
     let loops = march_squares(&mask, w as usize, h as usize);
 
     let (outers, holes) = classify_loops(loops, options.min_area as f64);
@@ -135,15 +155,6 @@ pub fn trace_image(
         }
     }
 
-    // El escalado mantiene la proporcion dentro del area util
-    let aspect = w as f64 / h as f64;
-    let (out_w_mm, out_h_mm) = if width_mm / aspect <= height_mm {
-        (width_mm, width_mm / aspect)
-    } else {
-        (height_mm * aspect, height_mm)
-    };
-    let scale = out_w_mm / w as f64;
-
     let mut d_paths = Vec::with_capacity(outers.len());
     let mut point_count = 0;
     for (outer, holes) in outers.iter().zip(children.iter()) {
@@ -161,7 +172,7 @@ pub fn trace_image(
             if !d.is_empty() {
                 d.push(' ');
             }
-            d.push_str(&contour_to_d(&scaled, options.smooth));
+            d.push_str(&path_to_d(&scaled, options.smooth, true));
         }
         if !d.is_empty() {
             d_paths.push(d);
@@ -180,6 +191,69 @@ pub fn trace_image(
         preview_base64,
         path_count: d_paths.len(),
         hole_count,
+        point_count,
+        width_mm: out_w_mm,
+        height_mm: out_h_mm,
+        traced_width: w,
+        traced_height: h,
+    })
+}
+
+/// Rama de eje medio: esqueleto de un pixel y su grafo, en vez de contornos.
+///
+/// El `min_area` de la UI se reinterpreta como largo minimo de rama: la
+/// esqueletizacion siempre deja pelitos donde el borde de la mancha era
+/// irregular, y el usuario ya tiene ese control a mano para el ruido.
+fn trace_centerline(
+    mask: &[bool],
+    w: u32,
+    h: u32,
+    scale: f64,
+    out_w_mm: f64,
+    out_h_mm: f64,
+    options: &TraceOptions,
+) -> Result<TraceResult, String> {
+    let skeleton = thin(mask, w as usize, h as usize);
+    let prune = (options.min_area as f64).sqrt();
+    let strokes = skeleton_to_strokes(&skeleton, w as usize, h as usize, prune);
+
+    if strokes.is_empty() {
+        return Err(
+            "No se encontro ningun trazo. Prueba con otro umbral o invirtiendo la imagen".into(),
+        );
+    }
+
+    let mut d_paths = Vec::with_capacity(strokes.len());
+    let mut point_count = 0;
+    for stroke in &strokes {
+        let simplified = if stroke.closed {
+            simplify_closed(&stroke.points, options.simplify)
+        } else {
+            douglas_peucker(&stroke.points, options.simplify)
+        };
+        if simplified.len() < 2 {
+            continue;
+        }
+        point_count += simplified.len();
+        let scaled: Vec<[f64; 2]> = simplified
+            .iter()
+            .map(|p| [p[0] * scale, p[1] * scale])
+            .collect();
+        d_paths.push(path_to_d(&scaled, options.smooth, stroke.closed));
+    }
+
+    if d_paths.is_empty() {
+        return Err("Los trazos quedaron vacios tras simplificar. Baja la simplificacion".into());
+    }
+
+    let svg = build_svg(&d_paths, out_w_mm, out_h_mm);
+    let preview_base64 = format!("data:image/svg+xml;base64,{}", STANDARD.encode(svg.as_bytes()));
+
+    Ok(TraceResult {
+        svg,
+        preview_base64,
+        path_count: d_paths.len(),
+        hole_count: 0,
         point_count,
         width_mm: out_w_mm,
         height_mm: out_h_mm,
@@ -481,19 +555,22 @@ fn dist2(a: [f64; 2], b: [f64; 2]) -> f64 {
     dx * dx + dy * dy
 }
 
-/// Contorno cerrado a comando SVG. Con smooth = 0 sale como polilinea; con
-/// smooth > 0, cada tramo pasa a cubica con tangentes tipo Catmull-Rom, salvo
-/// en las esquinas duras, que se dejan en pico.
-fn contour_to_d(pts: &[[f64; 2]], smooth: f64) -> String {
+/// Contorno a comando SVG. Con smooth = 0 sale como polilinea; con smooth > 0,
+/// cada tramo pasa a cubica con tangentes tipo Catmull-Rom, salvo en las
+/// esquinas duras, que se dejan en pico. `closed` cierra con Z y hace que las
+/// tangentes den la vuelta; abierto, los extremos apuntan a su unico vecino.
+fn path_to_d(pts: &[[f64; 2]], smooth: f64, closed: bool) -> String {
     let n = pts.len();
     let mut d = String::new();
     let _ = write!(d, "M {:.3} {:.3}", pts[0][0], pts[0][1]);
 
-    if smooth <= 0.0 {
+    if smooth <= 0.0 || n < 3 {
         for p in pts.iter().skip(1) {
             let _ = write!(d, " L {:.3} {:.3}", p[0], p[1]);
         }
-        d.push_str(" Z");
+        if closed {
+            d.push_str(" Z");
+        }
         return d;
     }
 
@@ -507,21 +584,30 @@ fn contour_to_d(pts: &[[f64; 2]], smooth: f64) -> String {
     // dispara la curva cuando los tramos tienen largos muy distintos — y
     // despues de simplificar siempre los tienen
     let dir = |i: usize| -> [f64; 2] {
-        if is_corner(pts, i, n, CORNER_COS) {
-            return [0.0, 0.0];
-        }
-        let prev = pts[(i + n - 1) % n];
-        let next = pts[(i + 1) % n];
-        let v = [next[0] - prev[0], next[1] - prev[1]];
-        let len = (v[0] * v[0] + v[1] * v[1]).sqrt();
-        if len == 0.0 {
-            [0.0, 0.0]
+        let (prev, next) = if closed {
+            (pts[(i + n - 1) % n], pts[(i + 1) % n])
+        } else if i == 0 {
+            (pts[0], pts[1])
+        } else if i == n - 1 {
+            (pts[n - 2], pts[n - 1])
         } else {
-            [v[0] / len, v[1] / len]
+            (pts[i - 1], pts[i + 1])
+        };
+        if closed || (i > 0 && i < n - 1) {
+            let corner = if closed {
+                is_corner(pts[(i + n - 1) % n], pts[i], pts[(i + 1) % n], CORNER_COS)
+            } else {
+                is_corner(pts[i - 1], pts[i], pts[i + 1], CORNER_COS)
+            };
+            if corner {
+                return [0.0, 0.0];
+            }
         }
+        normalize([next[0] - prev[0], next[1] - prev[1]])
     };
 
-    for i in 0..n {
+    let last = if closed { n } else { n - 1 };
+    for i in 0..last {
         let p0 = pts[i];
         let p1 = pts[(i + 1) % n];
         let seg = ((p1[0] - p0[0]).powi(2) + (p1[1] - p0[1]).powi(2)).sqrt();
@@ -536,16 +622,24 @@ fn contour_to_d(pts: &[[f64; 2]], smooth: f64) -> String {
             c1[0], c1[1], c2[0], c2[1], p1[0], p1[1]
         );
     }
-    d.push_str(" Z");
+    if closed {
+        d.push_str(" Z");
+    }
     d
+}
+
+fn normalize(v: [f64; 2]) -> [f64; 2] {
+    let len = (v[0] * v[0] + v[1] * v[1]).sqrt();
+    if len == 0.0 {
+        [0.0, 0.0]
+    } else {
+        [v[0] / len, v[1] / len]
+    }
 }
 
 /// Un vertice es esquina cuando los dos tramos que lo tocan forman un angulo
 /// marcado. Redondear ahi convierte un rectangulo en una papa.
-fn is_corner(pts: &[[f64; 2]], i: usize, n: usize, corner_cos: f64) -> bool {
-    let prev = pts[(i + n - 1) % n];
-    let cur = pts[i];
-    let next = pts[(i + 1) % n];
+fn is_corner(prev: [f64; 2], cur: [f64; 2], next: [f64; 2], corner_cos: f64) -> bool {
     let a = [cur[0] - prev[0], cur[1] - prev[1]];
     let b = [next[0] - cur[0], next[1] - cur[1]];
     let la = (a[0] * a[0] + a[1] * a[1]).sqrt();
@@ -834,17 +928,127 @@ mod tests {
         assert!(suave.svg.contains(" C "));
     }
 
+    #[test]
+    fn centerline_da_una_linea_abierta_donde_el_contorno_da_dos_lados() {
+        // Trazo horizontal de 3 px de alto: line art, no una figura maciza
+        let (w, h) = (60, 20);
+        let mut mask = vec![false; w * h];
+        for y in 9..12 {
+            for x in 5..55 {
+                mask[y * w + x] = true;
+            }
+        }
+        let img = mask_to_image(&mask, w, h);
+
+        let centro = trace_image(
+            img.clone(),
+            100.0,
+            100.0,
+            TraceOptions { mode: TraceMode::Centerline, smooth: 0.0, ..Default::default() },
+            ImageFilters::default(),
+        )
+        .unwrap();
+        assert_eq!(centro.path_count, 1, "un trazo, no dos lados");
+        assert_eq!(centro.hole_count, 0);
+        assert!(!centro.svg.contains(" Z"), "el eje medio es un path abierto");
+        assert!(centro.point_count <= 4, "una recta son dos puntos");
+
+        let contorno = trace_image(
+            img,
+            100.0,
+            100.0,
+            TraceOptions { smooth: 0.0, ..Default::default() },
+            ImageFilters::default(),
+        )
+        .unwrap();
+        assert!(contorno.svg.contains(" Z"), "el contorno si cierra");
+        assert!(
+            contorno.point_count > centro.point_count,
+            "el contorno rodea el trazo, el eje medio lo recorre"
+        );
+    }
+
+    #[test]
+    fn centerline_de_un_anillo_cierra() {
+        let (w, h) = (60, 60);
+        let mut mask = vec![false; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                let (dx, dy) = (x as f64 - 30.0, y as f64 - 30.0);
+                let r = (dx * dx + dy * dy).sqrt();
+                if (18.0..22.0).contains(&r) {
+                    mask[y * w + x] = true;
+                }
+            }
+        }
+        let res = trace_image(
+            mask_to_image(&mask, w, h),
+            100.0,
+            100.0,
+            TraceOptions { mode: TraceMode::Centerline, ..Default::default() },
+            ImageFilters::default(),
+        )
+        .unwrap();
+        assert_eq!(res.path_count, 1);
+        assert!(res.svg.contains(" Z"), "un anillo tiene eje medio cerrado");
+    }
+
+    #[test]
+    fn centerline_usa_el_area_minima_como_largo_de_rama() {
+        // Trazo con un pelito colgando
+        let (w, h) = (60, 30);
+        let mut mask = vec![false; w * h];
+        for y in 14..17 {
+            for x in 5..55 {
+                mask[y * w + x] = true;
+            }
+        }
+        for y in 9..14 {
+            for x in 30..33 {
+                mask[y * w + x] = true;
+            }
+        }
+        let img = mask_to_image(&mask, w, h);
+
+        let con_pelo = trace_image(
+            img.clone(),
+            100.0,
+            100.0,
+            TraceOptions { mode: TraceMode::Centerline, min_area: 1, ..Default::default() },
+            ImageFilters::default(),
+        )
+        .unwrap();
+        let sin_pelo = trace_image(
+            img,
+            100.0,
+            100.0,
+            TraceOptions { mode: TraceMode::Centerline, min_area: 400, ..Default::default() },
+            ImageFilters::default(),
+        )
+        .unwrap();
+        assert!(
+            sin_pelo.path_count < con_pelo.path_count,
+            "el largo minimo tiene que podar la rama corta ({} -> {})",
+            con_pelo.path_count,
+            sin_pelo.path_count
+        );
+    }
+
     /// Smoke manual sobre un archivo real: TRACE_IN=... TRACE_OUT=... [TRACE_MODE=silhouette]
     #[test]
     #[ignore]
     fn smoke_archivo() {
         let input = std::env::var("TRACE_IN").unwrap();
         let output = std::env::var("TRACE_OUT").unwrap();
-        let silhouette = std::env::var("TRACE_MODE").map(|m| m == "silhouette").unwrap_or(false);
+        let mode = match std::env::var("TRACE_MODE").as_deref() {
+            Ok("silhouette") => TraceMode::Silhouette,
+            Ok("centerline") => TraceMode::Centerline,
+            _ => TraceMode::Outline,
+        };
         let img = image::open(&input).unwrap();
         let num = |k: &str, d: f64| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
         let opts = TraceOptions {
-            mode: if silhouette { TraceMode::Silhouette } else { TraceMode::Outline },
+            mode,
             min_area: 20,
             simplify: num("TRACE_SIMPLIFY", 0.8),
             smooth: num("TRACE_SMOOTH", 0.6),
