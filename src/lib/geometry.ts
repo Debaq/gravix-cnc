@@ -43,29 +43,6 @@ export function fromClipperPath(path: IntPoint[]): Point2D[] {
 }
 
 // ============================================
-// ÁREA Y DIRECCIÓN DE ENROLLADO
-// ============================================
-
-export function polygonArea(points: Point2D[]): number {
-  let area = 0
-  const n = points.length
-  for (let i = 0; i < n; i++) {
-    const j = (i + 1) % n
-    area += points[i].x * points[j].y
-    area -= points[j].x * points[i].y
-  }
-  return area / 2
-}
-
-export function ensureCCW(points: Point2D[]): Point2D[] {
-  return polygonArea(points) < 0 ? [...points].reverse() : points
-}
-
-export function ensureCW(points: Point2D[]): Point2D[] {
-  return polygonArea(points) > 0 ? [...points].reverse() : points
-}
-
-// ============================================
 // LINEARIZACIÓN DE BEZIER
 // ============================================
 
@@ -191,13 +168,19 @@ export interface PocketResult {
 export async function generatePocketContours(
   boundary: Point2D[],
   toolRadius: number,
-  stepover: number
+  stepover: number,
+  /** Retracción inicial desde el borde. Por defecto el radio de la
+   *  herramienta, porque `boundary` delimita material. Pasar 0 cuando
+   *  `boundary` ya es una región de centro de herramienta (rest machining). */
+  initialInset: number = toolRadius
 ): Promise<PocketResult> {
   const toolDiameter = toolRadius * 2
   const stepDistance = toolDiameter * stepover
 
-  // Pasada de acabado: offset exacto del radio de herramienta
-  const finishingPaths = await offsetPolygon(boundary, -toolRadius, true, 'round')
+  // Pasada de acabado: contorno al ras de la retracción inicial
+  const finishingPaths = initialInset > 0
+    ? await offsetPolygon(boundary, -initialInset, true, 'round')
+    : [boundary]
   if (finishingPaths.length === 0) {
     return { roughing: [], finishing: [] }
   }
@@ -205,10 +188,12 @@ export async function generatePocketContours(
 
   // Contornos de desbaste: offsets progresivos hacia adentro
   const roughing: Point2D[][] = []
-  let currentInset = toolRadius
+  let currentInset = initialInset
 
   for (;;) {
-    const contours = await offsetPolygon(boundary, -currentInset, true, 'round')
+    const contours = currentInset > 0
+      ? await offsetPolygon(boundary, -currentInset, true, 'round')
+      : [boundary]
     if (contours.length === 0) break
     roughing.push(...contours)
     currentInset += stepDistance
@@ -476,6 +461,52 @@ export function generateHatchLines(
   }
 
   return segments
+}
+
+// ============================================
+// POCKET ZIGZAG (Raster / Scanline)
+// ============================================
+
+export interface PocketZigzagResult {
+  /** Segmentos de barrido paralelo que vacían el interior */
+  hatch: { start: Point2D; end: Point2D }[]
+  /** Contornos de acabado (perímetro a radio de herramienta) */
+  finishing: Point2D[][]
+}
+
+/**
+ * Estrategia de cajeado zigzag: barrido paralelo del interior más una
+ * pasada de acabado por el perímetro. Complementa a
+ * `generatePocketContours` (estrategia contour-parallel).
+ */
+export async function generatePocketZigzag(
+  boundary: Point2D[],
+  toolRadius: number,
+  stepover: number,
+  angleDeg: number = 45,
+  /** Ver `generatePocketContours`: 0 si `boundary` ya es región de centro */
+  initialInset: number = toolRadius
+): Promise<PocketZigzagResult> {
+  const stepDistance = toolRadius * 2 * stepover
+  if (stepDistance <= 0) return { hatch: [], finishing: [] }
+
+  // Región alcanzable por el centro de la herramienta
+  const inner = initialInset > 0
+    ? await offsetPolygon(boundary, -initialInset, true, 'round')
+    : [boundary]
+  if (inner.length === 0) return { hatch: [], finishing: [] }
+
+  // El barrido se retrae medio stepover para que la pasada de acabado
+  // no tenga que retirar material a ancho completo de herramienta
+  const hatch: { start: Point2D; end: Point2D }[] = []
+  for (const contour of inner) {
+    const hatchArea = await offsetPolygon(contour, -stepDistance / 2, true, 'round')
+    for (const region of hatchArea.length > 0 ? hatchArea : [contour]) {
+      hatch.push(...generateHatchLines(region, stepDistance, angleDeg, true))
+    }
+  }
+
+  return { hatch, finishing: inner }
 }
 
 // ============================================
