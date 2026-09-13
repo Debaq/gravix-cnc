@@ -95,6 +95,10 @@ export function DesignPanel() {
     canvasManager.loadImage()
   }
 
+  const handleTraceImage = () => {
+    canvasManager.traceImage()
+  }
+
   const handleAddShape = (type: string) => {
     canvasManager.addShape(type)
     addConsoleLine(`Elemento creado: ${type}`)
@@ -206,6 +210,9 @@ return (
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={handleLoadImage}>
                 {t('loadImage')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleTraceImage}>
+                {t('traceImage')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

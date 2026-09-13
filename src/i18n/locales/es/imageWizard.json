@@ -30,5 +30,25 @@
     "burkes": "Burkes (rapido)",
     "sierra": "Sierra (equilibrado)",
     "grayscale": "Escala de grises (sin dithering)"
+  },
+  "trace": {
+    "title": "Vectorizar imagen",
+    "description": "Convierte un bitmap en contornos vectoriales para cortar o grabar",
+    "mode": "Que se traza",
+    "modes": {
+      "outline": "Completo (con agujeros)",
+      "outlineHint": "Traza el contorno exterior y los huecos interiores como subpaths.",
+      "silhouette": "Silueta (solo contorno exterior)",
+      "silhouetteHint": "Ignora los huecos: queda la figura maciza, lista para recortarla entera."
+    },
+    "simplify": "Simplificacion (px)",
+    "smooth": "Suavizado",
+    "outputWidth": "Ancho de salida (mm)",
+    "minArea": "Area minima (px)",
+    "minAreaHint": "Descarta manchas y agujeros mas chicos que esto. Sube para limpiar ruido de escaneo.",
+    "stats": "{{paths}} contornos, {{holes}} agujeros, {{points}} nodos",
+    "heavy": "Muchos nodos: sube la simplificacion o el area minima",
+    "tracing": "Trazando...",
+    "accept": "Agregar al lienzo"
   }
 }

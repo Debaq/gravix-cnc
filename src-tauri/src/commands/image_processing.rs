@@ -169,11 +169,7 @@ fn process_image(
         FilterType::Lanczos3,
     );
 
-    let resized = if filters.is_identity() {
-        resized
-    } else {
-        apply_filters(resized, filters)
-    };
+    let resized = apply_filters(resized, filters);
 
     let mut buffer: GrayImage = if invert {
         GrayImage::from_fn(target_w, target_h, |x, y| {
@@ -401,7 +397,11 @@ fn apply_atkinson(img: &mut GrayImage, threshold: u8) {
 /// Brillo, contraste y gamma son punto a punto: se resuelven en una LUT de 256
 /// entradas y el barrido queda en un lookup por pixel. El enfoque no, porque
 /// mira a los vecinos, asi que va despues sobre el resultado tonal.
-fn apply_filters(img: GrayImage, filters: ImageFilters) -> GrayImage {
+pub fn apply_filters(img: GrayImage, filters: ImageFilters) -> GrayImage {
+    if filters.is_identity() {
+        return img;
+    }
+
     let lut = tone_lut(filters);
     let (w, h) = img.dimensions();
     let mut out = GrayImage::from_fn(w, h, |x, y| Luma([lut[img.get_pixel(x, y).0[0] as usize]]));

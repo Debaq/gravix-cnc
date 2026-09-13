@@ -26,6 +26,7 @@ import { ToolsModal } from '@/components/modals/ToolsModal'
 import { MaterialsModal } from '@/components/modals/MaterialsModal'
 import { HelpModal } from '@/components/modals/HelpModal'
 import { ImageWizardModal } from '@/components/modals/ImageWizardModal'
+import { TraceImageModal } from '@/components/modals/TraceImageModal'
 import { TextToPathModal } from '@/components/modals/TextToPathModal'
 import { BoxGeneratorModal } from '@/components/modals/BoxGeneratorModal'
 import { ArrayModal } from '@/components/modals/ArrayModal'
@@ -237,6 +238,7 @@ function App() {
         <MaterialsModal />
         <HelpModal />
         <ImageWizardModal />
+        <TraceImageModal />
         <TextToPathModal />
         <BoxGeneratorModal />
         <ArrayModal />

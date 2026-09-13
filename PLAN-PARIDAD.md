@@ -125,12 +125,33 @@ Estado actual: raster bueno, vectorial básico, sin optimización avanzada.
 - **Archivos**: `geometry.ts`, `gcode-generator.ts`
 - **Esfuerzo**: M
 
-### 3.5 Auto-Vectorización (Potrace/similar)
-- **Referencia**: LightBurn Trace Image
-- **Qué**: Convertir imagen bitmap a paths vectoriales automáticamente
-- **Por qué**: Actualmente solo raster. Vectorizar permite corte/engrave de logos desde foto
-- **Archivos**: Nuevo módulo, posiblemente en Rust (image_processing.rs)
-- **Esfuerzo**: L
+### ~~3.5 Auto-Vectorización~~ ✅ COMPLETADO (2026-09-12)
+- **Referencia**: LightBurn Trace Image, Silhouette Studio Trace
+- **Qué**: `vectorize.rs` — bitmap a contornos por **marching squares** sobre la
+  imagen binarizada, con Douglas-Peucker para bajar nodos y suavizado opcional a
+  cubicas. Salida: un SVG en mm que entra al lienzo como cualquier otro import
+- **Por que marching squares y no seguir el borde pixel a pixel**: seguir el borde
+  obliga a etiquetar componentes antes para saber que es pieza y que es agujero.
+  Aca los agujeros salen solos, con el sentido de giro invertido respecto del
+  contorno que los contiene, y el area con signo los separa
+- **Dos modos**: `outline` (contorno + agujeros como subpaths del mismo path) y
+  **`silhouette`** (solo contorno exterior — la figura maciza, para recortarla entera)
+- **Controles**: umbral, invertir, area minima (descarta ruido de escaneo),
+  simplificacion en px, suavizado 0..1 y ancho de salida en mm. Preview del SVG en
+  vivo con debounce, aviso cuando el trazado pasa de 4000 nodos
+- **Bug encontrado al probarlo contra una imagen real**: los handles de las cubicas
+  salian de `(next - prev)` sin normalizar (Catmull-Rom uniforme). Con los nodos ya
+  simplificados los tramos quedan de largos muy distintos y la curva se disparaba —
+  las puntas de una estrella salian abombadas. Ahora la tangente va normalizada y el
+  largo del handle lo pone cada tramo
+- **Tests**: 10 en `vectorize.rs` (cuadrado, agujero con giro contrario, silueta vs
+  completo, dos manchas, area minima, simplificacion, invertir, escala/proporcion,
+  imagen en blanco, recto vs curvo) + smoke con archivo real (`#[ignore]`, via
+  `TRACE_IN`/`TRACE_OUT`)
+- **Archivos**: `vectorize.rs` (nuevo), `TraceImageModal.tsx` (nuevo), `lib.rs`,
+  `commands/mod.rs`, `useCanvasManager.ts`, `DesignPanel.tsx`, `App.tsx`, `types.ts`, i18n
+- **Falta**: centerline / trazado de eje medio (line art de un trazo, tipo lapiz),
+  que necesita esqueletizacion — no es lo mismo que el contorno
 
 ### ~~3.6 Lead-In / Lead-Out~~ ✅ COMPLETADO
 - **Qué**: Campo `laserLeadIn` en GlobalConfig + arco de aproximación en `generateLaserContour()` para paths cerrados. UI en GlobalConfigModal sección laser
@@ -661,9 +682,9 @@ canvas.
 | 5.6 | Gamepad / pendant | Gamepad API del browser contra el `jog()` que ya existe en `useSerial` | M |
 
 Lo grande que sigue pendiente y **no** es barato: Gerber import (7.1), isolation
-routing (7.3), surface auto-leveling (7.4), auto-vectorizacion (3.5), true-shape
-nesting con no-fit polygons (el empaque por bbox ya entro en 5.4) y toda la Fase 4C
-de modelado 3D.
+routing (7.3), surface auto-leveling (7.4), centerline trace (esqueletizacion, el
+contorno ya entro en 3.5), true-shape nesting con no-fit polygons (el empaque por
+bbox ya entro en 5.4) y toda la Fase 4C de modelado 3D.
 
 ---
 

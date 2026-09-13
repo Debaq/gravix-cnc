@@ -35,6 +35,31 @@ export interface ImageFilters {
   sharpen: number
 }
 
+// Vectorizacion: que contornos entran al resultado
+export type TraceMode = 'silhouette' | 'outline'
+
+export interface TraceOptions {
+  mode: TraceMode
+  threshold: number      // 0-255, umbral de binarizacion
+  invert: boolean        // que se considera tinta
+  minArea: number        // descarta manchas de menos de N px de area
+  simplify: number       // tolerancia Douglas-Peucker en px
+  smooth: number         // 0..1, curvatura de los tramos
+  maxResolution: number  // lado maximo al que se reduce antes de trazar
+}
+
+export interface TraceResult {
+  svg: string
+  preview_base64: string
+  path_count: number
+  hole_count: number
+  point_count: number
+  width_mm: number
+  height_mm: number
+  traced_width: number
+  traced_height: number
+}
+
 export interface RasterData {
   width: number
   height: number

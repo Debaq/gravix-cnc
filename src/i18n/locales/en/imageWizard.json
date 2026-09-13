@@ -30,5 +30,25 @@
     "burkes": "Burkes (fast)",
     "sierra": "Sierra (balanced)",
     "grayscale": "Grayscale (no dithering)"
+  },
+  "trace": {
+    "title": "Trace image",
+    "description": "Turn a bitmap into vector contours for cutting or engraving",
+    "mode": "What to trace",
+    "modes": {
+      "outline": "Full (with holes)",
+      "outlineHint": "Traces the outer contour plus inner holes as subpaths.",
+      "silhouette": "Silhouette (outer contour only)",
+      "silhouetteHint": "Drops the holes: a solid shape, ready to cut out whole."
+    },
+    "simplify": "Simplify (px)",
+    "smooth": "Smoothing",
+    "outputWidth": "Output width (mm)",
+    "minArea": "Minimum area (px)",
+    "minAreaHint": "Drops blobs and holes smaller than this. Raise it to clean up scan noise.",
+    "stats": "{{paths}} contours, {{holes}} holes, {{points}} nodes",
+    "heavy": "Lots of nodes: raise simplification or minimum area",
+    "tracing": "Tracing...",
+    "accept": "Add to canvas"
   }
 }
