@@ -25,6 +25,7 @@ bcrypt = "0.15"
 tokio = { version = "1", features = ["full"] }
 serialport = "4"
 image = "0.25"
+flate2 = "1"
 base64 = "0.22"
 tauri-plugin-dialog = "2"
 axum = { version = "0.8", features = ["ws"] }

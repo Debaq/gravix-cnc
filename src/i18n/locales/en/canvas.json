@@ -22,6 +22,7 @@
   "loadSVG": "Load SVG",
   "loadImage": "Image (laser raster)",
   "traceImage": "Trace image",
+  "loadVector": "PDF / AI / EPS",
   "loadingImage": "Processing image for laser engraving...",
   "rasterMode": "Laser raster mode",
   "rasterReady": "Image ready. Go to G-Code panel and generate.",

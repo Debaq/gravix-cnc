@@ -20,8 +20,9 @@ import { useCanvasStore, DEFAULT_SHEET_ID } from '@/stores/useCanvasStore'
 import { invalidateSnapCache } from '@/lib/snap-engine'
 import { extractSegments } from '@/lib/trim-extend'
 import { planNesting, type NestingPiece } from '@/lib/nesting'
-import type { CanvasElement, GCodePath, GCodeJob, Point2D } from '@/lib/types'
-import { isTauri } from '@/lib/tauri'
+import type { CanvasElement, GCodePath, GCodeJob, Point2D, VectorImportResult } from '@/lib/types'
+import { isTauri, tauriInvoke } from '@/lib/tauri'
+import { toast } from '@/lib/toast'
 import { useAppStore } from '@/stores/useAppStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import { linearizeCubicBezier, linearizeQuadraticBezier, arcFrom3Points, catmullRomToCubicBezier } from '@/lib/geometry'
@@ -749,6 +750,52 @@ export function useCanvasManager() {
       openModal('imageWizard')
     },
     [],
+  )
+
+  // ------------------------------------------
+  // Import vector file (PDF / AI / EPS)
+  // ------------------------------------------
+  const loadVectorFile = useCallback(
+    async () => {
+      if (!isTauri()) return
+
+      const { addConsoleLine } = useAppStore.getState()
+
+      let filePath: string
+      try {
+        const { open } = await import('@tauri-apps/plugin-dialog')
+        const result = await open({
+          multiple: false,
+          filters: [{ name: 'Vectores', extensions: ['pdf', 'ai', 'eps', 'ps'] }],
+        })
+        if (!result) return
+        filePath = typeof result === 'string' ? result : String(result)
+      } catch (err) {
+        addConsoleLine(`Error dialogo: ${err}`)
+        return
+      }
+
+      try {
+        const res = await tauriInvoke<VectorImportResult>('import_vector_file', { path: filePath })
+        const name = filePath.split('/').pop()?.split('\\').pop()?.replace(/\.[^.]+$/, '') || 'Import'
+        await loadSVGString(res.svg, name)
+        addConsoleLine(
+          `Importado (${res.format.toUpperCase()}): ${res.path_count} contornos, ` +
+          `${res.width_mm.toFixed(1)}x${res.height_mm.toFixed(1)} mm`,
+        )
+        if (res.had_text) {
+          // El texto de un PDF no se convierte a curvas: hay que decirlo, o el
+          // usuario manda a cortar un archivo al que le falta la mitad
+          toast.warning('El archivo tenia texto y no se importa', {
+            detail: 'Convertilo a curvas en el programa de origen y volve a exportar',
+          })
+        }
+      } catch (err) {
+        addConsoleLine(`Error importando: ${err}`)
+        toast.error(String(err))
+      }
+    },
+    [loadSVGString],
   )
 
   // ------------------------------------------
@@ -3776,6 +3823,7 @@ export function useCanvasManager() {
     setCanvas,
     loadSVG,
     loadSVGString,
+    loadVectorFile,
     traceImage,
     loadDXF,
     loadImage,

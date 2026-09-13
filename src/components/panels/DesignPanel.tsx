@@ -99,6 +99,10 @@ export function DesignPanel() {
     canvasManager.traceImage()
   }
 
+  const handleLoadVector = () => {
+    canvasManager.loadVectorFile()
+  }
+
   const handleAddShape = (type: string) => {
     canvasManager.addShape(type)
     addConsoleLine(`Elemento creado: ${type}`)
@@ -207,6 +211,9 @@ return (
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={handleLoadDXF}>
                 {t('loadDXF') || 'Cargar DXF'}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleLoadVector}>
+                {t('loadVector')}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={handleLoadImage}>
                 {t('loadImage')}

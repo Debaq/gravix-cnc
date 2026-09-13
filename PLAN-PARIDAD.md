@@ -399,12 +399,34 @@ Feature set más ambicioso. Aspire se diferencia de VCarve Pro por su modelado 3
 - **Archivos**: `node-editor.ts`, `DesignCanvas.tsx`, `NodeEditToolbar.tsx`, i18n
 - **Esfuerzo**: M
 
-### 4D.3 Import DWG + AI + EPS + PDF vectores
+### 4D.3 Import PDF + AI + EPS ✅ COMPLETADO (2026-09-13) — DWG sigue afuera
 - **Referencia**: Aspire
-- **Qué**: Importar formatos de industria: DWG (AutoCAD), AI (Illustrator), EPS (PostScript), PDF (extracción de vectores)
-- **Por qué**: Aspire soporta todos. Nosotros solo SVG y DXF básico. Mayoría de archivos industriales son DWG
-- **Archivos**: Nuevos parsers o usar bibliotecas Rust
-- **Esfuerzo**: L
+- **Qué**: `vector_import.rs` saca la geometria de PDF, AI y EPS. Los tres usan el
+  mismo puñado de operadores de trazado; lo que cambia es el envoltorio. PDF los
+  guarda en streams comprimidos (FlateDecode) dentro de una estructura de objetos, y
+  EPS/PostScript los deja en texto con una maquina de pila alrededor
+- **El formato se decide por el contenido, no por la extension**: un `.ai` moderno es
+  un PDF y uno viejo es PostScript
+- **PDF**: se recorren los pares `stream`/`endstream` en vez de resolver la xref —
+  para sacar geometria alcanza y sobrevive a los archivos con la tabla rota. Se
+  interpretan `m l c v y h re cm q Q` con su CTM y se descartan los paths que solo
+  eran recorte (`W n`)
+- **EPS**: interprete de pila con los operadores de trazado mas `exch dup neg roll
+  index copy add sub mul div`, porque los generadores abrevian todo (`/m {moveto}
+  bind def`) y el `re` de cairo arma el rectangulo con pura manipulacion de pila
+  antes de trazar nada
+- **Lo que no hace, dicho de frente**: el texto no se convierte a curvas (pide leer
+  las fuentes embebidas) — se detecta y se avisa por toast; los PDF cifrados se
+  rechazan en vez de devolver basura; color, relleno y grosor se descartan; y **DWG
+  no entra**: es binario y propietario, no hay lectura razonable sin una libreria
+  dedicada
+- **Verificado**: mismo dibujo exportado a PDF y a EPS por cairo entra identico en
+  los dos caminos (3 contornos, 21 nodos, 100x75 mm, ~1 ms), y un `.ai` se reconoce
+  por contenido. 11 tests cubren rectangulo en mm, matriz `cm`, recorte descartado,
+  aviso de texto, PDF cifrado, atajos `bind def`, el `re` de pila, colores que no se
+  cuelan como coordenadas, `translate`, formato desconocido y archivo sin geometria
+- **Archivos**: `vector_import.rs` (nuevo), `Cargo.toml` (flate2), `lib.rs`,
+  `commands/mod.rs`, `useCanvasManager.ts`, `DesignPanel.tsx`, `types.ts`, i18n
 
 ### ~~4D.4 Variable Text / Merge Codes~~ ✅ COMPLETADO (UI 2026-09-12)
 - **Qué**: Módulo `variable-text.ts` con parseCSV(), mergeText(), extractVariables(), previewMerge(). Soporta placeholders + variables built-in (index/date/time)

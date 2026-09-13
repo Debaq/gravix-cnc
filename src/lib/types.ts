@@ -35,6 +35,18 @@ export interface ImageFilters {
   sharpen: number
 }
 
+/// Import de PDF / AI / EPS
+export interface VectorImportResult {
+  svg: string
+  format: 'pdf' | 'eps'
+  path_count: number
+  point_count: number
+  width_mm: number
+  height_mm: number
+  /** El archivo tenia texto, que no se importa. */
+  had_text: boolean
+}
+
 // Vectorizacion: que contornos entran al resultado
 export type TraceMode = 'silhouette' | 'outline' | 'centerline'
 

@@ -1609,6 +1609,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bcrypt",
+ "flate2",
  "futures",
  "image",
  "jsonwebtoken",
