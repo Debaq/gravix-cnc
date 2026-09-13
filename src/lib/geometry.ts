@@ -1001,3 +1001,132 @@ export function orderByNearestEntry(
 
   return order
 }
+
+// ============================================
+// DESBASTE TROCOIDAL
+// ============================================
+
+/** Reparametriza una polilinea a puntos equiespaciados sobre su longitud. */
+function resampleByArcLength(points: Point2D[], spacing: number, closed: boolean): Point2D[] {
+  if (points.length < 2 || spacing <= 0) return points
+  const loop = closed ? [...points, points[0]] : points
+
+  const out: Point2D[] = [loop[0]]
+  let carry = 0
+
+  for (let i = 1; i < loop.length; i++) {
+    const a = loop[i - 1]
+    const b = loop[i]
+    const segLen = Math.hypot(b.x - a.x, b.y - a.y)
+    if (segLen < 1e-9) continue
+
+    let t = spacing - carry
+    while (t <= segLen) {
+      const f = t / segLen
+      out.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f })
+      t += spacing
+    }
+    carry = (carry + segLen) % spacing
+  }
+
+  return out
+}
+
+/**
+ * Convierte una guia en un recorrido trocoidal: bucles circulares de radio
+ * `loopRadius` cuyo centro avanza `advance` mm por vuelta.
+ *
+ * La idea es que la fresa nunca entre a ancho completo. En un corte recto la
+ * fresa muerde todo su diametro de golpe y se calienta; describiendo bucles,
+ * cada vuelta saca una viruta de `advance` mm y el resto del giro va al aire.
+ * El ancho barrido queda en `2 * loopRadius + diametro de fresa`.
+ */
+export function trochoidalPath(
+  guide: Point2D[],
+  loopRadius: number,
+  advance: number,
+  closed: boolean,
+  segmentsPerLoop = 24,
+): Point2D[] {
+  if (guide.length < 2 || loopRadius <= 0 || advance <= 0) return guide
+
+  const centers = resampleByArcLength(guide, advance, closed)
+  if (centers.length < 2) return guide
+
+  const out: Point2D[] = []
+
+  for (let i = 0; i < centers.length; i++) {
+    const c = centers[i]
+    // El bucle arranca mirando hacia atras respecto al avance, asi el enlace
+    // entre vuelta y vuelta cae sobre material ya cortado.
+    const prev = centers[i - 1] ?? centers[i + 1] ?? c
+    const dx = c.x - prev.x
+    const dy = c.y - prev.y
+    const heading = Math.atan2(dy, dx) || 0
+    const start = heading + Math.PI
+
+    for (let s = 0; s <= segmentsPerLoop; s++) {
+      const ang = start + (s / segmentsPerLoop) * Math.PI * 2
+      out.push({
+        x: c.x + loopRadius * Math.cos(ang),
+        y: c.y + loopRadius * Math.sin(ang),
+      })
+    }
+  }
+
+  return out
+}
+
+export interface PocketTrochoidalResult {
+  /** Recorridos trocoidales de desbaste (polilineas abiertas). */
+  loops: Point2D[][]
+  /** Contorno de acabado al ras de la pared. */
+  finishing: Point2D[]
+}
+
+/**
+ * Cajeado trocoidal: los mismos anillos del contour-parallel, pero separados
+ * el ancho de banda que barre el bucle y recorridos en trocoide.
+ *
+ * El desbaste arranca desplazado hacia adentro (el bucle sobresale del anillo
+ * guia), asi que el material contra la pared lo saca la pasada de acabado que
+ * se devuelve aparte.
+ */
+export async function generatePocketTrochoidal(
+  boundary: Point2D[],
+  toolRadius: number,
+  stepover: number,
+  loopRadius: number,
+  initialInset: number = toolRadius,
+): Promise<PocketTrochoidalResult> {
+  const toolDiameter = toolRadius * 2
+  const radius = Math.max(toolRadius * 0.25, loopRadius)
+  // Ancho que barre un bucle completo, en pasos de `generatePocketContours`
+  const bandWidth = 2 * radius + toolDiameter
+  const ringStepover = bandWidth / toolDiameter
+
+  const { roughing } = await generatePocketContours(
+    boundary, toolRadius, ringStepover, initialInset + radius,
+  )
+
+  const finishingPaths = initialInset > 0
+    ? await offsetPolygon(boundary, -initialInset, true, 'round')
+    : [boundary]
+  const finishing = finishingPaths[0] ?? []
+
+  if (roughing.length === 0) {
+    // Cabe el acabado pero no el desbaste: el cajeado es apenas mas ancho que
+    // la fresa y se resuelve con una sola vuelta.
+    return { loops: [], finishing }
+  }
+
+  // El avance por vuelta es la viruta radial de verdad
+  const advance = Math.max(0.05, toolDiameter * stepover)
+
+  return {
+    loops: roughing
+      .filter((ring) => ring.length >= 3)
+      .map((ring) => trochoidalPath(ring, radius, advance, true)),
+    finishing,
+  }
+}

@@ -87,6 +87,7 @@ export const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
   finishPassEnabled: false,
   // Feeds & speeds
   toolFlutes: 2,
+  trochoidalRadius: 0,
 }
 
 /**

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import { normalizeConfig } from '@/lib/config-defaults'
+import { pushHistory } from '@/lib/history-bridge'
 import type { GlobalConfig, Stock } from '@/lib/types'
 
 export interface CAMOperation {
@@ -298,12 +299,14 @@ export const useCAMStore = create<CAMState>((set, get) => ({
 
   selectMarker: (id) => set({ selectedMarkerId: id, selectedOperationId: null }),
 
-  toggleOperationEnabled: (id) =>
+  toggleOperationEnabled: (id) => {
     set((s) => ({
       operations: s.operations.map((op) =>
         op.id === id ? { ...op, enabled: !op.enabled } : op,
       ),
-    })),
+    }))
+    pushHistory()
+  },
 
   soloOperation: (id) =>
     set((s) => ({ soloOperationId: s.soloOperationId === id ? null : id })),
@@ -335,6 +338,9 @@ export const useCAMStore = create<CAMState>((set, get) => ({
     set((s) => ({
       operations: s.operations.map((o) => (o.id === id ? newOp : o)),
     }))
+    // Un arrastre de slider manda decenas de updates del mismo campo: se
+    // fusionan en una entrada para no vaciar la pila con un solo gesto.
+    pushHistory(`cam-op:${id}:${Object.keys(updates).join(',')}`)
   },
 
   /**
@@ -358,6 +364,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
     updateElement(op.elementId, { operations: [...base, { ...seed }] })
     get().syncFromCanvas()
     set({ selectedOperationId: `${op.elementId}:op${base.length}` })
+    pushHistory()
   },
 
   duplicateOperation: (opId) => {
@@ -380,6 +387,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
     updateElement(op.elementId, { operations: next })
     get().syncFromCanvas()
     set({ selectedOperationId: `${op.elementId}:op${index + 1}` })
+    pushHistory()
   },
 
   removeOperation: (opId) => {
@@ -401,6 +409,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
 
     set({ selectedOperationId: null })
     get().syncFromCanvas()
+    pushHistory()
     return true
   },
 
@@ -423,20 +432,22 @@ export const useCAMStore = create<CAMState>((set, get) => ({
       state.updateOperationConfig(target.id, onlySameWorkType ? { ...rest, workType } : rest)
     }
 
+    if (targets.length > 0) pushHistory()
     return targets.length
   },
 
-  moveOperationBefore: (dragId, targetId) =>
-    set((s) => {
-      if (dragId === targetId) return {}
-      const order = s.operationOrder.filter((id) => id !== dragId)
-      const at = order.indexOf(targetId)
-      if (at < 0) return {}
-      order.splice(at, 0, dragId)
-      const gc = useGCodeStore.getState()
-      if (gc.gcodeGenerated) gc.setGCodeNeedsRegeneration(true)
-      return { operationOrder: order }
-    }),
+  moveOperationBefore: (dragId, targetId) => {
+    if (dragId === targetId) return
+    const order = get().operationOrder.filter((id) => id !== dragId)
+    const at = order.indexOf(targetId)
+    if (at < 0) return
+    order.splice(at, 0, dragId)
+
+    set({ operationOrder: order })
+    const gc = useGCodeStore.getState()
+    if (gc.gcodeGenerated) gc.setGCodeNeedsRegeneration(true)
+    pushHistory()
+  },
 
   reorderOperations: (fromIndex, toIndex) =>
     set((s) => {
@@ -461,6 +472,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
       markers: [...s.markers, marker].sort((a, b) => a.progress - b.progress),
       selectedMarkerId: marker.id,
     }))
+    pushHistory()
   },
 
   updateMarker: (id, updates) =>
@@ -470,11 +482,13 @@ export const useCAMStore = create<CAMState>((set, get) => ({
         .sort((a, b) => a.progress - b.progress),
     })),
 
-  removeMarker: (id) =>
+  removeMarker: (id) => {
     set((s) => ({
       markers: s.markers.filter((m) => m.id !== id),
       selectedMarkerId: s.selectedMarkerId === id ? null : s.selectedMarkerId,
-    })),
+    }))
+    pushHistory()
+  },
 
   updateParkPosition: (id, pos) =>
     set((s) => ({
@@ -484,8 +498,13 @@ export const useCAMStore = create<CAMState>((set, get) => ({
     })),
 
   // CAM setup
-  updateSetup: (updates) =>
-    set((s) => ({ setup: { ...s.setup, ...updates } })),
+  updateSetup: (updates) => {
+    set((s) => ({ setup: { ...s.setup, ...updates } }))
+    // Safe Z y stock cambian lo que va a salir generado
+    const gc = useGCodeStore.getState()
+    if (gc.gcodeGenerated) gc.setGCodeNeedsRegeneration(true)
+    pushHistory(`cam-setup:${Object.keys(updates).join(',')}`)
+  },
 
   addClamp: () => {
     set((s) => ({
@@ -507,6 +526,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
     }))
     const gc = useGCodeStore.getState()
     if (gc.gcodeGenerated) gc.setGCodeNeedsRegeneration(true)
+    pushHistory()
   },
 
   updateClamp: (id, updates) => {
@@ -518,6 +538,8 @@ export const useCAMStore = create<CAMState>((set, get) => ({
     }))
     const gc = useGCodeStore.getState()
     if (gc.gcodeGenerated) gc.setGCodeNeedsRegeneration(true)
+    // Arrastrar el clamp en el visor 3D emite un update por frame
+    pushHistory(`cam-clamp:${id}`)
   },
 
   removeClamp: (id) => {
@@ -529,6 +551,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
     }))
     const gc = useGCodeStore.getState()
     if (gc.gcodeGenerated) gc.setGCodeNeedsRegeneration(true)
+    pushHistory()
   },
 
   serialize: () => {

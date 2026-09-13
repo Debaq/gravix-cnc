@@ -25,6 +25,8 @@ import { isTauri, tauriInvoke } from '@/lib/tauri'
 import { toast } from '@/lib/toast'
 import { useAppStore } from '@/stores/useAppStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
+import { useCAMStore } from '@/stores/useCAMStore'
+import { registerHistoryPush } from '@/lib/history-bridge'
 import { linearizeCubicBezier, linearizeQuadraticBezier, arcFrom3Points, catmullRomToCubicBezier } from '@/lib/geometry'
 import { booleanOperation } from '@/lib/boolean-ops'
 import { autoJoinPaths, removeTinySpans, removeDuplicatePaths } from '@/lib/vector-diagnostics'
@@ -449,6 +451,8 @@ interface HistoryEntry {
   fabricJSON: string
   storeElements: string
   selectedElementId: string | null
+  /** Setup de CAM serializado: stock, clamps, marcadores, orden y apagados. */
+  cam: string
 }
 
 const historyStack: HistoryEntry[] = []
@@ -456,7 +460,19 @@ let historyIndex = -1
 const MAX_HISTORY = 50
 let isRestoring = false
 
-export function pushToHistory(): void {
+/** Ventana para fusionar cambios seguidos del mismo control. */
+const COALESCE_MS = 600
+let lastCoalesceKey: string | null = null
+let lastCoalesceAt = 0
+
+/**
+ * Toma un snapshot del lienzo, los elementos y el setup de CAM.
+ *
+ * `coalesceKey` fusiona cambios seguidos del mismo control: arrastrar un slider
+ * dispara un evento por pixel y sin esto la pila de 50 entradas se llena con
+ * un solo gesto, dejando el resto del trabajo fuera del undo.
+ */
+export function pushToHistory(coalesceKey?: string): void {
   // Toda mutacion pasa por aca, asi que es el punto natural para tirar el
   // indice de snaps (booleanas, offset, arrays, nodos, trim/extend, undo...)
   invalidateSnapCache()
@@ -464,6 +480,15 @@ export function pushToHistory(): void {
   if (isRestoring) return
   const canvas = sharedCanvasRef
   if (!canvas) return
+
+  const now = Date.now()
+  const coalesce =
+    !!coalesceKey &&
+    coalesceKey === lastCoalesceKey &&
+    now - lastCoalesceAt < COALESCE_MS &&
+    historyIndex >= 0
+  lastCoalesceKey = coalesceKey ?? null
+  lastCoalesceAt = now
 
   // Truncate future entries
   historyStack.splice(historyIndex + 1)
@@ -482,17 +507,30 @@ export function pushToHistory(): void {
     key === 'fabricObject' ? undefined : val,
   )
 
-  historyStack.push({
+  const entry: HistoryEntry = {
     fabricJSON,
     storeElements,
     selectedElementId: state.selectedElementId,
-  })
+    cam: JSON.stringify(useCAMStore.getState().serialize()),
+  }
+
+  if (coalesce) {
+    // Sigue siendo el mismo gesto: se actualiza la punta en vez de apilar
+    historyStack[historyIndex] = entry
+    return
+  }
+
+  historyStack.push(entry)
 
   if (historyStack.length > MAX_HISTORY) {
     historyStack.shift()
   }
   historyIndex = historyStack.length - 1
 }
+
+// Los stores mutan el arbol de CAM sin conocer este modulo: se enteran del
+// historial por el puente.
+registerHistoryPush(pushToHistory)
 
 export function canUndo(): boolean {
   return historyIndex > 0
@@ -505,6 +543,7 @@ export function canRedo(): boolean {
 export function clearHistory(): void {
   historyStack.length = 0
   historyIndex = -1
+  lastCoalesceKey = null
 }
 
 // ============================================
@@ -1840,6 +1879,13 @@ export function useCanvasManager() {
     useCanvasStore.getState().setElements(elements)
     useCanvasStore.getState().selectElement(entry.selectedElementId)
 
+    // El CAM va despues de los elementos: el arbol se rearma a partir de ellos
+    // y recien ahi tiene sentido reponer orden, apagados y setup.
+    if (entry.cam) {
+      useCAMStore.getState().restore(JSON.parse(entry.cam))
+      useCAMStore.getState().syncFromCanvas()
+    }
+
     // El JSON trae todo visible: hay que volver a ocultar las otras hojas
     applySheetVisibility()
 
@@ -1865,6 +1911,13 @@ export function useCanvasManager() {
     const elements: CanvasElement[] = JSON.parse(entry.storeElements)
     useCanvasStore.getState().setElements(elements)
     useCanvasStore.getState().selectElement(entry.selectedElementId)
+
+    // El CAM va despues de los elementos: el arbol se rearma a partir de ellos
+    // y recien ahi tiene sentido reponer orden, apagados y setup.
+    if (entry.cam) {
+      useCAMStore.getState().restore(JSON.parse(entry.cam))
+      useCAMStore.getState().syncFromCanvas()
+    }
 
     // El JSON trae todo visible: hay que volver a ocultar las otras hojas
     applySheetVisibility()

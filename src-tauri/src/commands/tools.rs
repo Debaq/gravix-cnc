@@ -57,6 +57,30 @@ pub struct Tool {
     
     #[ts(optional)]
     pub notes: Option<String>,
+
+    /// Largo util del filo (mm). Por debajo de esto empieza el mango.
+    #[serde(rename = "fluteLength")]
+    #[ts(rename = "fluteLength", optional)]
+    pub flute_length: Option<f64>,
+
+    /// Diametro del mango (mm). Si falta se asume el de la fresa.
+    #[serde(rename = "shankDiameter")]
+    #[ts(rename = "shankDiameter", optional)]
+    pub shank_diameter: Option<f64>,
+
+    /// Diametro del portaherramientas / tuerca (mm).
+    #[serde(rename = "holderDiameter")]
+    #[ts(rename = "holderDiameter", optional)]
+    pub holder_diameter: Option<f64>,
+
+    /// Distancia desde la punta hasta donde empieza el portaherramientas (mm).
+    #[serde(rename = "holderOffset")]
+    #[ts(rename = "holderOffset", optional)]
+    pub holder_offset: Option<f64>,
+
+    /// Cantidad de filos, para el calculo de feeds & speeds.
+    #[ts(optional)]
+    pub flutes: Option<f64>,
 }
 
 // --- Funciones desacopladas de AppHandle (usadas por Tauri y Axum) ---

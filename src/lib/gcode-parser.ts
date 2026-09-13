@@ -243,3 +243,37 @@ export function formatTime(seconds: number): string {
   const mins = minutes % 60
   return `${hours}h ${mins}m`
 }
+
+/** Tiempo y recorrido de un bloque de G-code atribuible a una operacion. */
+export interface OperationUsage {
+  operationId: string
+  time: number      // segundos
+  cutDistance: number
+  rapidDistance: number
+}
+
+/**
+ * Agrupa los segmentos por la operacion que los emitio.
+ *
+ * La clave es la que estampa el generador en `; Element: Nombre (workType)`,
+ * asi que dos operaciones del mismo tipo sobre el mismo elemento caen en la
+ * misma fila: es el nivel de detalle que permite el G-code ya generado.
+ */
+export function aggregateByOperation(segments: GCodeSegment[]): OperationUsage[] {
+  const byOp = new Map<string, OperationUsage>()
+
+  for (const seg of segments) {
+    const key = seg.operationId ?? '(sin operacion)'
+    let acc = byOp.get(key)
+    if (!acc) {
+      acc = { operationId: key, time: 0, cutDistance: 0, rapidDistance: 0 }
+      byOp.set(key, acc)
+    }
+    const dist = distance3D(seg.from, seg.to)
+    acc.time += estimateSegmentTime(dist, seg.feedRate ?? 1000)
+    if (seg.type === 'rapid') acc.rapidDistance += dist
+    else acc.cutDistance += dist
+  }
+
+  return [...byOp.values()]
+}

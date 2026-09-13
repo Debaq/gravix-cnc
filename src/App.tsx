@@ -40,6 +40,7 @@ import { UpdateModal } from '@/components/modals/UpdateModal'
 import { VectorDiagnosticsModal } from '@/components/modals/VectorDiagnosticsModal'
 import { ColorMappingModal } from '@/components/modals/ColorMappingModal'
 import { TilingModal } from '@/components/modals/TilingModal'
+import { JobSheetModal } from '@/components/modals/JobSheetModal'
 import { VariableTextModal } from '@/components/modals/VariableTextModal'
 import { useLicense } from '@/hooks/useLicense'
 import { usePreventAppZoom } from '@/hooks/usePreventAppZoom'
@@ -257,6 +258,7 @@ function App() {
         <VectorDiagnosticsModal />
         <ColorMappingModal />
         <TilingModal />
+        <JobSheetModal />
         <VariableTextModal />
         <Toaster />
       </div>

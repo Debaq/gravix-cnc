@@ -9,6 +9,8 @@ import { useLibraryStore } from '@/stores/useLibraryStore'
 import { useTranslation } from 'react-i18next'
 import { Box, AlertTriangle } from 'lucide-react'
 import { parseGCode, formatTime } from '@/lib/gcode-parser'
+import { buildHeightmapMesh, type HeightmapResult } from '@/lib/heightmap'
+import { useMaterialSim, type MaterialSimState } from '@/hooks/useMaterialSim'
 import type { GCodeSegment } from '@/lib/gcode-parser'
 import * as THREE from 'three'
 
@@ -645,13 +647,204 @@ function ParkingPositions() {
 
 
 /**
+ * Colocacion manual de tabs sobre el recorrido.
+ *
+ * El G-code ya generado no trae los contornos de origen, pero si el recorrido
+ * que emitio cada operacion: la tira continua de cortes entre dos rapidos es
+ * exactamente el lazo sobre el que el generador reparte los tabs, asi que la
+ * fraccion de perimetro que se calcula aca es la misma que va a usar al
+ * regenerar. Cuando la operacion tiene varios contornos, las fracciones se
+ * aplican a todos por igual — que es lo que hace el generador.
+ */
+function ManualTabs({ segments }: { segments: GCodeSegment[] }) {
+  const selectedOpId = useCAMStore((s) => s.selectedOperationId)
+  const operations = useCAMStore((s) => s.operations)
+  const { updateOperationConfig } = useCAMStore()
+
+  const op = selectedOpId ? operations.find((o) => o.id === selectedOpId) : null
+  const config = op?.config
+  const active =
+    !!config &&
+    config.operationType === 'cnc' &&
+    config.tabsEnabled &&
+    config.tabMode === 'manual'
+
+  // Lazo de corte mas largo de la operacion seleccionada: es el contorno
+  // completo, y no un tramo suelto de una pasada intermedia.
+  const loop = useMemo(() => {
+    if (!active || !op) return null
+
+    const loops: { id: string; pts: THREE.Vector3[] }[] = []
+    let current: THREE.Vector3[] = []
+    let currentId: string | undefined
+
+    const flush = () => {
+      if (current.length >= 3 && currentId) loops.push({ id: currentId, pts: current })
+      current = []
+    }
+
+    for (const seg of segments) {
+      if (seg.type !== 'cut') { flush(); continue }
+      if (seg.operationId !== currentId) { flush(); currentId = seg.operationId }
+      if (current.length === 0) {
+        const [x, y, z] = gcodeToThree(seg.from.x, seg.from.y, seg.from.z)
+        current.push(new THREE.Vector3(x, y, z))
+      }
+      const [x, y, z] = gcodeToThree(seg.to.x, seg.to.y, seg.to.z)
+      current.push(new THREE.Vector3(x, y, z))
+    }
+    flush()
+
+    const key = `${op.elementName}:${op.config.workType}`
+    const mine = loops.filter((l) => l.id === key)
+    if (mine.length === 0) return null
+
+    const lengthOf = (pts: THREE.Vector3[]) => {
+      let total = 0
+      for (let i = 1; i < pts.length; i++) total += pts[i].distanceTo(pts[i - 1])
+      return total
+    }
+
+    let best = mine[0]
+    let bestLen = lengthOf(best.pts)
+    for (const candidate of mine.slice(1)) {
+      const len = lengthOf(candidate.pts)
+      if (len > bestLen) { best = candidate; bestLen = len }
+    }
+
+    const cum: number[] = [0]
+    for (let i = 1; i < best.pts.length; i++) {
+      cum.push(cum[i - 1] + best.pts[i].distanceTo(best.pts[i - 1]))
+    }
+
+    return { pts: best.pts, cum, total: cum[cum.length - 1] }
+  }, [active, op, segments])
+
+  const pointAt = useCallback((fraction: number): THREE.Vector3 | null => {
+    if (!loop || loop.total === 0) return null
+    const target = Math.min(1, Math.max(0, fraction)) * loop.total
+    for (let i = 1; i < loop.cum.length; i++) {
+      if (loop.cum[i] >= target) {
+        const segLen = loop.cum[i] - loop.cum[i - 1]
+        const t = segLen > 0 ? (target - loop.cum[i - 1]) / segLen : 0
+        return loop.pts[i - 1].clone().lerp(loop.pts[i], t)
+      }
+    }
+    return loop.pts[loop.pts.length - 1].clone()
+  }, [loop])
+
+  const fractionOf = useCallback((point: THREE.Vector3): number => {
+    if (!loop || loop.total === 0) return 0
+    let best = 0
+    let bestDist = Infinity
+    const tmp = new THREE.Vector3()
+
+    for (let i = 1; i < loop.pts.length; i++) {
+      const a = loop.pts[i - 1]
+      const b = loop.pts[i]
+      const ab = tmp.copy(b).sub(a)
+      const lenSq = ab.lengthSq()
+      let t = 0
+      if (lenSq > 1e-9) {
+        t = point.clone().sub(a).dot(ab) / lenSq
+        t = Math.min(1, Math.max(0, t))
+      }
+      const proj = a.clone().addScaledVector(ab, t)
+      const d = proj.distanceToSquared(point)
+      if (d < bestDist) {
+        bestDist = d
+        const segLen = loop.cum[i] - loop.cum[i - 1]
+        best = (loop.cum[i - 1] + segLen * t) / loop.total
+      }
+    }
+    return best
+  }, [loop])
+
+  if (!active || !loop || !config) return null
+
+  const positions = config.tabPositions ?? []
+  const tabW = Math.max(0.5, config.tabWidth ?? 5)
+  const tabH = Math.max(0.2, config.tabHeight ?? 1)
+  const toolD = Math.max(1, config.toolDiameter ?? 3)
+
+  const addTab = (event: ThreeEvent<MouseEvent>) => {
+    event.stopPropagation()
+    const fraction = fractionOf(event.point)
+    updateOperationConfig(op!.id, { tabPositions: [...positions, fraction] })
+  }
+
+  const removeTab = (index: number, event: ThreeEvent<MouseEvent>) => {
+    event.stopPropagation()
+    updateOperationConfig(op!.id, { tabPositions: positions.filter((_, i) => i !== index) })
+  }
+
+  return (
+    <group>
+      {/* Linea gruesa invisible: solo esta para recibir el click */}
+      <Line
+        points={loop.pts}
+        color="#22c55e"
+        lineWidth={10}
+        transparent
+        opacity={0.18}
+        onClick={addTab}
+      />
+
+      {positions.map((fraction, i) => {
+        const p = pointAt(fraction)
+        if (!p) return null
+        return (
+          <mesh
+            key={i}
+            position={[p.x, p.y + tabH / 2, p.z]}
+            onClick={(e) => removeTab(i, e)}
+          >
+            <boxGeometry args={[tabW, tabH, toolD]} />
+            <meshStandardMaterial color="#16a34a" transparent opacity={0.85} />
+          </mesh>
+        )
+      })}
+    </group>
+  )
+}
+
+/**
+ * Bloque de material ya mecanizado, a partir del heightmap de la simulacion.
+ *
+ * Reemplaza a `StockBox` mientras la simulacion esta prendida: mostrar los dos
+ * dejaria la caja sin cortar tapando la pieza.
+ */
+function SimulatedStock({ result }: { result: HeightmapResult }) {
+  const geometry = useMemo(() => {
+    const { positions, indices } = buildHeightmapMesh(result)
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    geo.setIndex(new THREE.BufferAttribute(indices, 1))
+    geo.computeVertexNormals()
+    return geo
+  }, [result])
+
+  useEffect(() => () => geometry.dispose(), [geometry])
+
+  return (
+    <mesh geometry={geometry} castShadow receiveShadow>
+      <meshStandardMaterial
+        color="#c8a27a"
+        roughness={0.85}
+        metalness={0.05}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
+  )
+}
+
+/**
  * Bloque de material. Se dibuja translucido para ver el recorrido adentro.
  * Con `auto` el bloque se ajusta al recorrido de corte mas el margen, que es
  * lo mismo que usa la validacion antes de generar.
  */
 function StockBox({ segments }: { segments: GCodeSegment[] }) {
   const stock = useCAMStore((s) => s.setup.stock)
-  const showStock = useGCodeStore((s) => s.showStock)
 
   const resolved = useMemo(() => {
     if (!stock.enabled) return null
@@ -677,7 +870,7 @@ function StockBox({ segments }: { segments: GCodeSegment[] }) {
     }
   }, [stock, segments])
 
-  if (!resolved || !showStock || resolved.width <= 0 || resolved.height <= 0) return null
+  if (!resolved || resolved.width <= 0 || resolved.height <= 0) return null
 
   const thickness = Math.max(0.1, resolved.thickness)
   // zeroAt 'top': el cero de pieza esta en la cara de arriba, el bloque cuelga
@@ -933,7 +1126,7 @@ function CameraSetup({ bounds }: {
   return null
 }
 
-function Scene() {
+function Scene({ sim }: { sim: MaterialSimState }) {
   const { gcode, setViewerStats, setAnimationProgress, setCurrentGCodeLine, viewer3DPlaying, animationSpeed } = useGCodeStore()
   const { workArea } = useCanvasStore()
 
@@ -1000,12 +1193,17 @@ function Scene() {
       <directionalLight position={[centerX, 400, centerZ]} intensity={0.8} />
       <CameraSetup bounds={bounds} />
       <WorkArea bounds={bounds} width={workArea.width} height={workArea.height} />
-      <StockBox segments={segments} />
+      {sim.enabled && sim.result ? (
+        <SimulatedStock result={sim.result} />
+      ) : (
+        <StockBox segments={segments} />
+      )}
       {segments.length > 0 && (
         <>
           <Toolpath segments={segments} />
           <ThickCutLines segments={segments} />
           <ToolIndicator segments={segments} />
+          <ManualTabs segments={segments} />
         </>
       )}
       <ParkingPositions />
@@ -1028,8 +1226,20 @@ export function GCodeViewer3D() {
   const { t } = useTranslation('gcode')
   const containerRef = useRef<HTMLDivElement>(null)
   const { gcodeGenerated, gcodeNeedsRegeneration } = useGCodeStore()
+  const stockEnabled = useCAMStore((s) => s.setup.stock.enabled)
+  const sim = useMaterialSim()
+  const selectedOp = useCAMStore((s) =>
+    s.selectedOperationId ? s.operations.find((o) => o.id === s.selectedOperationId) : null,
+  )
+  const placingTabs =
+    !!selectedOp &&
+    selectedOp.config.operationType === 'cnc' &&
+    selectedOp.config.tabsEnabled &&
+    selectedOp.config.tabMode === 'manual'
 
-  if (!gcodeGenerated) {
+  // Con el bloque de material activo hay algo que mirar aunque todavia no se
+  // haya generado G-code: encuadrar el stock sobre la mesa es parte del setup.
+  if (!gcodeGenerated && !stockEnabled) {
     return (
       <div className="flex flex-col items-center justify-center h-full bg-muted/30">
         <Box className="h-16 w-16 text-muted-foreground mb-4" />
@@ -1041,6 +1251,27 @@ export function GCodeViewer3D() {
 
   return (
     <div ref={containerRef} className="viewer-3d-container w-full h-full relative">
+      {placingTabs && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-emerald-600 text-white px-3 py-1.5 rounded-md shadow-lg text-xs">
+          Click en el recorrido para poner un tab · click en un tab para sacarlo
+        </div>
+      )}
+      {sim.enabled && sim.result && (
+        <div className="absolute bottom-20 right-3 z-30 rounded-md bg-background/90 border px-2.5 py-1.5 shadow text-[11px] backdrop-blur-sm">
+          <div className="font-medium">Material removido</div>
+          <div className="text-muted-foreground font-mono">
+            {sim.result.removedVolume.toFixed(1)} cm³
+            {sim.result.cutThroughRatio > 0 && (
+              <> · {(sim.result.cutThroughRatio * 100).toFixed(0)}% pasante</>
+            )}
+          </div>
+        </div>
+      )}
+      {sim.enabled && sim.error && (
+        <div className="absolute bottom-20 right-3 z-30 rounded-md bg-red-600 text-white px-2.5 py-1.5 shadow text-[11px]">
+          Simulacion: {sim.error}
+        </div>
+      )}
       {gcodeNeedsRegeneration && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-amber-500 text-white px-4 py-2 rounded-md shadow-lg backdrop-blur-sm">
           <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -1055,7 +1286,7 @@ export function GCodeViewer3D() {
         }}
         gl={{ antialias: true }}
       >
-        <Scene />
+        <Scene sim={sim} />
       </Canvas>
     </div>
   )

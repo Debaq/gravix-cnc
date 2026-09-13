@@ -24,6 +24,8 @@ import {
   Box,
   Grid3x3,
   Move3d,
+  Layers,
+  Loader2,
 } from 'lucide-react'
 
 const MARKER_STYLES: Record<string, { color: string; label: string }> = {
@@ -253,12 +255,13 @@ export function PreviewToolbar() {
     setAnimationProgress,
     viewerColorMode,
     setViewerColorMode,
-    showStock,
-    toggleStock,
     show3DGrid,
     toggle3DGrid,
     show3DAxes,
     toggle3DAxes,
+    simEnabled,
+    toggleSim,
+    simRunning,
   } = useGCodeStore()
 
   const {
@@ -266,7 +269,11 @@ export function PreviewToolbar() {
     selectedMarkerId,
     selectMarker,
     addTimelineMarker,
+    setup,
+    updateSetup,
   } = useCAMStore()
+  const stock = setup.stock
+  const stockEnabled = stock.enabled
 
   const selectedMarker = selectedMarkerId ? markers.find((m) => m.id === selectedMarkerId) : null
   const isCAM = currentWorkspace === 'cam'
@@ -439,15 +446,38 @@ export function PreviewToolbar() {
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                variant={showStock ? 'secondary' : 'ghost'}
+                variant={stockEnabled ? 'secondary' : 'ghost'}
                 size="icon"
                 className="h-7 w-7"
-                onClick={toggleStock}
+                onClick={() => updateSetup({ stock: { ...stock, enabled: !stock.enabled } })}
               >
                 <Box className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Bloque de material</TooltipContent>
+            <TooltipContent>
+              {stockEnabled ? 'Ocultar bloque de material' : 'Mostrar bloque de material'}
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={simEnabled ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-7 w-7"
+                onClick={toggleSim}
+                disabled={!stockEnabled}
+              >
+                {simEnabled && simRunning
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <Layers className="h-3.5 w-3.5" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {stockEnabled
+                ? 'Simular material removido — sigue la linea de tiempo'
+                : 'Define el bloque de material para simular'}
+            </TooltipContent>
           </Tooltip>
 
           <Tooltip>

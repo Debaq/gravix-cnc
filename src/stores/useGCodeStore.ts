@@ -27,8 +27,10 @@ interface GCodeState {
   show3DAxes: boolean
   /** Con que se pinta el toolpath en el visor. */
   viewerColorMode: ViewerColorMode
-  /** Dibujar el bloque de material. */
-  showStock: boolean
+  /** Simulacion de remocion de material sobre el bloque. */
+  simEnabled: boolean
+  /** Hay un calculo de simulacion en vuelo. */
+  simRunning: boolean
   viewer3DPlaying: boolean
   viewer3DCurrentPass: number
   currentGCodeLine: number
@@ -43,7 +45,8 @@ interface GCodeState {
   toggle3DGrid: () => void
   toggle3DAxes: () => void
   setViewerColorMode: (mode: ViewerColorMode) => void
-  toggleStock: () => void
+  toggleSim: () => void
+  setSimRunning: (running: boolean) => void
   setViewer3DPlaying: (playing: boolean) => void
   setViewer3DCurrentPass: (pass: number) => void
   setCurrentGCodeLine: (line: number) => void
@@ -71,7 +74,8 @@ export const useGCodeStore = create<GCodeState>((set) => ({
   show3DGrid: true,
   show3DAxes: true,
   viewerColorMode: 'default',
-  showStock: true,
+  simEnabled: false,
+  simRunning: false,
   viewer3DPlaying: false,
   viewer3DCurrentPass: 0,
   currentGCodeLine: 0,
@@ -101,7 +105,9 @@ export const useGCodeStore = create<GCodeState>((set) => ({
 
   setViewerColorMode: (mode) => set({ viewerColorMode: mode }),
 
-  toggleStock: () => set((state) => ({ showStock: !state.showStock })),
+  toggleSim: () => set((state) => ({ simEnabled: !state.simEnabled, simRunning: false })),
+
+  setSimRunning: (running) => set({ simRunning: running }),
 
   setViewer3DPlaying: (playing) => set({ viewer3DPlaying: playing }),
 

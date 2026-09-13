@@ -12,6 +12,8 @@ import { useSerial } from '@/hooks/useSerial'
 import { useProject } from '@/hooks/useProject'
 import { GCodeGenerator } from '@/lib/gcode-generator'
 import { applyCAMPlan, jobsBBox, resolveStock, checkStockCoverage } from '@/lib/cam-jobs'
+import { findCollisions, summarizeCollisions, toolProfileFrom } from '@/lib/collision'
+import { parseGCode } from '@/lib/gcode-parser'
 import { withGenerating } from '@/lib/gcode-run'
 import { validateToolVsPaths } from '@/lib/geometry'
 import { generateBoundaryGCode, computeBBox } from '@/components/modals/SetupWizardModal'
@@ -53,6 +55,7 @@ import {
   Trash2,
   Package,
   Route,
+  FileText,
 } from 'lucide-react'
 
 const WORK_TYPE_ICONS: Record<string, typeof Box> = {
@@ -457,7 +460,7 @@ function GenerateActions() {
     maxDepth,
   } = useGCodeStore()
   const { globalConfig, rasterData } = useCanvasStore()
-  const { addConsoleLine, setWorkspace } = useAppStore()
+  const { addConsoleLine, setWorkspace, openModal } = useAppStore()
   const { setGCode, setEstimates } = useGCodeStore()
   const generating = useGCodeStore((s) => s.generating)
   const { connected, sending, sendProgress } = useSerialStore()
@@ -614,6 +617,26 @@ function GenerateActions() {
     const lineCount = result.split('\n').length
     const uniqueTools = new Set(jobs.map((j) => j.config.tool).filter(Boolean)).size
     addConsoleLine(`G-code generado: ${lineCount} lineas, ${jobs.length} elementos, ${uniqueTools} herramientas`)
+
+    // Colision de herramienta y portaherramientas contra las mordazas. El
+    // chequeo previo mira solo el eje de la fresa en planta; este mira el
+    // volumen real a cada altura, que es donde pega la tuerca del portapinzas.
+    if (clamps.length > 0) {
+      const { tools } = useLibraryStore.getState()
+      const cncJob = jobs.find((j) => j.config.operationType === 'cnc')
+      if (cncJob) {
+        const tool = cncJob.config.tool ? tools.find((t) => t.id === cncJob.config.tool) : null
+        const profile = toolProfileFrom(tool, cncJob.config.toolDiameter)
+        const moves = parseGCode(result).segments.map((seg) => ({ from: seg.from, to: seg.to }))
+        const hits = findCollisions(moves, clampRects, profile, clamps.map((c) => c.label))
+        for (const line of summarizeCollisions(hits)) {
+          addConsoleLine(`WARN: ${line}`)
+        }
+        if (hits.length > 0) {
+          addConsoleLine('Revisa las medidas del portaherramientas en la libreria si el aviso no corresponde')
+        }
+      }
+    }
   }, [getJobsForGCode, globalConfig, rasterData, addConsoleLine, setGCode, setEstimates])
 
   const handleDownload = () => {
@@ -687,6 +710,16 @@ function GenerateActions() {
         </Button>
         <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={handleCopy} disabled={!gcodeGenerated} title={t('copy')}>
           <Copy className="h-3 w-3" />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          onClick={() => openModal('job-sheet')}
+          disabled={!gcodeGenerated}
+          title="Hoja de setup"
+        >
+          <FileText className="h-4 w-4" />
         </Button>
         <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={handleDownload} disabled={!gcodeGenerated} title={t('download')}>
           <Download className="h-3 w-3" />

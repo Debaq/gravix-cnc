@@ -1,9 +1,10 @@
 # Roadmap: CAD + CAM CNC
 
 Estado CAD: **COMPLETADO** — incluidos los pendientes de imagen e import (P5).
-Estado CAM: **CAM-P0 y CAM-P1/P2 parciales** (2026-09-13). Arbol de operaciones,
-editor completo, stock, entrada tangente, acabado, feeds & speeds y optimizacion
-de orden. Falta la simulacion de remocion de material (CAM-P3).
+Estado CAM: **CAM-P0 a CAM-P3 cubiertos** (2026-09-13). Arbol de operaciones,
+editor completo, stock, entrada tangente, acabado, feeds & speeds, optimizacion
+de orden, simulacion de remocion por heightmap, colisiones de portaherramientas,
+desbaste trocoidal, hoja de setup y undo/redo propio.
 El generador cubre contorno, cajeado (3 estrategias), taladro, v-carve, chamfer
 y photo v-carve.
 
@@ -240,12 +241,13 @@ Diferenciadores de calidad.
 | Optimizacion orden | ✅ YA EXISTE | `orderByNearestEntry` + toggle en el setup |
 | Color por avance/profundidad | ✅ YA EXISTE | Selector en la barra del visor |
 | Persistencia del setup CAM | ✅ YA EXISTE | `.gravix` 1.4 guarda stock, clamps, marcadores y orden |
-| **Tabs manuales en 3D** | 🟡 PARCIAL | Posiciones manuales por % de perimetro; falta click en el visor |
-| **Remocion de material** | ❌ FALTA | Heightmap o Three.js CSG — CAM-P3 |
-| **Adaptive clearing** | ❌ FALTA | Algoritmo trochoidal — CAM-P3 |
-| **Deteccion de colisiones 3D** | ❌ FALTA | Herramienta/holder vs clamps — CAM-P3 |
-| **Job sheet / hoja de setup** | ❌ FALTA | Export PDF — CAM-P3 |
-| **Undo/redo en CAM** | ❌ FALTA | Historial propio — CAM-P3 |
+| Tabs manuales en 3D | ✅ YA EXISTE | Click sobre el recorrido, ademas del % numerico |
+| Remocion de material | ✅ YA EXISTE | Heightmap en worker, incremental sobre la linea de tiempo |
+| Desbaste trocoidal | ✅ YA EXISTE | `generatePocketTrochoidal` |
+| Deteccion de colisiones 3D | ✅ YA EXISTE | `collision.ts` — filo, mango y portaherramientas |
+| Job sheet / hoja de setup | ✅ YA EXISTE | HTML imprimible o guardable |
+| Undo/redo en CAM | ✅ YA EXISTE | Entra al historial del lienzo via `history-bridge` |
+| **Adaptive clearing real** | ❌ FALTA | Engagement constante con enlace por arcos; el trocoidal cubre el caso practico |
 | Photo V-Carve | ✅ YA EXISTE | `photo-vcarve.ts`, surcos de profundidad variable |
 | Import PDF/AI/EPS | ✅ YA EXISTE | `vector_import.rs` (DWG no) |
 | Auto-vectorizacion | ✅ YA EXISTE | contorno, silueta y eje medio |
@@ -332,3 +334,86 @@ posicion de cambio de herramienta, marcadores, orden y operaciones apagadas).
 Antes todo eso se perdia al cerrar el proyecto.
 
 Archivos nuevos: `config-defaults.ts`, `feeds-speeds.ts`, `cam-jobs.ts`.
+
+
+---
+
+## CAM 2026-09-13 (segunda pasada) — lo que faltaba del roadmap
+
+### Bug: el boton de bloque de material no hacia nada
+Habia dos flags para lo mismo: `showStock` en el store de G-code (arrancaba en
+`true`) y `stock.enabled` en el setup de CAM (arrancaba en `false`). El boton de
+la barra alternaba el primero, que no gateaba nada mientras el segundo estuviera
+apagado. Quedo un solo flag, `stock.enabled`, y el visor ahora dibuja la escena
+aunque todavia no haya G-code cuando el bloque esta activo: encuadrar el
+material sobre la mesa es parte del setup.
+
+### Undo/redo en CAM
+El historial del lienzo ya guardaba `elements`, donde viven `config` y
+`operations[]`, pero nada de CAM lo disparaba y el setup no entraba en el
+snapshot. Ahora `HistoryEntry` lleva tambien `useCAMStore.serialize()` y las
+mutaciones del store de CAM avisan por `history-bridge.ts` — un registro de
+callback para que el store no tenga que importar el modulo del canvas y armar un
+ciclo. Los cambios seguidos del mismo control (un slider, un clamp que se
+arrastra) se fusionan en una sola entrada: sin eso, un gesto llenaba la pila de
+50 y se perdia el resto del trabajo.
+
+### Hoja de setup
+`job-sheet.ts` arma un HTML autocontenido con resumen, montaje, mordazas,
+secuencia de herramientas, tabla de operaciones con sus parametros, paradas
+programadas, avisos sin resolver y un checklist previo. Se previsualiza en un
+iframe y de ahi se imprime o se guarda. El tiempo por operacion sale de agrupar
+los segmentos ya parseados por la marca `; Element:` del generador; cuando dos
+operaciones comparten esa clave se dice "compartido" en vez de inventar un
+reparto.
+
+### Colisiones de herramienta y portaherramientas
+`collision.ts` modela la herramienta como tres cilindros apilados (filo, mango,
+portaherramientas) y compara el rango de alturas de cada uno contra la altura de
+la mordaza, y su radio contra la distancia del tramo al rectangulo. El chequeo
+que ya existia solo miraba el eje de la fresa en planta, que deja pasar el caso
+tipico: la punta libra y la tuerca del portapinzas barre el clamp. Las medidas
+salen de campos nuevos en la libreria de herramientas (`fluteLength`,
+`shankDiameter`, `holderDiameter`, `holderOffset`, `flutes`), con defaults de
+portapinzas ER11 cuando faltan. Sale como aviso, no como bloqueo, porque con
+medidas por defecto puede ser un falso positivo.
+
+### Desbaste trocoidal
+`trochoidalPath` convierte una guia en bucles circulares que avanzan; el ancho
+barrido es `2 x radio de bucle + diametro de fresa` y la viruta radial por
+vuelta es el avance. `generatePocketTrochoidal` lo aplica a los anillos del
+contour-parallel separados ese ancho, y devuelve aparte el contorno de acabado
+(el desbaste va desplazado hacia adentro y deja material contra la pared). El
+recorrido es bastante mas largo que un contour-parallel — es el precio de no
+morder a ancho completo.
+
+### Simulacion de remocion de material
+`heightmap.ts` representa el bloque como una grilla de alturas y baja cada celda
+al fondo de la fresa. Tres decisiones que importan:
+
+- **Se rasteriza la capsula que barre cada tramo**, no un disco cada media celda.
+  La primera version estampaba discos y tardaba 971 ms en un cajeado chico; con
+  la capsula da el mismo resultado en 42 ms.
+- **El tallado es monotono**, asi que avanzar en la linea de tiempo talla solo
+  los movimientos nuevos sobre el estado anterior. Scrubbing hacia atras si
+  rehace todo.
+- **Corre en un worker** y los movimientos viajan empaquetados en un
+  `Float32Array` de 7 floats por tramo: clonar quince mil objetos por mensaje
+  costaba mas que la simulacion.
+
+Sobre un cajeado de 200x150x6 con fresa de 6mm: 591 movimientos, grilla de
+420x320, 63 ms, y 180.0 cm3 removidos contra los 180 teoricos.
+
+Es 2.5D: no hay socavados, que una maquina de 3 ejes tampoco hace.
+
+### Tabs con click en el visor
+El G-code no trae los contornos de origen, pero la tira continua de cortes entre
+dos rapidos ES el lazo sobre el que el generador reparte los tabs, asi que la
+fraccion de perimetro que se calcula al hacer click es exactamente la que se va
+a usar al regenerar. Se toma el lazo mas largo de la operacion seleccionada.
+Cuando la operacion tiene varios contornos las fracciones se aplican a todos por
+igual, que es lo que hace el generador.
+
+Archivos nuevos: `history-bridge.ts`, `job-sheet.ts`, `save-file.ts`,
+`collision.ts`, `heightmap.ts`, `heightmap.worker.ts`, `useMaterialSim.ts`,
+`JobSheetModal.tsx`.

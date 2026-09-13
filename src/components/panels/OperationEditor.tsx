@@ -620,6 +620,7 @@ export function OperationEditor() {
                         <SelectItem value="contour-parallel">Contorno paralelo</SelectItem>
                         <SelectItem value="zigzag">Zigzag</SelectItem>
                         <SelectItem value="spiral">Espiral continua</SelectItem>
+                        <SelectItem value="trochoidal">Trocoidal</SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="text-[9px] text-muted-foreground/70 mt-0.5">
@@ -627,9 +628,21 @@ export function OperationEditor() {
                         ? 'Un solo recorrido de adentro hacia afuera, sin levantar la fresa'
                         : config.pocketStrategy === 'zigzag'
                           ? 'Barrido a 45° mas contorno de acabado'
-                          : 'Anillos concentricos desde el borde'}
+                          : config.pocketStrategy === 'trochoidal'
+                            ? 'Bucles que muerden poco por vuelta: recorrido mas largo, fresa mas fria'
+                            : 'Anillos concentricos desde el borde'}
                     </p>
                   </div>
+                  {config.pocketStrategy === 'trochoidal' && (
+                    <NumField
+                      label="Radio del bucle (0 = auto)"
+                      value={config.trochoidalRadius ?? 0}
+                      onChange={(v) => update({ trochoidalRadius: Math.max(0, v) })}
+                      step={0.5}
+                      min={0}
+                      unit="mm"
+                    />
+                  )}
                   <ToggleRow
                     label="Rest machining"
                     checked={config.restMachiningEnabled ?? false}
@@ -877,6 +890,9 @@ export function OperationEditor() {
                               Tab
                             </Button>
                           </div>
+                          <p className="text-[9px] text-muted-foreground/70">
+                            Tambien se ponen con click sobre el recorrido en el visor 3D
+                          </p>
                           {(config.tabPositions ?? []).length === 0 && (
                             <p className="text-[9px] text-amber-600">Sin posiciones: no se va a generar ningun tab</p>
                           )}

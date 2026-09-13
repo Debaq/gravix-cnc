@@ -83,7 +83,7 @@ export interface RasterData {
 // Compensación de herramienta
 
 // Estrategia de cajeado (pocket)
-export type PocketStrategy = 'contour-parallel' | 'zigzag' | 'spiral'
+export type PocketStrategy = 'contour-parallel' | 'zigzag' | 'spiral' | 'trochoidal'
 
 // Sentido de fresado respecto al contorno
 export type MillDirection = 'climb' | 'conventional'
@@ -201,6 +201,8 @@ export interface GlobalConfig {
   finishPassEnabled: boolean // Pasada final a medida exacta
   // Feeds & speeds
   toolFlutes: number         // Filos de la fresa, para calcular chipload
+  // Desbaste trocoidal
+  trochoidalRadius: number   // Radio del bucle (mm, 0 = automatico por fresa)
 }
 
 // Posición de máquina
@@ -431,6 +433,11 @@ export interface ToolFormData {
   type: string
   diameter: number
   angle: number
+  flutes: number
+  fluteLength: number
+  shankDiameter: number
+  holderDiameter: number
+  holderOffset: number
   feedRate: number
   plungeRate: number
   rpm: number

@@ -1,7 +1,7 @@
 import type { Point2D, GCodePath, GCodeJob, GlobalConfig, RasterData, ColorMapping, GCodeMarker, ClampRect, PocketStrategy, LeadType, MillDirection, CutterComp, TabMode } from './types'
 import { generatePhotoVCarve } from './photo-vcarve'
 import type { MachineProfile } from './profiles'
-import { offsetPolygon, generatePocketContours, generatePocketZigzag, generatePocketSpiral, orderPaths, orderPathsInsideFirst, generateHatchLines, validateToolVsPaths, withOrientation, millingCounterClockwise, buildLead } from './geometry'
+import { offsetPolygon, generatePocketContours, generatePocketZigzag, generatePocketSpiral, generatePocketTrochoidal, orderPaths, orderPathsInsideFirst, generateHatchLines, validateToolVsPaths, withOrientation, millingCounterClockwise, buildLead } from './geometry'
 import { useMachineStore } from '@/stores/useMachineStore'
 import { computeRestRegions } from './boolean-ops'
 import { tauriInvoke } from './tauri'
@@ -642,6 +642,7 @@ export class GCodeGenerator {
       await this.generatePocketGCode(paths, lines, {
         depth, depthStep, numPasses, toolRadius, stepover, feedRate, plungeRate,
         strategy: pocketStrategy,
+        trochoidalRadius: config.trochoidalRadius,
       })
 
       // Rest machining: segunda pasada con fresa menor SÓLO sobre el material
@@ -672,6 +673,7 @@ export class GCodeGenerator {
             depth, depthStep, numPasses, toolRadius: restRadius, stepover,
             feedRate: feedRate * 0.8, plungeRate: plungeRate * 0.8,
             strategy: pocketStrategy,
+            trochoidalRadius: config.trochoidalRadius,
             regions: restRegions,
           })
         }
@@ -878,6 +880,8 @@ export class GCodeGenerator {
       feedRate: number
       plungeRate: number
       strategy?: PocketStrategy
+      /** Radio del bucle trocoidal (mm, 0 = automatico). */
+      trochoidalRadius?: number
       /** Geometría ya calculada (rest machining); si falta se usa `paths` */
       regions?: Point2D[][]
     }
@@ -921,6 +925,25 @@ export class GCodeGenerator {
           continue
         }
         pocketData.push({ roughing: [], hatch: pocket.hatch, finishing: pocket.finishing, spiral: [] })
+      } else if (strategy === 'trochoidal') {
+        // Radio automatico: medio diametro de fresa da una banda de 2xD, que
+        // es el compromiso habitual entre ancho barrido y largo de recorrido.
+        const loopRadius = (opts.trochoidalRadius ?? 0) > 0
+          ? opts.trochoidalRadius!
+          : opts.toolRadius
+        const troch = await generatePocketTrochoidal(
+          boundary, opts.toolRadius, opts.stepover, loopRadius, initialInset,
+        )
+        if (troch.loops.length === 0 && troch.finishing.length === 0) {
+          lines.push(`; WARNING: Shape ${i + 1} too small for pocket with tool radius ${opts.toolRadius}mm`)
+          continue
+        }
+        pocketData.push({
+          roughing: [],
+          hatch: [],
+          finishing: troch.finishing.length > 0 ? [troch.finishing] : [],
+          spiral: troch.loops,
+        })
       } else if (strategy === 'spiral') {
         const spiral = await generatePocketSpiral(boundary, opts.toolRadius, opts.stepover, initialInset)
         if (spiral.length === 0) {
@@ -951,7 +974,9 @@ export class GCodeGenerator {
       ? 'zigzag (45\u00b0 raster)'
       : strategy === 'spiral'
         ? 'espiral continua (sin retracciones entre anillos)'
-        : 'contour-parallel'
+        : strategy === 'trochoidal'
+          ? 'trocoidal (bucles de carga constante)'
+          : 'contour-parallel'
     lines.push(`; Pocket strategy: ${strategyLabel}`)
 
     for (let pass = 1; pass <= opts.numPasses; pass++) {

@@ -56,6 +56,11 @@ export function ToolsModal() {
       type: '',
       diameter: 3.175,
       angle: 0,
+      flutes: 2,
+      fluteLength: 0,
+      shankDiameter: 0,
+      holderDiameter: 0,
+      holderOffset: 0,
       feedRate: 1000,
       plungeRate: 300,
       rpm: 10000,
@@ -75,6 +80,11 @@ export function ToolsModal() {
       type: types[0] ?? '',
       diameter: 3.175,
       angle: 0,
+      flutes: 2,
+      fluteLength: 0,
+      shankDiameter: 0,
+      holderDiameter: 0,
+      holderOffset: 0,
       feedRate: 1000,
       plungeRate: 300,
       rpm: 10000,
@@ -94,6 +104,11 @@ export function ToolsModal() {
       type: tool.type,
       diameter: tool.diameter ?? 0,
       angle: tool.angle ?? 0,
+      flutes: tool.flutes ?? 2,
+      fluteLength: tool.fluteLength ?? 0,
+      shankDiameter: tool.shankDiameter ?? 0,
+      holderDiameter: tool.holderDiameter ?? 0,
+      holderOffset: tool.holderOffset ?? 0,
       feedRate: tool.feedRate ?? 0,
       plungeRate: tool.plungeRate ?? 0,
       rpm: tool.rpm ?? 0,
@@ -114,6 +129,11 @@ export function ToolsModal() {
       type: data.type,
       diameter: data.diameter || undefined,
       angle: data.angle || undefined,
+      flutes: data.flutes || undefined,
+      fluteLength: data.fluteLength || undefined,
+      shankDiameter: data.shankDiameter || undefined,
+      holderDiameter: data.holderDiameter || undefined,
+      holderOffset: data.holderOffset || undefined,
       feedRate: data.feedRate || undefined,
       plungeRate: data.plungeRate || undefined,
       rpm: data.rpm || undefined,
@@ -286,6 +306,34 @@ export function ToolsModal() {
                   <div>
                     <Label className="text-xs">{t('rpm')}</Label>
                     <Input type="number" {...register('rpm', { valueAsNumber: true })} className="h-8" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Filos</Label>
+                    <Input type="number" min={1} max={8} {...register('flutes', { valueAsNumber: true })} className="h-8" />
+                  </div>
+
+                  {/* Geometria del conjunto: alimenta el chequeo de colision
+                      contra las mordazas. En 0 se usan valores tipicos. */}
+                  <div className="col-span-2 pt-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Geometria (colisiones)
+                    </span>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Largo de filo (mm)</Label>
+                    <Input type="number" step="0.5" {...register('fluteLength', { valueAsNumber: true })} className="h-8" placeholder="auto" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Diam. mango (mm)</Label>
+                    <Input type="number" step="0.1" {...register('shankDiameter', { valueAsNumber: true })} className="h-8" placeholder="auto" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Diam. portapinzas (mm)</Label>
+                    <Input type="number" step="0.5" {...register('holderDiameter', { valueAsNumber: true })} className="h-8" placeholder="20" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Salida hasta portapinzas (mm)</Label>
+                    <Input type="number" step="0.5" {...register('holderOffset', { valueAsNumber: true })} className="h-8" placeholder="auto" />
                   </div>
                 </>
               )}
