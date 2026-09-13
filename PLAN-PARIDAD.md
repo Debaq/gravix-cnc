@@ -23,9 +23,9 @@ se conectaron los mas baratos en esta misma pasada.
 | `grbl-diagnostics.ts` | ✅ segun plan, 0 imports | ✅ conectado (status crudo desde Rust + panel I/O) |
 | `profiles.ts` → `ToolpathTemplate` | ✅ segun plan, 0 consumidores | ✅ conectado (guardar/aplicar/exportar en GlobalConfigModal) |
 | `ColorMapping` (store + generador) | ✅ segun plan, sin UI | ✅ conectado (editor de capas por color) |
-| `tiling.ts` | ✅ segun plan, 0 imports | ⚠️ **codigo muerto** — falta UI |
-| `variable-text.ts` | ✅ segun plan, 0 imports | ⚠️ **codigo muerto** — falta UI |
-| `sheets[]` en `useCanvasStore` | ✅ segun plan | ⚠️ **stub** — los elementos no se asocian a hojas y no hay UI |
+| `tiling.ts` | ✅ segun plan, 0 imports | ✅ conectado (modal de tiles + export de un G-code por tile) |
+| `variable-text.ts` | ✅ segun plan, 0 imports | ✅ conectado (modal de merge CSV → N textos en el lienzo) |
+| `sheets[]` en `useCanvasStore` | ✅ segun plan | ❌ eliminado — era estructura sin feature; se rehace cuando se implemente de verdad |
 
 Regla que sale de esto: **un modulo sin import no cuenta como completado.**
 Un item se marca ✅ solo cuando hay camino desde la UI hasta el G-code.
@@ -63,8 +63,10 @@ Cosas que bloquean uso real en las 3 modalidades.
 
 Estado actual: ALPHA ROTO. Múltiples campos dead code, sin optimización, sin multi-color.
 
-### 2.1 ~~Pressure Output Real~~ ✅ COMPLETADO
-- **Qué**: Plotter ahora usa `config.pressureZ` para Z down (antes hardcoded -1)
+### 2.1 ~~Pressure Output Real~~ ✅ COMPLETADO (completado 2026-09-12)
+- **Qué**: Plotter usa `config.pressureZ` para Z down (antes hardcoded -1)
+- **Faltaba**: el campo `config.pressure` — el que el usuario edita en OperationEditor, PropertiesPanel y GlobalConfigModal bajo la etiqueta "Presion" — **no lo leia nadie**. El item se daba por cerrado con `pressureZ`, que es otro campo
+- **2026-09-12**: `emitPlotterBody()` emite la presion como palabra S en el pen-down (`M3 S<pressure>`, `M5` al levantar), que es como la consumen plotters y cortadoras con servo. Con `pressure = 0` no se emite ninguna S
 - **Archivos**: `gcode-generator.ts` emitPlotterBody()
 - **Esfuerzo**: S
 
@@ -209,9 +211,10 @@ Features de toolpath que Aspire tiene y son críticas para CNC serio.
 - **Archivos**: `vcarve.ts` (nuevo), `types.ts`, `useCanvasStore.ts`, `gcode-generator.ts`, `GlobalConfigModal.tsx`, i18n
 - **Esfuerzo**: L
 
-### ~~4B.2 Toolpath de Pocket con Rest Machining~~ ✅ COMPLETADO
+### ~~4B.2 Toolpath de Pocket con Rest Machining~~ ✅ COMPLETADO (corregido 2026-09-12)
 - **Qué**: `restMachiningEnabled` + `restToolDiameter` en GlobalConfig. Segunda pasada de pocket con herramienta menor incluyendo pausa M0 para cambio de herramienta. UI toggle en GlobalConfigModal
-- **Archivos**: `types.ts`, `useCanvasStore.ts`, `gcode-generator.ts`, `GlobalConfigModal.tsx`
+- **Bug corregido 2026-09-12**: la segunda pasada volvia a cajear el bolsillo **entero** con la fresa chica (mismo `paths`), no el resto. Ahora `computeRestRegions()` (`boolean-ops.ts`) calcula por apertura morfologica el material que la fresa grande no alcanza y devuelve la region de **centro de herramienta** de la fresa chica; el cajeado la consume con `initialInset = 0`. Si la fresa grande ya despejo todo, no se emite la pasada
+- **Archivos**: `types.ts`, `useCanvasStore.ts`, `gcode-generator.ts`, `boolean-ops.ts`, `geometry.ts`, `GlobalConfigModal.tsx`
 
 ### 4B.3 ~~Ramping / Lead-In en Profile~~ ✅ COMPLETADO
 - **Qué**: `rampEnabled` + `rampAngle` en GlobalConfig. `emitPathGCode()` desciende gradualmente a lo largo de segmentos del path en vez de plunge directo. UI toggle + ángulo en GlobalConfigModal
@@ -255,10 +258,11 @@ Features de toolpath que Aspire tiene y son críticas para CNC serio.
 - **Archivos**: `gcode-generator.ts`
 - **Esfuerzo**: M
 
-### 4B.10 Tiling de Toolpaths — ⚠️ CODIGO MUERTO
+### ~~4B.10 Tiling de Toolpaths~~ ✅ COMPLETADO (UI 2026-09-12)
 - **Qué**: Módulo `tiling.ts` con generateTiles() y tileHeader(). Split paths en tiles con overlap, coordenadas locales por tile
-- **Falta**: **cero imports**. No hay UI de configuracion (tamaño de tile, overlap) ni integracion con `generateFromJobs()`
-- **Esfuerzo restante**: M (modal + emitir un job por tile con M0 entre tiles)
+- **Estaba muerto**: **cero imports**, sin UI ni integracion con `generateFromJobs()`
+- **2026-09-12**: `TilingModal.tsx` (boton de grilla en GCodePanel) con tamaño de tile, solape y margen; vista previa de la grilla y export de un `.gcode` por tile. Dos bugs del modulo salieron al conectarlo: los tiles se filtraban por **vertices** dentro del tile (un rectangulo mas ancho que el tile perdia las columnas del medio) y los paths no se recortaban (cada tile emitia el path completo y la maquina se salia de recorrido). Ahora se recorta con Liang-Barsky y todos los jobs comparten una grilla global (`computeTileGrid`)
+- **Archivos**: `tiling.ts`, `TilingModal.tsx`, `GCodePanel.tsx`, `App.tsx`, i18n
 
 ### 4B.11 ~~Toolpath Templates~~ ✅ COMPLETADO (UI 2026-09-12)
 - **Qué**: ToolpathTemplate type en `profiles.ts`. Save/load/export configs de toolpath
@@ -362,10 +366,11 @@ Feature set más ambicioso. Aspire se diferencia de VCarve Pro por su modelado 3
 - **Archivos**: Nuevos parsers o usar bibliotecas Rust
 - **Esfuerzo**: L
 
-### 4D.4 Variable Text / Merge Codes — ⚠️ CODIGO MUERTO
-- **Qué**: Módulo `variable-text.ts` con parseCSV(), mergeText(), extractVariables(), previewMerge(). Soporta {{placeholders}} + variables built-in
-- **Falta**: **cero imports**. No hay carga de CSV, ni preview, ni conexion con `TextToPathModal` para generar N copias del diseño
-- **Esfuerzo restante**: M (modal de merge + loop de generacion sobre los registros)
+### ~~4D.4 Variable Text / Merge Codes~~ ✅ COMPLETADO (UI 2026-09-12)
+- **Qué**: Módulo `variable-text.ts` con parseCSV(), mergeText(), extractVariables(), previewMerge(). Soporta placeholders + variables built-in (index/date/time)
+- **Estaba muerto**: **cero imports**. Sin carga de CSV, sin preview y sin conexion con el pipeline de texto
+- **2026-09-12**: `VariableTextModal.tsx` (menu Agregar del DesignPanel) — plantilla con placeholders, carga de CSV, aviso de columnas faltantes, preview de las primeras 20 filas y generacion de un text-path por registro via `addTextPath()`
+- **Archivos**: `variable-text.ts`, `VariableTextModal.tsx`, `DesignPanel.tsx`, `App.tsx`, i18n
 
 ### ~~4D.5 Vector Diagnostics~~ ✅ COMPLETADO (2026-09-12)
 - **Qué**: Módulo `vector-diagnostics.ts` con `diagnoseVectors()`, `autoJoinPaths()`, `removeTinySpans()`, `removeDuplicatePaths()`
@@ -373,9 +378,9 @@ Feature set más ambicioso. Aspire se diferencia de VCarve Pro por su modelado 3
 - **2026-09-12**: `VectorDiagnosticsModal.tsx` (boton en CanvasToolbar) reporta los problemas sobre la geometria cruda, y la auto-limpieza configurable (`vectorCleanup` en el store) se aplica en `getPathsForGCode()` / `getJobsForGCode()`, el unico punto por el que pasan todos los toolpaths
 - **Archivos**: `vector-diagnostics.ts`, `VectorDiagnosticsModal.tsx`, `useCanvasManager.ts`, `useCanvasStore.ts`, `types.ts`, `CanvasToolbar.tsx`, i18n
 
-### 4D.6 Multiple Sheets — ⚠️ STUB
-- **Qué**: `sheets[]` en useCanvasStore con add/remove/rename/setActive
-- **Falta**: las hojas son solo `{id, name}` — **los elementos no se asocian a ninguna hoja**, el canvas no cambia al cambiar de hoja activa y no hay UI de pestañas. Es la estructura, no la feature
+### 4D.6 Multiple Sheets — ❌ NO EMPEZADO
+- **Qué**: hojas multiples con pestañas y elementos asociados a cada hoja
+- **2026-09-12**: el stub `sheets[]` (add/remove/rename/setActive sin un solo consumidor) se **elimino** del store. Guardar la estructura sin la feature solo hacia que el plan se leyera como mas avanzado de lo que estaba
 - **Esfuerzo restante**: M (campo `sheetId` en CanvasElement, filtrado en canvas, barra de pestañas)
 
 ### 4D.7 ~~Array Circular~~ ✅ YA EXISTÍA
@@ -621,8 +626,6 @@ canvas.
 | 3.7b | Filtros de imagen (brillo, contraste, sharpen, gamma) | Los kernels de dithering ya entraron; los filtros son un paso previo sobre el mismo `GrayImage` | S |
 | 7.2 | Excellon drill import | Parser de texto puro, sin dependencias; `drill` ya existe como WorkType con G81/G83 | M |
 | 7.7 | Agujeros de registro | Se reduce a generar 2-4 circulos en esquinas y mandarlos al drill toolpath existente | S |
-| 4B.10 | UI de tiling | El modulo `tiling.ts` ya calcula todo; falta el modal y emitir un job por tile | M |
-| 4D.4 | UI de variable text | `variable-text.ts` ya parsea CSV y hace el merge; falta el modal y el loop de duplicacion | M |
 | 4.7 / 7.8 | Backlash compensation | Post-proceso sobre las lineas ya emitidas, detectando cambio de signo por eje | M |
 | 5.6 | Gamepad / pendant | Gamepad API del browser contra el `jog()` que ya existe en `useSerial` | M |
 | 4D.6 | Multiple sheets real | Campo `sheetId` en CanvasElement + filtrado en canvas + pestañas | M |
