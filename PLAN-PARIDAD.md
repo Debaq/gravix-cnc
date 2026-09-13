@@ -524,11 +524,25 @@ Feature set más ambicioso. Aspire se diferencia de VCarve Pro por su modelado 3
   conocerlos. `nestElements()` en useCanvasManager toma la seleccion o la hoja entera,
   saca el contorno real con `extractSegments()` y aplica giro + posicion; lo que no
   entra se queda donde estaba y se avisa
-- **Alcance**: empaca por **rectangulo envolvente**, no por contorno real. True-shape
-  con no-fit polygons queda pendiente: una pieza en U no anida otra adentro
-- **Archivos**: `nesting.ts` (nuevo), `NestingModal.tsx` (nuevo), `useCanvasManager.ts`,
+- **2026-09-13 — true-shape**: segunda estrategia, seleccionable en el modal. Cada
+  pieza se rasteriza a una grilla de ocupacion (scanline par-impar + dilatacion para
+  la separacion) y se coloca con bottom-left first-fit, probando 1/2/4/8 giros mas el
+  angulo que la endereza. Una pieza en U ahora si anida otra adentro
+- **Por que grilla y no no-fit polygons**: el NFP exacto para poligonos con
+  concavidades y agujeros es otro orden de problema — descomposicion convexa, suma de
+  Minkowski y robustez numerica — y la grilla da el mismo resultado practico con un
+  error acotado por el paso (0.4–3 mm segun el tamaño del area)
+- **Dos detalles que costaron**: la separacion no va contra el borde del area (la
+  grilla se agranda `pad` celdas por lado, si no una pieza del ancho exacto del area
+  no entraba), y la mascara no lleva celda de sobra por el mismo motivo
+- **Medido**: caso con piezas en U + cuadrados chicos en 130x95 mm — rectangulo coloca
+  2 piezas, contorno real coloca 6. Cama de 600x400 con 30 piezas: 100–180 ms segun
+  los giros, contra 3 ms del rectangulo. Validado por muestreo denso: cero solapes y
+  nada fuera del area
+- **Uso del area**: ahora se mide sobre el contorno en las dos estrategias (antes el
+  rectangulo reportaba el area de su bbox, que inflaba el numero)
+- **Archivos**: `nesting.ts`, `NestingModal.tsx`, `useCanvasManager.ts`,
   `CanvasToolbar.tsx`, `App.tsx`, i18n
-- **Esfuerzo**: XL (entregado el empaque por bbox; true-shape sigue siendo XL)
 
 ### ~~5.5 Undo/Redo Robusto~~ ✅ COMPLETADO
 - **Qué**: Ya robusto: snapshot completo Fabric JSON + store elements, 50 entradas de historial, 38 llamadas a pushToHistory cubriendo todas las operaciones

@@ -2444,6 +2444,8 @@ export function useCanvasManager() {
     allowRotate90: boolean
     alignToMinRect: boolean
     scope: 'selection' | 'sheet'
+    trueShape?: boolean
+    rotations?: number
   }): { placed: number; unplaced: number; usage: number } => {
     const canvas = getCanvas()
     if (!canvas) return { placed: 0, unplaced: 0, usage: 0 }
@@ -2493,6 +2495,8 @@ export function useCanvasManager() {
       margin: opts.margin,
       allowRotate90: opts.allowRotate90,
       alignToMinRect: opts.alignToMinRect,
+      trueShape: opts.trueShape,
+      rotations: opts.rotations,
     })
 
     for (const placement of result.placements) {
