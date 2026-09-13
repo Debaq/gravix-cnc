@@ -1,4 +1,5 @@
 import type { Point2D, GCodePath, GCodeJob, GlobalConfig, RasterData, ColorMapping, GCodeMarker, ClampRect, PocketStrategy } from './types'
+import { generatePhotoVCarve } from './photo-vcarve'
 import type { MachineProfile } from './profiles'
 import { offsetPolygon, generatePocketContours, generatePocketZigzag, orderPaths, orderPathsInsideFirst, generateHatchLines, validateToolVsPaths } from './geometry'
 import { useMachineStore } from '@/stores/useMachineStore'
@@ -157,6 +158,13 @@ export class GCodeGenerator {
     const rasterJob = jobs.find(j => j.config.operationType === 'laser' && j.config.laserMode === 'raster')
     if (rasterJob && rasterData) {
       lines.push(...await this.generateLaserRaster(rasterData, rasterJob.config))
+      return lines.join('\n')
+    }
+
+    // Photo V-Carve: tampoco sale de la geometria del lienzo, sale de la imagen
+    const photoJob = jobs.find(j => j.config.operationType === 'cnc' && j.config.workType === 'photoVcarve')
+    if (photoJob && rasterData) {
+      lines.push(...await this.generatePhotoVCarveJob(rasterData, photoJob.config))
       return lines.join('\n')
     }
 
@@ -1500,6 +1508,47 @@ export class GCodeGenerator {
   // ============================================
   // Laser Raster (unchanged, self-contained)
   // ============================================
+
+  /**
+   * Photo V-Carve: los surcos salen de la imagen, no de los paths. El modulo
+   * `photo-vcarve.ts` hace el trabajo; aca solo se leen los pixeles, se arma
+   * el encabezado de programa y se suman las estimaciones.
+   */
+  private async generatePhotoVCarveJob(raster: RasterData, config: GlobalConfig): Promise<string[]> {
+    const pixels: number[] = await tauriInvoke<number[]>('read_raster_pixels', {
+      pixelsPath: raster.pixels_path,
+    })
+
+    const result = generatePhotoVCarve(pixels, {
+      width: raster.width,
+      height: raster.height,
+      pixelMm: raster.pixel_size_mm,
+      angleDeg: config.vcarveAngle ?? 90,
+      maxDepth: config.photoMaxDepth ?? 2,
+      minDepth: config.photoMinDepth ?? 0.05,
+      lineSpacing: config.photoLineSpacing ?? 0,
+      direction: config.photoDirection ?? 'horizontal',
+      invert: config.photoInvert ?? false,
+      bidirectional: config.photoBidirectional !== false,
+      feedRate: parseFloat(String(config.feedRate)) || 600,
+      plungeRate: parseFloat(String(config.plungeRate)) || 200,
+      safeZ: SAFE_Z,
+      stepMm: config.photoStepMm ?? 0,
+    })
+
+    this.totalDistance += result.distance
+    this.totalTime += result.time
+
+    const lines: string[] = []
+    lines.push(...result.header)
+    lines.push('')
+    lines.push(...this.programHeader())
+    lines.push(this.spindleOn(config.spindleRPM ?? 12000))
+    lines.push(...result.body)
+    lines.push('')
+    lines.push(...this.programFooter())
+    return lines
+  }
 
   private async generateLaserRaster(raster: RasterData, config: GlobalConfig): Promise<string[]> {
     const pixels: number[] = await tauriInvoke<number[]>('read_raster_pixels', {

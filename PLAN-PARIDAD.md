@@ -446,12 +446,29 @@ Feature set más ambicioso. Aspire se diferencia de VCarve Pro por su modelado 3
 - **Archivos**: `ArrayModal.tsx`, `useCanvasManager.ts`
 - **Esfuerzo**: (ya hecho)
 
-### 4D.8 Photo V-Carve (Lithophane)
-- **Referencia**: Aspire
-- **Qué**: Convertir foto directamente a toolpath V-carve. Control de brillo, contraste, resolución de líneas, ángulo
-- **Por qué**: Feature popular en signage: retratos en madera con V-bit
-- **Archivos**: `image_processing.rs`, `gcode-generator.ts`
-- **Esfuerzo**: L
+### ~~4D.8 Photo V-Carve~~ ✅ COMPLETADO (2026-09-13)
+- **Referencia**: Aspire (PhotoVCarve)
+- **Qué**: `photo-vcarve.ts` — la foto se talla con surcos paralelos donde la
+  profundidad sigue el tono: es el grabado raster, pero cambiando potencia por Z.
+  Como la fresa es conica, a mas profundidad mas ancho el surco, y la suma de surcos
+  de ancho variable reconstruye los grises
+- **La separacion se calcula sola**: el ancho de un surco a profundidad d es
+  2·d·tan(angulo/2), asi que la separacion por defecto es la del surco a profundidad
+  maxima — con eso el negro pleno se cierra y los claros dejan material entre surcos
+- **Muestreo por banda**: cada tramo promedia los pixeles del ancho del surco, no
+  toma un pixel suelto, que dejaria el tallado a merced del ruido de la foto. Los
+  tramos contiguos de igual profundidad se funden en un solo G1, si no el archivo
+  tendria una linea por pixel
+- **Controles**: angulo de la fresa, profundidad del negro, profundidad minima (bajo
+  ella no se talla), separacion (0 = auto), direccion, paso de muestreo, invertir
+  tonos y zig-zag. Los filtros de brillo/contraste/gamma del wizard de imagen (3.7)
+  ya operan antes, que es justo lo que pedia el item original
+- **Verificado** con un degradado sintetico: separacion auto 4.00 mm a 90°/2 mm, Z
+  siempre dentro de [-profundidad, safeZ], profundidad monotona sobre el degradado,
+  cero plunges sin posicionar antes, vertical emite avances en Y y el zig-zag arranca
+  cada surco por el extremo opuesto
+- **Archivos**: `photo-vcarve.ts` (nuevo), `gcode-generator.ts`, `types.ts`,
+  `useCanvasStore.ts`, `GlobalConfigModal.tsx`, `OperationEditor.tsx`, `GCodePanel.tsx`, i18n
 
 ---
 

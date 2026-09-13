@@ -53,7 +53,18 @@
     "restMachining": "Rest machining",
     "restToolDiameter": "Finishing tool (mm)",
     "rampEnabled": "Ramp entry",
-    "rampAngle": "Ramp angle (°)"
+    "rampAngle": "Ramp angle (°)",
+    "photoHint": "Carves a photo with a V-bit: each groove goes deeper where the image is darker. Load the image from Load > Image.",
+    "photoMaxDepth": "Depth for black (mm)",
+    "photoMinDepth": "Minimum depth (mm)",
+    "photoLineSpacing": "Groove spacing (mm)",
+    "photoLineSpacingAuto": "Auto: {{mm}} mm (groove width at max depth)",
+    "photoDirection": "Direction",
+    "photoHorizontal": "Horizontal",
+    "photoVertical": "Vertical",
+    "photoStep": "Sampling step (mm)",
+    "photoInvert": "Invert tones (light = deep)",
+    "photoBidirectional": "Zig-zag carving"
   },
   "laserModes": {
     "cut": "Cut",
@@ -95,7 +106,8 @@
     "pocket": "Pocket (clear inside)",
     "vcarve": "V-Carve",
     "drill": "Drill",
-    "chamfer": "Chamfer (Bevel)"
+    "chamfer": "Chamfer (Bevel)",
+    "photoVcarve": "Photo V-Carve"
   },
   "compensation": {
     "center": "Center",

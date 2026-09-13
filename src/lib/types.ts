@@ -9,7 +9,7 @@ export type Workspace = 'cad' | 'cam' | 'cnc'
 export type OperationType = 'cnc' | 'laser' | 'plotter' | 'pencil'
 
 // Tipos de trabajo CNC
-export type WorkType = 'outline' | 'inside' | 'outside' | 'pocket' | 'vcarve' | 'drill' | 'chamfer'
+export type WorkType = 'outline' | 'inside' | 'outside' | 'pocket' | 'vcarve' | 'drill' | 'chamfer' | 'photoVcarve'
 
 // Modos de operación láser
 export type LaserMode = 'cut' | 'engrave' | 'fill' | 'raster'
@@ -143,6 +143,14 @@ export interface GlobalConfig {
   vcarveMaxDepth: number        // Profundidad máxima V-carve (mm)
   vcarveStepSize: number        // Resolución de offset (mm)
   vcarveFlatDepth: number       // Profundidad flat-bottom (0 = standard)
+  // Photo V-Carve (foto tallada con fresa en V)
+  photoMaxDepth: number         // Profundidad del negro pleno (mm)
+  photoMinDepth: number         // Por debajo de esto no se talla (mm)
+  photoLineSpacing: number      // Separacion entre surcos (mm, 0 = auto por angulo)
+  photoDirection: 'horizontal' | 'vertical'
+  photoInvert: boolean          // true = lo claro es lo profundo
+  photoBidirectional: boolean   // Tallar en zig-zag
+  photoStepMm: number           // Paso de muestreo por surco (mm, 0 = un pixel)
   // Rest machining CNC
   restMachiningEnabled: boolean  // Segundo pass con fresa chica en esquinas
   restToolDiameter: number       // Diámetro de fresa de acabado (mm)

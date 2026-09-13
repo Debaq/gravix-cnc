@@ -274,6 +274,13 @@ const defaultGlobalConfig: GlobalConfig = {
   vcarveMaxDepth: 5,
   vcarveStepSize: 0.2,
   vcarveFlatDepth: 0,
+  photoMaxDepth: 2,
+  photoMinDepth: 0.05,
+  photoLineSpacing: 0,
+  photoDirection: 'horizontal',
+  photoInvert: false,
+  photoBidirectional: true,
+  photoStepMm: 0,
   // Rest machining
   restMachiningEnabled: false,
   restToolDiameter: 1,
