@@ -258,6 +258,10 @@ const defaultGlobalConfig: GlobalConfig = {
   rasterThreshold: 128,
   rasterInvert: false,
   rasterBidirectional: true,
+  rasterBrightness: 0,
+  rasterContrast: 0,
+  rasterGamma: 1,
+  rasterSharpen: 0,
   // Kerf láser
   laserKerf: 0,
   laserLeadIn: 0,

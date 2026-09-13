@@ -27,6 +27,14 @@ export type DitheringMode =
   | 'grayscale'
 
 // Datos de imagen ráster procesada
+/// Filtros de tono que viajan al backend junto con la imagen
+export interface ImageFilters {
+  brightness: number
+  contrast: number
+  gamma: number
+  sharpen: number
+}
+
 export interface RasterData {
   width: number
   height: number
@@ -93,6 +101,11 @@ export interface GlobalConfig {
   rasterThreshold: number    // Umbral de blanco/negro (0-255)
   rasterInvert: boolean      // Invertir imagen (para materiales oscuros)
   rasterBidirectional: boolean // Escaneo bidireccional en ráster
+  // Filtros de imagen (se aplican antes del dithering)
+  rasterBrightness: number   // -100..100
+  rasterContrast: number     // -100..100
+  rasterGamma: number        // 0.1..3.0 (1 = sin corrección)
+  rasterSharpen: number      // 0..100 (unsharp mask)
   // Kerf compensation láser
   laserKerf: number          // Ancho de corte láser (mm) para compensación
   laserLeadIn: number        // Distancia lead-in/out (mm, 0 = disabled)

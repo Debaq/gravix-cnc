@@ -25,6 +25,37 @@ pub enum DitheringMode {
     Grayscale,
 }
 
+/// Ajustes de tono aplicados antes del dithering. Sin ellos, una foto plana
+/// o subexpuesta entra al kernel de difusion con casi todo el rango en una
+/// sola mitad y sale como una mancha.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(default)]
+pub struct ImageFilters {
+    /// -100..100, desplazamiento lineal de luminancia
+    pub brightness: f32,
+    /// -100..100, expansion/compresion del rango alrededor de 128
+    pub contrast: f32,
+    /// 0.1..3.0, correccion de gamma (>1 aclara los medios tonos)
+    pub gamma: f32,
+    /// 0..100, cantidad de unsharp mask (0 = sin enfoque)
+    pub sharpen: f32,
+}
+
+impl Default for ImageFilters {
+    fn default() -> Self {
+        Self { brightness: 0.0, contrast: 0.0, gamma: 1.0, sharpen: 0.0 }
+    }
+}
+
+impl ImageFilters {
+    fn is_identity(&self) -> bool {
+        self.brightness == 0.0
+            && self.contrast == 0.0
+            && (self.gamma - 1.0).abs() < f32::EPSILON
+            && self.sharpen == 0.0
+    }
+}
+
 /// Resultado liviano — sin pixeles crudos, solo metadata + preview
 #[derive(Debug, Serialize)]
 pub struct RasterResult {
@@ -46,10 +77,11 @@ pub async fn process_image_for_laser(
     dithering: DitheringMode,
     threshold: u8,
     invert: bool,
+    filters: Option<ImageFilters>,
 ) -> Result<RasterResult, String> {
     tokio::task::spawn_blocking(move || {
         let img = image::open(Path::new(&path)).map_err(|e| format!("Error al cargar imagen: {}", e))?;
-        process_image(img, width_mm, height_mm, dpi, dithering, threshold, invert)
+        process_image(img, width_mm, height_mm, dpi, dithering, threshold, invert, filters.unwrap_or_default())
     })
     .await
     .map_err(|e| format!("Error en thread: {}", e))?
@@ -70,6 +102,7 @@ pub fn process_image_base64(
     dithering: DitheringMode,
     threshold: u8,
     invert: bool,
+    filters: Option<ImageFilters>,
 ) -> Result<RasterResult, String> {
     let b64_data = if let Some(pos) = image_base64.find(",") {
         &image_base64[pos + 1..]
@@ -84,7 +117,7 @@ pub fn process_image_base64(
     let img = image::load_from_memory(&bytes)
         .map_err(|e| format!("Error al cargar imagen desde bytes: {}", e))?;
 
-    process_image(img, width_mm, height_mm, dpi, dithering, threshold, invert)
+    process_image(img, width_mm, height_mm, dpi, dithering, threshold, invert, filters.unwrap_or_default())
 }
 
 fn process_image(
@@ -95,6 +128,7 @@ fn process_image(
     dithering: DitheringMode,
     threshold: u8,
     invert: bool,
+    filters: ImageFilters,
 ) -> Result<RasterResult, String> {
     let pixel_size_mm = 25.4 / dpi;
 
@@ -134,6 +168,12 @@ fn process_image(
         target_h,
         FilterType::Lanczos3,
     );
+
+    let resized = if filters.is_identity() {
+        resized
+    } else {
+        apply_filters(resized, filters)
+    };
 
     let mut buffer: GrayImage = if invert {
         GrayImage::from_fn(target_w, target_h, |x, y| {
@@ -355,5 +395,141 @@ fn apply_atkinson(img: &mut GrayImage, threshold: u8) {
             let v = buf[y as usize][x as usize].clamp(0.0, 255.0) as u8;
             img.put_pixel(x, y, Luma([v]));
         }
+    }
+}
+
+/// Brillo, contraste y gamma son punto a punto: se resuelven en una LUT de 256
+/// entradas y el barrido queda en un lookup por pixel. El enfoque no, porque
+/// mira a los vecinos, asi que va despues sobre el resultado tonal.
+fn apply_filters(img: GrayImage, filters: ImageFilters) -> GrayImage {
+    let lut = tone_lut(filters);
+    let (w, h) = img.dimensions();
+    let mut out = GrayImage::from_fn(w, h, |x, y| Luma([lut[img.get_pixel(x, y).0[0] as usize]]));
+
+    if filters.sharpen > 0.0 {
+        out = unsharp_mask(&out, filters.sharpen / 100.0);
+    }
+    out
+}
+
+/// LUT de 256 entradas con gamma → brillo → contraste, en ese orden: la gamma
+/// trabaja sobre los tonos originales y el contraste cierra estirando el
+/// resultado alrededor del gris medio.
+fn tone_lut(filters: ImageFilters) -> [u8; 256] {
+    let gamma = filters.gamma.clamp(0.1, 3.0);
+    let brightness = filters.brightness.clamp(-100.0, 100.0) * 2.55;
+    // Formula clasica del factor de contraste, con c en -255..255
+    let c = filters.contrast.clamp(-100.0, 100.0) * 2.55;
+    let factor = (259.0 * (c + 255.0)) / (255.0 * (259.0 - c));
+
+    let mut lut = [0u8; 256];
+    for (i, entry) in lut.iter_mut().enumerate() {
+        let mut v = i as f32 / 255.0;
+        if (gamma - 1.0).abs() > f32::EPSILON {
+            v = v.powf(1.0 / gamma);
+        }
+        let mut v = v * 255.0 + brightness;
+        v = factor * (v - 128.0) + 128.0;
+        *entry = v.clamp(0.0, 255.0) as u8;
+    }
+    lut
+}
+
+/// Unsharp mask: se resta un desenfoque gaussiano 3x3 y se devuelve la
+/// diferencia amplificada. `amount` en 0..1 (la UI expone 0..100).
+fn unsharp_mask(img: &GrayImage, amount: f32) -> GrayImage {
+    #[rustfmt::skip]
+    const GAUSS_3X3: [[f32; 3]; 3] = [
+        [1.0, 2.0, 1.0],
+        [2.0, 4.0, 2.0],
+        [1.0, 2.0, 1.0],
+    ];
+    const GAUSS_SUM: f32 = 16.0;
+
+    let (w, h) = img.dimensions();
+    GrayImage::from_fn(w, h, |x, y| {
+        let mut blur = 0.0;
+        for (dy, row) in GAUSS_3X3.iter().enumerate() {
+            for (dx, weight) in row.iter().enumerate() {
+                // Los bordes replican el pixel del borde en vez de oscurecerse
+                let sx = (x as i32 + dx as i32 - 1).clamp(0, w as i32 - 1) as u32;
+                let sy = (y as i32 + dy as i32 - 1).clamp(0, h as i32 - 1) as u32;
+                blur += img.get_pixel(sx, sy).0[0] as f32 * weight;
+            }
+        }
+        blur /= GAUSS_SUM;
+
+        let orig = img.get_pixel(x, y).0[0] as f32;
+        Luma([(orig + amount * (orig - blur)).clamp(0.0, 255.0) as u8])
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn filters(brightness: f32, contrast: f32, gamma: f32, sharpen: f32) -> ImageFilters {
+        ImageFilters { brightness, contrast, gamma, sharpen }
+    }
+
+    #[test]
+    fn identity_lut_no_toca_los_tonos() {
+        let lut = tone_lut(ImageFilters::default());
+        for i in 0..256 {
+            assert_eq!(lut[i], i as u8, "entrada {} cambio sin filtros", i);
+        }
+    }
+
+    #[test]
+    fn brillo_desplaza_y_satura_sin_envolver() {
+        let lut = tone_lut(filters(50.0, 0.0, 1.0, 0.0));
+        assert!(lut[100] > 100);
+        assert_eq!(lut[255], 255, "el blanco satura, no vuelve a 0");
+
+        let lut = tone_lut(filters(-50.0, 0.0, 1.0, 0.0));
+        assert!(lut[100] < 100);
+        assert_eq!(lut[0], 0);
+    }
+
+    #[test]
+    fn contraste_separa_del_gris_medio() {
+        let lut = tone_lut(filters(0.0, 60.0, 1.0, 0.0));
+        assert!(lut[64] < 64, "las sombras se hunden");
+        assert!(lut[192] > 192, "las luces suben");
+        assert_eq!(lut[128], 128, "el punto medio es el pivote");
+
+        let plano = tone_lut(filters(0.0, -60.0, 1.0, 0.0));
+        assert!(plano[64] > 64 && plano[192] < 192, "contraste negativo comprime");
+    }
+
+    #[test]
+    fn gamma_mayor_a_uno_aclara_los_medios() {
+        let claro = tone_lut(filters(0.0, 0.0, 2.0, 0.0));
+        let oscuro = tone_lut(filters(0.0, 0.0, 0.5, 0.0));
+        assert!(claro[64] > 64);
+        assert!(oscuro[64] < 64);
+        // Los extremos son puntos fijos de la curva
+        assert_eq!(claro[0], 0);
+        assert_eq!(claro[255], 255);
+    }
+
+    #[test]
+    fn unsharp_marca_el_borde_y_deja_el_plano_quieto() {
+        // Mitad izquierda negra, mitad derecha blanca
+        let img = GrayImage::from_fn(8, 4, |x, _| Luma([if x < 4 { 0 } else { 255 }]));
+        let out = unsharp_mask(&img, 1.0);
+
+        assert!(out.get_pixel(3, 2).0[0] == 0, "el lado oscuro del borde se hunde");
+        assert!(out.get_pixel(4, 2).0[0] == 255, "el lado claro del borde se realza");
+        assert_eq!(out.get_pixel(0, 2).0[0], 0, "zona plana intacta");
+        assert_eq!(out.get_pixel(7, 2).0[0], 255, "zona plana intacta");
+    }
+
+    #[test]
+    fn is_identity_solo_para_los_valores_neutros() {
+        assert!(ImageFilters::default().is_identity());
+        assert!(!filters(1.0, 0.0, 1.0, 0.0).is_identity());
+        assert!(!filters(0.0, 0.0, 1.0, 5.0).is_identity());
+        assert!(!filters(0.0, 0.0, 1.2, 0.0).is_identity());
     }
 }

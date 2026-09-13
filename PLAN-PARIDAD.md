@@ -136,12 +136,14 @@ Estado actual: raster bueno, vectorial básico, sin optimización avanzada.
 - **Qué**: Campo `laserLeadIn` en GlobalConfig + arco de aproximación en `generateLaserContour()` para paths cerrados. UI en GlobalConfigModal sección laser
 - **Archivos**: `types.ts`, `useCanvasStore.ts`, `gcode-generator.ts`, `GlobalConfigModal.tsx`
 
-### 3.7 Más Dithering + Filtros de Imagen — ⚠️ PARCIAL (dithering listo 2026-09-12)
+### ~~3.7 Más Dithering + Filtros de Imagen~~ ✅ COMPLETADO (2026-09-12)
 - **Referencia**: LightBurn
-- **2026-09-12 ✅ dithering**: `diffuse_error()` generico con tabla de kernel + Jarvis-Judice-Ninke, Stucki, Burkes y Sierra. 9 modos en total. Floyd-Steinberg y Atkinson quedan con su funcion propia; todo kernel nuevo entra por la generica
-- **Falta**: filtros de imagen (brillo, contraste, sharpen, gamma) antes del dithering
-- **Archivos**: `image_processing.rs`, `types.ts`, `ImageWizardModal.tsx`, i18n
-- **Esfuerzo restante**: S
+- **Dithering**: `diffuse_error()` generico con tabla de kernel + Jarvis-Judice-Ninke, Stucki, Burkes y Sierra. 9 modos en total. Floyd-Steinberg y Atkinson quedan con su funcion propia; todo kernel nuevo entra por la generica
+- **Filtros**: `ImageFilters` (brillo -100..100, contraste -100..100, gamma 0.1..3, enfoque 0..100) aplicados entre el resize y el dithering. Brillo/contraste/gamma se resuelven en una LUT de 256 entradas (un lookup por pixel); el enfoque es un unsharp mask 3x3 con bordes replicados. Sin filtros la imagen no toca ninguna pasada extra (`is_identity()`)
+- **Por que importa**: una foto plana entraba al kernel de difusion con casi todo el rango en una mitad y salia como una mancha. Ahora el nivel se ajusta antes de binarizar, que es donde el dithering puede aprovecharlo
+- **UI**: sliders en `ImageWizardModal` con **re-proceso en vivo** (debounce 350 ms, una corrida a la vez y la previa anterior queda en pantalla mientras recalcula) y boton de restablecer. Los valores persisten en `GlobalConfig` (`rasterBrightness`, `rasterContrast`, `rasterGamma`, `rasterSharpen`)
+- **Tests**: 6 en `image_processing.rs` — LUT identidad, saturacion de brillo, pivote del contraste en 128, gamma con extremos fijos, unsharp sobre borde vs zona plana
+- **Archivos**: `image_processing.rs`, `web_server.rs`, `types.ts`, `useCanvasStore.ts`, `ImageWizardModal.tsx`, i18n
 
 ### ~~3.8 Color Mapping (Capas por Color)~~ ✅ COMPLETADO (UI 2026-09-12)
 - **Qué**: Tipo `ColorMapping` + paleta default de 5 colores en canvasStore. `emitLaserBody()` agrupa paths por strokeColor y aplica power/speed/passes por color
@@ -653,7 +655,6 @@ canvas.
 
 | # | Feature | Por que es barato | Esfuerzo |
 |---|---------|-------------------|----------|
-| 3.7b | Filtros de imagen (brillo, contraste, sharpen, gamma) | Los kernels de dithering ya entraron; los filtros son un paso previo sobre el mismo `GrayImage` | S |
 | 7.2 | Excellon drill import | Parser de texto puro, sin dependencias; `drill` ya existe como WorkType con G81/G83 | M |
 | 7.7 | Agujeros de registro | Se reduce a generar 2-4 circulos en esquinas y mandarlos al drill toolpath existente | S |
 | 4.7 / 7.8 | Backlash compensation | Post-proceso sobre las lineas ya emitidas, detectando cambio de signo por eje | M |

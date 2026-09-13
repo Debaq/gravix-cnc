@@ -13,6 +13,13 @@
   "process": "Procesar",
   "processing": "Procesando...",
   "accept": "Aceptar",
+  "filters": "Filtros de imagen",
+  "filtersHint": "Se aplican antes del dithering. Ajusta hasta que el detalle se distinga en la vista previa.",
+  "brightness": "Brillo",
+  "contrast": "Contraste",
+  "gamma": "Gamma",
+  "sharpen": "Enfoque",
+  "resetFilters": "Restablecer",
   "modes": {
     "threshold": "Umbral simple",
     "floydSteinberg": "Floyd-Steinberg (recomendado)",

@@ -13,6 +13,13 @@
   "process": "Process",
   "processing": "Processing...",
   "accept": "Accept",
+  "filters": "Image filters",
+  "filtersHint": "Applied before dithering. Tweak until detail reads in the preview.",
+  "brightness": "Brightness",
+  "contrast": "Contrast",
+  "gamma": "Gamma",
+  "sharpen": "Sharpen",
+  "resetFilters": "Reset",
   "modes": {
     "threshold": "Simple threshold",
     "floydSteinberg": "Floyd-Steinberg (recommended)",
