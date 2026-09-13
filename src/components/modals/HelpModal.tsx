@@ -39,7 +39,7 @@ export function HelpModal() {
                 <li>{t('scrollZoom')}</li>
                 <li>{t('clickDrag')}</li>
                 <li>{t('middleClickDrag')}</li>
-                <li>{t('shiftClickDrag')}</li>
+                <li>{t('spaceDrag')}</li>
               </ul>
             </div>
 

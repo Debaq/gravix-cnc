@@ -19,6 +19,8 @@ import {
   NON_INTERACTIVE_KEY,
   ELEMENT_ID_KEY,
   getCustomProp,
+  markViewTouched,
+  isViewTouched,
 } from '@/hooks/useCanvasManager'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { arcFrom3Points, sampleCatmullRom } from '@/lib/geometry'
@@ -660,6 +662,45 @@ function exitNodeEditing(canvas: Canvas): void {
 const RULER_SIZE = 18
 
 /**
+ * Encuadra el area de trabajo en el lienzo: calcula el zoom que la hace entrar
+ * y la centra. Devuelve false si el contenedor todavia no tiene tamaño — pasa
+ * cuando la ventana arranca oculta, y encuadrar contra 0 deja la matriz en
+ * cero: no se ve nada y toda la matematica de puntero da NaN.
+ */
+function fitWorkAreaToCanvas(
+  canvas: Canvas,
+  workArea: { width: number; height: number },
+): boolean {
+  const cw = canvas.getWidth()
+  const ch = canvas.getHeight()
+  if (cw <= 0 || ch <= 0) return false
+
+  // Las reglas se dibujan encima del lienzo, sobre el borde superior y el
+  // izquierdo: centrar contra el lienzo entero deja el dibujo corrido y con la
+  // esquina tapada
+  const inset = useCanvasStore.getState().showRulers ? RULER_SIZE : 0
+  const availW = cw - inset
+  const availH = ch - inset
+  if (availW <= 0 || availH <= 0) return false
+
+  const workW = workArea.width * PIXELS_PER_MM + WORK_AREA_PADDING * 2
+  const workH = workArea.height * PIXELS_PER_MM + WORK_AREA_PADDING * 2
+  const zoom = Math.min(availW / workW, availH / workH) * 0.95
+  if (!Number.isFinite(zoom) || zoom <= 0) return false
+
+  canvas.setViewportTransform([
+    zoom,
+    0,
+    0,
+    zoom,
+    inset + (availW - workW * zoom) / 2,
+    inset + (availH - workH * zoom) / 2,
+  ])
+  canvas.requestRenderAll()
+  return true
+}
+
+/**
  * Reglas en mm sobre los bordes del lienzo. Se dibujan en coordenadas de
  * PANTALLA (sin la transform del viewport) para que no escalen con el zoom.
  */
@@ -890,6 +931,10 @@ export function DesignCanvas() {
   const fabricRef = useRef<Canvas | null>(null)
   const isPanning = useRef(false)
   const lastPanPoint = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+  /** El encuadre inicial quedo pendiente porque el lienzo medía 0. */
+  const needsFit = useRef(false)
+  /** Barra espaciadora sostenida: modo paneo, como en cualquier editor. */
+  const spaceHeld = useRef(false)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false, x: 0, y: 0, hasSelection: false, hasMultiSelection: false, isGroup: false, isPathOrPoly: false,
   })
@@ -995,19 +1040,11 @@ export function DesignCanvas() {
     // Build initial work area
     rebuildWorkArea(canvas)
 
-    // Fit view initially
-    const workW = workArea.width * PIXELS_PER_MM + WORK_AREA_PADDING * 2
-    const workH = workArea.height * PIXELS_PER_MM + WORK_AREA_PADDING * 2
-    const zoom = Math.min(width / workW, height / workH) * 0.95
-    const vpt: [number, number, number, number, number, number] = [
-      zoom,
-      0,
-      0,
-      zoom,
-      (width - workW * zoom) / 2,
-      (height - workH * zoom) / 2,
-    ]
-    canvas.setViewportTransform(vpt)
+    // Encuadre inicial. La ventana se crea con `maximized: true` y
+    // `visible: false`, asi que el tamaño de este momento no es el definitivo:
+    // si el encuadre no se puede hacer todavia queda pendiente para el primer
+    // resize real
+    needsFit.current = !fitWorkAreaToCanvas(canvas, workArea)
 
     // ---- Event: Mouse wheel zoom ----
     canvas.on('mouse:wheel', (opt) => {
@@ -1021,14 +1058,17 @@ export function DesignCanvas() {
       newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom))
 
       canvas.zoomToPoint(new Point(evt.offsetX, evt.offsetY), newZoom)
+      markViewTouched(canvas, true)
       canvas.requestRenderAll()
     })
 
-    // ---- Event: Middle-click / Alt+click panning ----
-    // Shift is reserved for multi-selection (Fabric.js default)
+    // ---- Paneo: rueda del medio, barra espaciadora o Alt+arrastre ----
+    // Shift queda para la seleccion multiple (default de Fabric). Alt no
+    // alcanza por si solo: en Linux el gestor de ventanas se queda con
+    // Alt+arrastre para mover la ventana y el evento nunca llega al lienzo
     canvas.on('mouse:down', (opt) => {
       const evt = opt.e as MouseEvent
-      if (evt.button === 1 || (evt.altKey && evt.button === 0)) {
+      if (evt.button === 1 || spaceHeld.current || (evt.altKey && evt.button === 0)) {
         isPanning.current = true
         lastPanPoint.current = { x: evt.clientX, y: evt.clientY }
         canvas.selection = false
@@ -1047,16 +1087,56 @@ export function DesignCanvas() {
       currentVpt[5] += evt.clientY - lastPanPoint.current.y
       lastPanPoint.current = { x: evt.clientX, y: evt.clientY }
       canvas.setViewportTransform(currentVpt)
+      markViewTouched(canvas, true)
       canvas.requestRenderAll()
     })
 
     canvas.on('mouse:up', () => {
       if (isPanning.current) {
         isPanning.current = false
-        canvas.selection = true
-        canvas.setCursor('default')
+        canvas.selection = !spaceHeld.current
+        canvas.setCursor(spaceHeld.current ? 'grab' : 'default')
       }
     })
+
+    // ---- Barra espaciadora: modo paneo mientras se sostiene ----
+    const isTyping = (el: EventTarget | null) => {
+      const node = el as HTMLElement | null
+      const tag = node?.tagName
+      return tag === 'INPUT' || tag === 'TEXTAREA' || node?.isContentEditable === true
+    }
+
+    const onSpaceDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.repeat || isTyping(e.target)) return
+      // Sin esto la barra desplaza la pagina y activa el boton que tenga foco
+      e.preventDefault()
+      spaceHeld.current = true
+      canvas.selection = false
+      canvas.defaultCursor = 'grab'
+      canvas.setCursor('grab')
+    }
+
+    const onSpaceUp = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return
+      spaceHeld.current = false
+      isPanning.current = false
+      canvas.selection = true
+      canvas.defaultCursor = 'default'
+      canvas.setCursor('default')
+    }
+
+    // Si el foco se va con la barra apretada, el modo queda pegado
+    const onBlurReset = () => {
+      if (!spaceHeld.current) return
+      spaceHeld.current = false
+      isPanning.current = false
+      canvas.selection = true
+      canvas.defaultCursor = 'default'
+    }
+
+    window.addEventListener('keydown', onSpaceDown)
+    window.addEventListener('keyup', onSpaceUp)
+    window.addEventListener('blur', onBlurReset)
 
     // ---- Guias: crear arrastrando desde la regla, mover y borrar ----
     /** Devuelve la guia cuya linea esta a menos de `tol` px de pantalla. */
@@ -2470,10 +2550,29 @@ export function DesignCanvas() {
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width: newW, height: newH } = entry.contentRect
-        if (newW > 0 && newH > 0) {
-          canvas.setDimensions({ width: newW, height: newH })
-          canvas.requestRenderAll()
+        if (newW <= 0 || newH <= 0) continue
+
+        const prevW = canvas.getWidth()
+        const prevH = canvas.getHeight()
+        canvas.setDimensions({ width: newW, height: newH })
+
+        if (needsFit.current || !isViewTouched(canvas)) {
+          // La vista sigue siendo la automatica: se reencuadra contra el tamaño
+          // nuevo. Es el caso de arranque — la ventana se crea maximizada pero
+          // el lienzo monta antes, con un tamaño que no es el que se va a ver
+          needsFit.current = !fitWorkAreaToCanvas(canvas, useCanvasStore.getState().workArea)
+        } else {
+          // Ya hay una vista armada: se respeta el zoom del usuario y se mueve
+          // el viewport la mitad del cambio, asi lo que estaba en el centro
+          // sigue en el centro en vez de irse a una esquina
+          const vpt = canvas.viewportTransform
+          if (vpt) {
+            vpt[4] += (newW - prevW) / 2
+            vpt[5] += (newH - prevH) / 2
+            canvas.setViewportTransform(vpt)
+          }
         }
+        canvas.requestRenderAll()
       }
     })
     observer.observe(container)
@@ -2491,6 +2590,9 @@ export function DesignCanvas() {
       window.removeEventListener('node-edit:fillet', handleNodeFillet)
       window.removeEventListener('node-edit:chamfer', handleNodeChamfer)
       window.removeEventListener('node-edit:dogbone', handleNodeDogbone)
+      window.removeEventListener('keydown', onSpaceDown)
+      window.removeEventListener('keyup', onSpaceUp)
+      window.removeEventListener('blur', onBlurReset)
       observer.disconnect()
       canvas.dispose()
       fabricRef.current = null

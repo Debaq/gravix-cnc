@@ -334,6 +334,27 @@ function findNextFreePosition(
 // ============================================
 // Build work area background objects (non-interactive)
 // ============================================
+/**
+ * Marca si el usuario ya acomodo la vista a mano (zoom o paneo).
+ *
+ * Sirve para decidir que hacer cuando cambia el tamaño del lienzo: mientras la
+ * vista sea la automatica, conviene volver a encuadrar — la ventana arranca
+ * maximizada pero el lienzo monta antes de que eso ocurra, asi que el primer
+ * tamaño que ve no es el real. Una vez que el usuario movio la vista, ya no se
+ * le toca el zoom: solo se corrige el centro.
+ */
+const VIEW_TOUCHED_KEY = '_viewTouched'
+
+export function markViewTouched(canvas: Canvas | null, touched: boolean): void {
+  if (!canvas) return
+  ;(canvas as unknown as Record<string, unknown>)[VIEW_TOUCHED_KEY] = touched
+}
+
+export function isViewTouched(canvas: Canvas | null): boolean {
+  if (!canvas) return false
+  return (canvas as unknown as Record<string, unknown>)[VIEW_TOUCHED_KEY] === true
+}
+
 export function buildWorkAreaObjects(
   workAreaWidth: number,
   workAreaHeight: number,
@@ -1716,6 +1737,8 @@ export function useCanvasManager() {
       (canvasH - workH * zoom) / 2,
     ]
     canvas.setViewportTransform(vpt)
+    // Volver a "encuadre automatico": si despues cambia el tamaño, se reencuadra
+    markViewTouched(canvas, false)
     canvas.requestRenderAll()
   }, [])
 
