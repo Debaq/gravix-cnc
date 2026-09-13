@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useAppStore } from '@/stores/useAppStore'
@@ -15,10 +15,12 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { Loader2, Check, RefreshCw } from 'lucide-react'
+import { Loader2, Check, RefreshCw, RotateCcw } from 'lucide-react'
 import { tauriInvoke, isTauri } from '@/lib/tauri'
 import { useCanvasManager } from '@/hooks/useCanvasManager'
 import type { DitheringMode, RasterData } from '@/lib/types'
+
+const FILTER_DEFAULTS = { brightness: 0, contrast: 0, gamma: 1, sharpen: 0 }
 
 export function ImageWizardModal() {
   const { t } = useTranslation('imageWizard')
@@ -33,11 +35,26 @@ export function ImageWizardModal() {
   const [dithering, setDithering] = useState<DitheringMode>(globalConfig.rasterDithering || 'floydSteinberg')
   const [threshold, setThreshold] = useState(globalConfig.rasterThreshold ?? 128)
   const [invert, setInvert] = useState(globalConfig.rasterInvert ?? false)
+  const [brightness, setBrightness] = useState(globalConfig.rasterBrightness ?? FILTER_DEFAULTS.brightness)
+  const [contrast, setContrast] = useState(globalConfig.rasterContrast ?? FILTER_DEFAULTS.contrast)
+  const [gamma, setGamma] = useState(globalConfig.rasterGamma ?? FILTER_DEFAULTS.gamma)
+  const [sharpen, setSharpen] = useState(globalConfig.rasterSharpen ?? FILTER_DEFAULTS.sharpen)
 
-  const doProcess = async () => {
+  // Una corrida a la vez: si llega otra mientras procesa, queda pendiente y se
+  // dispara al terminar con los valores nuevos (los sliders emiten en rafaga)
+  const runningRef = useRef(false)
+  const pendingRef = useRef(false)
+  const doProcessRef = useRef<() => void>(() => {})
+
+  const doProcess = useCallback(async () => {
     const path = sessionStorage.getItem('rasterImagePath')
     if (!path || !isTauri()) return
 
+    if (runningRef.current) {
+      pendingRef.current = true
+      return
+    }
+    runningRef.current = true
     setProcessing(true)
     try {
       const result = await tauriInvoke<RasterData>('process_image_for_laser', {
@@ -48,6 +65,7 @@ export function ImageWizardModal() {
         dithering,
         threshold,
         invert,
+        filters: { brightness, contrast, gamma, sharpen },
       })
       setRasterData(result)
       setGlobalConfig({
@@ -55,25 +73,54 @@ export function ImageWizardModal() {
         rasterDithering: dithering,
         rasterThreshold: threshold,
         rasterInvert: invert,
+        rasterBrightness: brightness,
+        rasterContrast: contrast,
+        rasterGamma: gamma,
+        rasterSharpen: sharpen,
       })
       addConsoleLine(`Imagen procesada: ${result.width}x${result.height} px`)
     } catch (err) {
       addConsoleLine(`Error procesando imagen: ${err}`)
     } finally {
+      runningRef.current = false
       setProcessing(false)
+      if (pendingRef.current) {
+        pendingRef.current = false
+        doProcessRef.current()
+      }
     }
-  }
+  }, [dpi, dithering, threshold, invert, brightness, contrast, gamma, sharpen, workArea.width, workArea.height])
 
-  // Auto-procesar al abrir el wizard
+  doProcessRef.current = doProcess
+
+  // Procesa al abrir y re-procesa solo con los ajustes; los sliders se debouncean
+  // para no lanzar un pase de dithering por cada pixel de arrastre
   useEffect(() => {
-    if (isOpen && !hasAutoProcessed.current) {
-      hasAutoProcessed.current = true
-      doProcess()
-    }
     if (!isOpen) {
       hasAutoProcessed.current = false
+      return
     }
-  }, [isOpen])
+    if (!hasAutoProcessed.current) {
+      hasAutoProcessed.current = true
+      doProcess()
+      return
+    }
+    const id = setTimeout(doProcess, 350)
+    return () => clearTimeout(id)
+  }, [isOpen, doProcess])
+
+  const resetFilters = () => {
+    setBrightness(FILTER_DEFAULTS.brightness)
+    setContrast(FILTER_DEFAULTS.contrast)
+    setGamma(FILTER_DEFAULTS.gamma)
+    setSharpen(FILTER_DEFAULTS.sharpen)
+  }
+
+  const filtersDirty =
+    brightness !== FILTER_DEFAULTS.brightness ||
+    contrast !== FILTER_DEFAULTS.contrast ||
+    gamma !== FILTER_DEFAULTS.gamma ||
+    sharpen !== FILTER_DEFAULTS.sharpen
 
   const canvasManager = useCanvasManager()
 
@@ -101,32 +148,38 @@ export function ImageWizardModal() {
           {/* Preview */}
           <div className="space-y-1">
             <Label className="text-xs font-semibold">{t('preview')}</Label>
-            {processing && (
-              <div className="flex items-center justify-center py-12 border rounded bg-muted/30">
-                <div className="flex flex-col items-center gap-2">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                  <span className="text-xs text-muted-foreground">{t('processing')}</span>
-                </div>
-              </div>
-            )}
-            {!processing && rasterData && (
+            {rasterData && (
               <>
-                <div className="border rounded p-2 bg-muted/30">
+                {/* La imagen previa se queda en pantalla mientras recalcula: con
+                    los sliders en vivo, cambiarla por el spinner es un parpadeo */}
+                <div className="relative border rounded p-2 bg-muted/30">
                   <img
                     src={rasterData.preview_base64}
                     alt="Preview"
-                    className="w-full h-auto max-h-48 object-contain mx-auto"
+                    className={`w-full h-auto max-h-48 object-contain mx-auto transition-opacity ${processing ? 'opacity-40' : ''}`}
                     style={{ imageRendering: 'pixelated' }}
                   />
+                  {processing && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                  )}
                 </div>
                 <p className="text-[10px] text-muted-foreground text-center">
                   {rasterData.width}x{rasterData.height} px — {(rasterData.width * rasterData.pixel_size_mm).toFixed(1)}x{(rasterData.height * rasterData.pixel_size_mm).toFixed(1)} mm
                 </p>
               </>
             )}
-            {!processing && !rasterData && (
-              <div className="flex items-center justify-center py-8 text-sm text-muted-foreground border rounded">
-                {t('errorNoPreview')}
+            {!rasterData && (
+              <div className="flex items-center justify-center py-12 border rounded bg-muted/30">
+                {processing ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    <span className="text-xs text-muted-foreground">{t('processing')}</span>
+                  </div>
+                ) : (
+                  <span className="text-sm text-muted-foreground">{t('errorNoPreview')}</span>
+                )}
               </div>
             )}
           </div>
@@ -202,6 +255,60 @@ export function ImageWizardModal() {
 
           <Separator />
 
+          {/* Filtros de tono — se aplican antes del dithering */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-semibold">{t('filters')}</Label>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                onClick={resetFilters}
+                disabled={!filtersDirty}
+              >
+                <RotateCcw className="w-3 h-3 mr-1" />
+                {t('resetFilters')}
+              </Button>
+            </div>
+            <p className="text-[10px] text-muted-foreground">{t('filtersHint')}</p>
+
+            <FilterSlider
+              label={t('brightness')}
+              value={brightness}
+              min={-100}
+              max={100}
+              step={1}
+              onChange={setBrightness}
+            />
+            <FilterSlider
+              label={t('contrast')}
+              value={contrast}
+              min={-100}
+              max={100}
+              step={1}
+              onChange={setContrast}
+            />
+            <FilterSlider
+              label={t('gamma')}
+              value={gamma}
+              min={0.1}
+              max={3}
+              step={0.05}
+              decimals={2}
+              onChange={setGamma}
+            />
+            <FilterSlider
+              label={t('sharpen')}
+              value={sharpen}
+              min={0}
+              max={100}
+              step={1}
+              onChange={setSharpen}
+            />
+          </div>
+
+          <Separator />
+
           {/* Actions */}
           <div className="flex gap-2">
             <Button
@@ -225,5 +332,35 @@ export function ImageWizardModal() {
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+interface FilterSliderProps {
+  label: string
+  value: number
+  min: number
+  max: number
+  step: number
+  decimals?: number
+  onChange: (v: number) => void
+}
+
+function FilterSlider({ label, value, min, max, step, decimals = 0, onChange }: FilterSliderProps) {
+  return (
+    <div>
+      <Label className="text-xs">{label}</Label>
+      <div className="flex items-center gap-2 mt-1">
+        <Input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(parseFloat(e.target.value))}
+          className="flex-1 h-8"
+        />
+        <span className="text-xs font-mono w-10 text-right">{value.toFixed(decimals)}</span>
+      </div>
+    </div>
   )
 }

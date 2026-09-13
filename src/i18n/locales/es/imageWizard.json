@@ -13,6 +13,13 @@
   "process": "Procesar",
   "processing": "Procesando...",
   "accept": "Aceptar",
+  "filters": "Filtros de imagen",
+  "filtersHint": "Se aplican antes del dithering. Ajusta hasta que el detalle se distinga en la vista previa.",
+  "brightness": "Brillo",
+  "contrast": "Contraste",
+  "gamma": "Gamma",
+  "sharpen": "Enfoque",
+  "resetFilters": "Restablecer",
   "modes": {
     "threshold": "Umbral simple",
     "floydSteinberg": "Floyd-Steinberg (recomendado)",
@@ -23,5 +30,29 @@
     "burkes": "Burkes (rapido)",
     "sierra": "Sierra (equilibrado)",
     "grayscale": "Escala de grises (sin dithering)"
+  },
+  "trace": {
+    "title": "Vectorizar imagen",
+    "description": "Convierte un bitmap en contornos vectoriales para cortar o grabar",
+    "mode": "Que se traza",
+    "modes": {
+      "outline": "Completo (con agujeros)",
+      "outlineHint": "Traza el contorno exterior y los huecos interiores como subpaths.",
+      "silhouette": "Silueta (solo contorno exterior)",
+      "silhouetteHint": "Ignora los huecos: queda la figura maciza, lista para recortarla entera.",
+      "centerline": "Eje medio (centerline)",
+      "centerlineHint": "Sigue el centro de cada trazo en vez de su borde. Para line art de un trazo: planos a lapiz, firmas, letras de palo."
+    },
+    "simplify": "Simplificacion (px)",
+    "smooth": "Suavizado",
+    "outputWidth": "Ancho de salida (mm)",
+    "minArea": "Area minima (px)",
+    "minAreaHint": "Descarta manchas y agujeros mas chicos que esto. Sube para limpiar ruido de escaneo.",
+    "minBranch": "Rama minima (px)",
+    "minBranchHint": "Poda las ramas muertas que deja la esqueletizacion en los bordes irregulares.",
+    "stats": "{{paths}} contornos, {{holes}} agujeros, {{points}} nodos",
+    "heavy": "Muchos nodos: sube la simplificacion o el area minima",
+    "tracing": "Trazando...",
+    "accept": "Agregar al lienzo"
   }
 }

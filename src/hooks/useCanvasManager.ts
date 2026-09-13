@@ -588,12 +588,11 @@ export function useCanvasManager() {
   // ------------------------------------------
   // Load SVG from File
   // ------------------------------------------
-  const loadSVG = useCallback(
-    async (file: File) => {
+  const loadSVGString = useCallback(
+    async (text: string, name: string) => {
       const canvas = getCanvas()
       if (!canvas) return
 
-      const text = await file.text()
       const { objects, options } = await loadSVGFromString(text)
 
       const validObjects = objects.filter(
@@ -643,7 +642,7 @@ export function useCanvasManager() {
       const element: CanvasElement = {
         id: elementId,
         type: 'svg',
-        name: file.name.replace(/\.svg$/i, ''),
+        name,
         visible: true,
         locked: false,
         config: null,
@@ -658,6 +657,14 @@ export function useCanvasManager() {
       markGCodeStale()
     },
     [addElement, selectElement, setSvgDimensions],
+  )
+
+  const loadSVG = useCallback(
+    async (file: File) => {
+      const text = await file.text()
+      await loadSVGString(text, file.name.replace(/\.svg$/i, ''))
+    },
+    [loadSVGString],
   )
 
   const loadDXF = useCallback(
@@ -740,6 +747,40 @@ export function useCanvasManager() {
       }
 
       openModal('imageWizard')
+    },
+    [],
+  )
+
+  // ------------------------------------------
+  // Load image for auto-vectorization (trace)
+  // ------------------------------------------
+  const traceImage = useCallback(
+    async () => {
+      if (!isTauri()) return
+
+      const { openModal, addConsoleLine } = useAppStore.getState()
+
+      try {
+        const { open } = await import('@tauri-apps/plugin-dialog')
+        const result = await open({
+          multiple: false,
+          filters: [{
+            name: 'Images',
+            extensions: ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp', 'tiff', 'tif'],
+          }],
+        })
+
+        if (!result) return
+
+        const filePath = typeof result === 'string' ? result : String(result)
+        sessionStorage.setItem('traceImagePath', filePath)
+        addConsoleLine(`Vectorizar: ${filePath}`)
+      } catch (err) {
+        addConsoleLine(`Error dialogo: ${err}`)
+        return
+      }
+
+      openModal('traceImage')
     },
     [],
   )
@@ -3730,6 +3771,8 @@ export function useCanvasManager() {
   return {
     setCanvas,
     loadSVG,
+    loadSVGString,
+    traceImage,
     loadDXF,
     loadImage,
     addRasterToCanvas,

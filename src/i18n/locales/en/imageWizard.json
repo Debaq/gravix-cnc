@@ -13,6 +13,13 @@
   "process": "Process",
   "processing": "Processing...",
   "accept": "Accept",
+  "filters": "Image filters",
+  "filtersHint": "Applied before dithering. Tweak until detail reads in the preview.",
+  "brightness": "Brightness",
+  "contrast": "Contrast",
+  "gamma": "Gamma",
+  "sharpen": "Sharpen",
+  "resetFilters": "Reset",
   "modes": {
     "threshold": "Simple threshold",
     "floydSteinberg": "Floyd-Steinberg (recommended)",
@@ -23,5 +30,29 @@
     "burkes": "Burkes (fast)",
     "sierra": "Sierra (balanced)",
     "grayscale": "Grayscale (no dithering)"
+  },
+  "trace": {
+    "title": "Trace image",
+    "description": "Turn a bitmap into vector contours for cutting or engraving",
+    "mode": "What to trace",
+    "modes": {
+      "outline": "Full (with holes)",
+      "outlineHint": "Traces the outer contour plus inner holes as subpaths.",
+      "silhouette": "Silhouette (outer contour only)",
+      "silhouetteHint": "Drops the holes: a solid shape, ready to cut out whole.",
+      "centerline": "Centerline",
+      "centerlineHint": "Follows the middle of each stroke instead of its edge. For single-stroke line art: pencil drawings, signatures, stick lettering."
+    },
+    "simplify": "Simplify (px)",
+    "smooth": "Smoothing",
+    "outputWidth": "Output width (mm)",
+    "minArea": "Minimum area (px)",
+    "minAreaHint": "Drops blobs and holes smaller than this. Raise it to clean up scan noise.",
+    "minBranch": "Minimum branch (px)",
+    "minBranchHint": "Prunes the dead branches skeletonization leaves on ragged edges.",
+    "stats": "{{paths}} contours, {{holes}} holes, {{points}} nodes",
+    "heavy": "Lots of nodes: raise simplification or minimum area",
+    "tracing": "Tracing...",
+    "accept": "Add to canvas"
   }
 }

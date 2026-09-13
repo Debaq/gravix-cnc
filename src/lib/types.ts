@@ -27,6 +27,39 @@ export type DitheringMode =
   | 'grayscale'
 
 // Datos de imagen ráster procesada
+/// Filtros de tono que viajan al backend junto con la imagen
+export interface ImageFilters {
+  brightness: number
+  contrast: number
+  gamma: number
+  sharpen: number
+}
+
+// Vectorizacion: que contornos entran al resultado
+export type TraceMode = 'silhouette' | 'outline' | 'centerline'
+
+export interface TraceOptions {
+  mode: TraceMode
+  threshold: number      // 0-255, umbral de binarizacion
+  invert: boolean        // que se considera tinta
+  minArea: number        // descarta manchas de menos de N px de area
+  simplify: number       // tolerancia Douglas-Peucker en px
+  smooth: number         // 0..1, curvatura de los tramos
+  maxResolution: number  // lado maximo al que se reduce antes de trazar
+}
+
+export interface TraceResult {
+  svg: string
+  preview_base64: string
+  path_count: number
+  hole_count: number
+  point_count: number
+  width_mm: number
+  height_mm: number
+  traced_width: number
+  traced_height: number
+}
+
 export interface RasterData {
   width: number
   height: number
@@ -93,6 +126,11 @@ export interface GlobalConfig {
   rasterThreshold: number    // Umbral de blanco/negro (0-255)
   rasterInvert: boolean      // Invertir imagen (para materiales oscuros)
   rasterBidirectional: boolean // Escaneo bidireccional en ráster
+  // Filtros de imagen (se aplican antes del dithering)
+  rasterBrightness: number   // -100..100
+  rasterContrast: number     // -100..100
+  rasterGamma: number        // 0.1..3.0 (1 = sin corrección)
+  rasterSharpen: number      // 0..100 (unsharp mask)
   // Kerf compensation láser
   laserKerf: number          // Ancho de corte láser (mm) para compensación
   laserLeadIn: number        // Distancia lead-in/out (mm, 0 = disabled)

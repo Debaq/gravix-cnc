@@ -125,23 +125,62 @@ Estado actual: raster bueno, vectorial básico, sin optimización avanzada.
 - **Archivos**: `geometry.ts`, `gcode-generator.ts`
 - **Esfuerzo**: M
 
-### 3.5 Auto-Vectorización (Potrace/similar)
-- **Referencia**: LightBurn Trace Image
-- **Qué**: Convertir imagen bitmap a paths vectoriales automáticamente
-- **Por qué**: Actualmente solo raster. Vectorizar permite corte/engrave de logos desde foto
-- **Archivos**: Nuevo módulo, posiblemente en Rust (image_processing.rs)
-- **Esfuerzo**: L
+### ~~3.5 Auto-Vectorización~~ ✅ COMPLETADO (2026-09-12)
+- **Referencia**: LightBurn Trace Image, Silhouette Studio Trace
+- **Qué**: `vectorize.rs` — bitmap a contornos por **marching squares** sobre la
+  imagen binarizada, con Douglas-Peucker para bajar nodos y suavizado opcional a
+  cubicas. Salida: un SVG en mm que entra al lienzo como cualquier otro import
+- **Por que marching squares y no seguir el borde pixel a pixel**: seguir el borde
+  obliga a etiquetar componentes antes para saber que es pieza y que es agujero.
+  Aca los agujeros salen solos, con el sentido de giro invertido respecto del
+  contorno que los contiene, y el area con signo los separa
+- **Tres modos**: `outline` (contorno + agujeros como subpaths del mismo path),
+  **`silhouette`** (solo contorno exterior — la figura maciza, para recortarla entera)
+  y **`centerline`** (eje medio: la linea que recorre el trazo por el centro)
+- **Controles**: umbral, invertir, area minima (descarta ruido de escaneo),
+  simplificacion en px, suavizado 0..1 y ancho de salida en mm. Preview del SVG en
+  vivo con debounce, aviso cuando el trazado pasa de 4000 nodos
+- **Bug encontrado al probarlo contra una imagen real**: los handles de las cubicas
+  salian de `(next - prev)` sin normalizar (Catmull-Rom uniforme). Con los nodos ya
+  simplificados los tramos quedan de largos muy distintos y la curva se disparaba —
+  las puntas de una estrella salian abombadas. Ahora la tangente va normalizada y el
+  largo del handle lo pone cada tramo
+- **Tests**: 13 en `vectorize.rs` (cuadrado, agujero con giro contrario, silueta vs
+  completo, dos manchas, area minima, simplificacion, invertir, escala/proporcion,
+  imagen en blanco, recto vs curvo, y tres de centerline: linea abierta vs contorno,
+  anillo cerrado, poda de rama) + 5 en `centerline.rs` (barra a un pixel, cruz con
+  cuatro brazos, anillo cerrado, poda, trazos sueltos) + smoke con archivo real
+  (`#[ignore]`, via `TRACE_IN`/`TRACE_OUT`/`TRACE_MODE`)
+- **Archivos**: `vectorize.rs` (nuevo), `centerline.rs` (nuevo),
+  `TraceImageModal.tsx` (nuevo), `lib.rs`, `commands/mod.rs`, `useCanvasManager.ts`,
+  `DesignPanel.tsx`, `App.tsx`, `types.ts`, i18n
+- **Centerline** (`centerline.rs`): esqueletizacion Zhang-Suen a un pixel de ancho y
+  lectura del esqueleto como grafo — extremos y bifurcaciones son nodos, el resto son
+  tramos. Sin esto, un plano a lapiz sale como dos lineas paralelas por trazo y la
+  maquina repasa el borde en vez de dibujarlo. El area minima se reinterpreta como
+  largo minimo de rama (la UI muestra px) para podar los pelitos que deja la
+  esqueletizacion en los bordes irregulares
+- **Tres cosas que costaron en el grafo del esqueleto**: (1) el grado hay que
+  contarlo por **numero de cruces**, no por vecinos encendidos — en una escalera
+  diagonal un pixel de paso tiene tres vecinos y se leia como bifurcacion;
+  (2) al avanzar hay que tomar el vecino **mas cercano** (ortogonal antes que
+  diagonal), porque saltar al lejano saltea el pixel de la esquina y lo deja suelto;
+  (3) un pixel de paso pertenece a **un solo** tramo — sin eso, los cuatro vecinos de
+  una bifurcacion volvian como un rombo cerrado alrededor del centro
+- **Rendimiento**: 95 ms para 1200x800 en release, asi que entra en el preview en vivo
 
 ### ~~3.6 Lead-In / Lead-Out~~ ✅ COMPLETADO
 - **Qué**: Campo `laserLeadIn` en GlobalConfig + arco de aproximación en `generateLaserContour()` para paths cerrados. UI en GlobalConfigModal sección laser
 - **Archivos**: `types.ts`, `useCanvasStore.ts`, `gcode-generator.ts`, `GlobalConfigModal.tsx`
 
-### 3.7 Más Dithering + Filtros de Imagen — ⚠️ PARCIAL (dithering listo 2026-09-12)
+### ~~3.7 Más Dithering + Filtros de Imagen~~ ✅ COMPLETADO (2026-09-12)
 - **Referencia**: LightBurn
-- **2026-09-12 ✅ dithering**: `diffuse_error()` generico con tabla de kernel + Jarvis-Judice-Ninke, Stucki, Burkes y Sierra. 9 modos en total. Floyd-Steinberg y Atkinson quedan con su funcion propia; todo kernel nuevo entra por la generica
-- **Falta**: filtros de imagen (brillo, contraste, sharpen, gamma) antes del dithering
-- **Archivos**: `image_processing.rs`, `types.ts`, `ImageWizardModal.tsx`, i18n
-- **Esfuerzo restante**: S
+- **Dithering**: `diffuse_error()` generico con tabla de kernel + Jarvis-Judice-Ninke, Stucki, Burkes y Sierra. 9 modos en total. Floyd-Steinberg y Atkinson quedan con su funcion propia; todo kernel nuevo entra por la generica
+- **Filtros**: `ImageFilters` (brillo -100..100, contraste -100..100, gamma 0.1..3, enfoque 0..100) aplicados entre el resize y el dithering. Brillo/contraste/gamma se resuelven en una LUT de 256 entradas (un lookup por pixel); el enfoque es un unsharp mask 3x3 con bordes replicados. Sin filtros la imagen no toca ninguna pasada extra (`is_identity()`)
+- **Por que importa**: una foto plana entraba al kernel de difusion con casi todo el rango en una mitad y salia como una mancha. Ahora el nivel se ajusta antes de binarizar, que es donde el dithering puede aprovecharlo
+- **UI**: sliders en `ImageWizardModal` con **re-proceso en vivo** (debounce 350 ms, una corrida a la vez y la previa anterior queda en pantalla mientras recalcula) y boton de restablecer. Los valores persisten en `GlobalConfig` (`rasterBrightness`, `rasterContrast`, `rasterGamma`, `rasterSharpen`)
+- **Tests**: 6 en `image_processing.rs` — LUT identidad, saturacion de brillo, pivote del contraste en 128, gamma con extremos fijos, unsharp sobre borde vs zona plana
+- **Archivos**: `image_processing.rs`, `web_server.rs`, `types.ts`, `useCanvasStore.ts`, `ImageWizardModal.tsx`, i18n
 
 ### ~~3.8 Color Mapping (Capas por Color)~~ ✅ COMPLETADO (UI 2026-09-12)
 - **Qué**: Tipo `ColorMapping` + paleta default de 5 colores en canvasStore. `emitLaserBody()` agrupa paths por strokeColor y aplica power/speed/passes por color
@@ -653,16 +692,14 @@ canvas.
 
 | # | Feature | Por que es barato | Esfuerzo |
 |---|---------|-------------------|----------|
-| 3.7b | Filtros de imagen (brillo, contraste, sharpen, gamma) | Los kernels de dithering ya entraron; los filtros son un paso previo sobre el mismo `GrayImage` | S |
 | 7.2 | Excellon drill import | Parser de texto puro, sin dependencias; `drill` ya existe como WorkType con G81/G83 | M |
 | 7.7 | Agujeros de registro | Se reduce a generar 2-4 circulos en esquinas y mandarlos al drill toolpath existente | S |
 | 4.7 / 7.8 | Backlash compensation | Post-proceso sobre las lineas ya emitidas, detectando cambio de signo por eje | M |
 | 5.6 | Gamepad / pendant | Gamepad API del browser contra el `jog()` que ya existe en `useSerial` | M |
 
 Lo grande que sigue pendiente y **no** es barato: Gerber import (7.1), isolation
-routing (7.3), surface auto-leveling (7.4), auto-vectorizacion (3.5), true-shape
-nesting con no-fit polygons (el empaque por bbox ya entro en 5.4) y toda la Fase 4C
-de modelado 3D.
+routing (7.3), surface auto-leveling (7.4), true-shape nesting con no-fit polygons
+(el empaque por bbox ya entro en 5.4) y toda la Fase 4C de modelado 3D.
 
 ---
 

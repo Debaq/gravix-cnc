@@ -1,6 +1,6 @@
 use crate::commands::{
     auth, files,
-    image_processing::{self, DitheringMode, RasterResult},
+    image_processing::{self, DitheringMode, ImageFilters, RasterResult},
     materials::{self, Material},
     serial::{self, PortInfo},
     tools::{self, Tool},
@@ -71,6 +71,8 @@ struct ImageProcessRequest {
     dithering: DitheringMode,
     threshold: u8,
     invert: bool,
+    #[serde(default)]
+    filters: Option<ImageFilters>,
 }
 
 #[derive(Deserialize)]
@@ -183,6 +185,7 @@ async fn process_image_handler(
             req.dithering,
             req.threshold,
             req.invert,
+            req.filters,
         )
     })
     .await
