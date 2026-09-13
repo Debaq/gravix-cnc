@@ -1,6 +1,6 @@
 [package]
 name = "gravix"
-version = "0.5.0"
+version = "0.6.0"
 description = "Gravix - control CNC/GRBL con CAD 2D y generacion de G-code"
 authors = ["Nicolas Baier Quezada"]
 edition = "2021"
