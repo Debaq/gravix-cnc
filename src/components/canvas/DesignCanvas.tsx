@@ -14,6 +14,7 @@ import {
   effectiveGridSpacing,
   niceStepMm,
   canvasToMm,
+  mmToCanvas,
   getOriginPixels,
   NON_INTERACTIVE_KEY,
   ELEMENT_ID_KEY,
@@ -36,6 +37,8 @@ import {
   filletNode,
   chamferNode,
   dogboneNode,
+  symmetricNode,
+  breakNode,
   type NodeEditData,
 } from '@/lib/node-editor'
 import {
@@ -114,6 +117,29 @@ let cursorHud: { x: number; y: number; lengthMm: number; angleDeg: number } | nu
 
 /** Ultima posicion del cursor en pixeles de pantalla, para las reglas. */
 let rulerCursor: { x: number; y: number } | null = null
+
+/** Guia que se esta arrastrando (nueva desde la regla, o una existente). */
+let draggingGuide: { id: string; axis: 'x' | 'y'; isNew: boolean } | null = null
+/** Guia bajo el cursor, para resaltarla. */
+let hoveredGuideId: string | null = null
+
+/** Guias en coordenadas canvas, como las espera el motor de snap. */
+function guidesInCanvasCoords(): { x: number[]; y: number[] } {
+  const st = useCanvasStore.getState()
+  if (!st.showGuides) return { x: [], y: [] }
+  const x: number[] = []
+  const y: number[] = []
+  for (const g of st.guides) {
+    const pt = mmToCanvas(
+      g.axis === 'x' ? g.mm : 0,
+      g.axis === 'y' ? g.mm : 0,
+      st.workArea,
+    )
+    if (g.axis === 'x') x.push(pt.x)
+    else y.push(pt.y)
+  }
+  return { x, y }
+}
 
 function invalidateSnapIndex(): void {
   invalidateSnapCache()
@@ -206,12 +232,16 @@ function resolveSnappedPoint(
     ? ensureSnapIndex(canvas, exclude)
     : EMPTY_SNAP_INDEX
 
+  const guides = guidesInCanvasCoords()
+  kinds.guide = st.showGuides && (guides.x.length > 0 || guides.y.length > 0)
+
   let hit = querySnap(index, candidate, {
     threshold,
     kinds,
     grid: st.snapToGrid && !orthoActive
       ? { spacing: gridSpacingPx(zoom), originX: WORK_AREA_PADDING, originY: WORK_AREA_PADDING }
       : undefined,
+    guides,
     reference,
   })
 
@@ -361,6 +391,21 @@ function calculateSnap(
       dotRefY = refY
       // Horizontal crosshair line at the grid Y position
       guidesH.push({ y: nearY, x1: waL, x2: waR })
+    }
+  }
+
+  // Snap de los bordes del bounding box a las guias de usuario
+  {
+    const guides = guidesInCanvasCoords()
+    for (const gx of guides.x) {
+      tryX(bL, gx, bL, vExt.min, vExt.max)
+      tryX(bR, gx, bR, vExt.min, vExt.max)
+      tryX(bCX, gx, bCX, vExt.min, vExt.max)
+    }
+    for (const gy of guides.y) {
+      tryY(bT, gy, bT, hExt.min, hExt.max)
+      tryY(bB, gy, bB, hExt.min, hExt.max)
+      tryY(bCY, gy, bCY, hExt.min, hExt.max)
     }
   }
 
@@ -860,6 +905,9 @@ export function DesignCanvas() {
     gridSpacingMm,
     gridAdaptive,
     showRulers,
+    guides,
+    showGuides,
+    activeSheetId,
     selectElement, 
     setSelectedElements, 
     setIsGroupSelection,
@@ -1007,6 +1055,115 @@ export function DesignCanvas() {
         canvas.selection = true
         canvas.setCursor('default')
       }
+    })
+
+    // ---- Guias: crear arrastrando desde la regla, mover y borrar ----
+    /** Devuelve la guia cuya linea esta a menos de `tol` px de pantalla. */
+    const guideAtScreen = (sx: number, sy: number): { id: string; axis: 'x' | 'y' } | null => {
+      const st = useCanvasStore.getState()
+      if (!st.showGuides) return null
+      const vptG = canvas.viewportTransform
+      if (!vptG) return null
+      const zoomG = canvas.getZoom() || 1
+      const tol = 5
+
+      for (const g of st.guides) {
+        const pt = mmToCanvas(
+          g.axis === 'x' ? g.mm : 0,
+          g.axis === 'y' ? g.mm : 0,
+          st.workArea,
+        )
+        if (g.axis === 'x') {
+          if (Math.abs(pt.x * zoomG + vptG[4] - sx) <= tol) return { id: g.id, axis: 'x' }
+        } else {
+          if (Math.abs(pt.y * zoomG + vptG[5] - sy) <= tol) return { id: g.id, axis: 'y' }
+        }
+      }
+      return null
+    }
+
+    /** Posicion en mm (segun el eje) del cursor de pantalla. */
+    const guideMmAt = (sx: number, sy: number, axis: 'x' | 'y'): number => {
+      const vptG = canvas.viewportTransform!
+      const zoomG = canvas.getZoom() || 1
+      const st = useCanvasStore.getState()
+      const mm = canvasToMm((sx - vptG[4]) / zoomG, (sy - vptG[5]) / zoomG, st.workArea)
+      return axis === 'x' ? mm.x : mm.y
+    }
+
+    canvas.on('mouse:down', (opt) => {
+      const evt = opt.e as MouseEvent
+      if (evt.button !== 0 || evt.altKey) return
+      const st = useCanvasStore.getState()
+      if (st.drawingMode || st.measuringMode || st.trimMode || st.extendMode) return
+      if (st.nodeEditingElementId) return
+
+      const inRulerX = st.showRulers && evt.offsetY <= RULER_SIZE
+      const inRulerY = st.showRulers && evt.offsetX <= RULER_SIZE
+
+      // Desde la regla nace una guia nueva
+      if (inRulerX || inRulerY) {
+        const axis: 'x' | 'y' = inRulerY && !inRulerX ? 'x' : inRulerX && !inRulerY ? 'y' : 'x'
+        const mm = guideMmAt(evt.offsetX, evt.offsetY, axis)
+        const id = st.addGuide(axis, +mm.toFixed(2))
+        draggingGuide = { id, axis, isNew: true }
+        canvas.selection = false
+        evt.preventDefault()
+        canvas.requestRenderAll()
+        return
+      }
+
+      // Sobre una guia existente: moverla
+      const hit = guideAtScreen(evt.offsetX, evt.offsetY)
+      if (hit) {
+        draggingGuide = { ...hit, isNew: false }
+        canvas.selection = false
+        evt.preventDefault()
+      }
+    })
+
+    canvas.on('mouse:move', (opt) => {
+      const evt = opt.e as MouseEvent
+
+      if (draggingGuide) {
+        const mm = guideMmAt(evt.offsetX, evt.offsetY, draggingGuide.axis)
+        useCanvasStore.getState().moveGuide(draggingGuide.id, +mm.toFixed(2))
+        canvas.requestRenderAll()
+        return
+      }
+
+      const st = useCanvasStore.getState()
+      if (st.drawingMode || st.nodeEditingElementId) return
+      const hit = guideAtScreen(evt.offsetX, evt.offsetY)
+      const newHover = hit?.id ?? null
+      if (newHover !== hoveredGuideId) {
+        hoveredGuideId = newHover
+        canvas.upperCanvasEl.style.cursor = newHover
+          ? (hit!.axis === 'x' ? 'ew-resize' : 'ns-resize')
+          : ''
+        canvas.requestRenderAll()
+      }
+    })
+
+    canvas.on('mouse:up', (opt) => {
+      if (!draggingGuide) return
+      const evt = opt.e as MouseEvent
+      const st = useCanvasStore.getState()
+
+      // Soltar sobre la regla (o fuera del lienzo) descarta la guia
+      const backToRuler = st.showRulers &&
+        (evt.offsetX <= RULER_SIZE || evt.offsetY <= RULER_SIZE)
+      const outside =
+        evt.offsetX < 0 || evt.offsetY < 0 ||
+        evt.offsetX > canvas.getWidth() || evt.offsetY > canvas.getHeight()
+
+      if (backToRuler || outside) {
+        st.removeGuide(draggingGuide.id)
+      }
+
+      draggingGuide = null
+      canvas.selection = true
+      canvas.requestRenderAll()
     })
 
     // ---- Event: posicion del cursor (footer + marcador en las reglas) ----
@@ -1179,6 +1336,36 @@ export function DesignCanvas() {
           ctx.moveTo(ox, y); ctx.lineTo(ox + workW, y)
         }
         ctx.stroke()
+      }
+
+      // ---- Guias de usuario ----
+      if (wa.showGuides && wa.guides.length > 0) {
+        const vptG = canvas.viewportTransform!
+        // Extremos del viewport en coordenadas canvas, para cubrir toda la vista
+        const left = -vptG[4] / z
+        const top = -vptG[5] / z
+        const right = left + canvas.getWidth() / z
+        const bottom = top + canvas.getHeight() / z
+
+        for (const g of wa.guides) {
+          const pt = mmToCanvas(
+            g.axis === 'x' ? g.mm : 0,
+            g.axis === 'y' ? g.mm : 0,
+            wa.workArea,
+          )
+          const isActive = g.id === hoveredGuideId || g.id === draggingGuide?.id
+          ctx.strokeStyle = isActive ? '#0EA5E9' : 'rgba(14,165,233,0.55)'
+          ctx.lineWidth = (isActive ? 1.5 : 1) / z
+          ctx.setLineDash([7 / z, 4 / z])
+          ctx.beginPath()
+          if (g.axis === 'x') {
+            ctx.moveTo(pt.x, top); ctx.lineTo(pt.x, bottom)
+          } else {
+            ctx.moveTo(left, pt.y); ctx.lineTo(right, pt.y)
+          }
+          ctx.stroke()
+        }
+        ctx.setLineDash([])
       }
 
       // ---- Snap guides + dots ----
@@ -1808,7 +1995,8 @@ export function DesignCanvas() {
       }
 
       const snapState = useCanvasStore.getState()
-      if (snapState.snapToGrid || snapState.snapToObjects) {
+      const hasGuides = snapState.showGuides && snapState.guides.length > 0
+      if (snapState.snapToGrid || snapState.snapToObjects || hasGuides) {
         const gridSpacing = gridSpacingPx(canvas.getZoom())
         const snap = calculateSnap(
           canvas.getZoom(), obj,
@@ -1839,7 +2027,8 @@ export function DesignCanvas() {
       const obj = opt.target
       if (obj && isDragging) {
         const snapState = useCanvasStore.getState()
-        if (snapState.snapToGrid || snapState.snapToObjects) {
+        const hasGuides = snapState.showGuides && snapState.guides.length > 0
+        if (snapState.snapToGrid || snapState.snapToObjects || hasGuides) {
           const gridSpacing = gridSpacingPx(canvas.getZoom())
           const snap = calculateSnap(
             canvas.getZoom(), obj,
@@ -2244,6 +2433,31 @@ export function DesignCanvas() {
       }
     }
 
+    const handleNodeSymmetric = () => {
+      const state = useCanvasStore.getState()
+      if (!state.nodeEditingElementId || !nodeEditData || !nodeEditObject) return
+      if (state.nodeEditSelectedNode < 0) return
+      const newData = symmetricNode(nodeEditObject, nodeEditData, state.nodeEditSelectedNode)
+      if (newData) {
+        nodeEditData = newData
+        canvas.requestRenderAll()
+        pushToHistory()
+      }
+    }
+    const handleNodeBreak = () => {
+      const state = useCanvasStore.getState()
+      if (!state.nodeEditingElementId || !nodeEditData || !nodeEditObject) return
+      if (state.nodeEditSelectedNode < 0) return
+      const newData = breakNode(nodeEditObject, nodeEditData, state.nodeEditSelectedNode)
+      if (newData) {
+        nodeEditData = newData
+        canvas.requestRenderAll()
+        pushToHistory()
+      }
+    }
+
+    window.addEventListener('node-edit:symmetric', handleNodeSymmetric)
+    window.addEventListener('node-edit:break', handleNodeBreak)
     window.addEventListener('node-edit:fillet', handleNodeFillet)
     window.addEventListener('node-edit:chamfer', handleNodeChamfer)
     window.addEventListener('node-edit:dogbone', handleNodeDogbone)
@@ -2271,6 +2485,8 @@ export function DesignCanvas() {
       window.removeEventListener('node-edit:toggle-smooth', handleNodeToggleSmooth)
       window.removeEventListener('node-edit:split', handleNodeSplit)
       window.removeEventListener('node-edit:toggle-closed', handleNodeToggleClosed)
+      window.removeEventListener('node-edit:symmetric', handleNodeSymmetric)
+      window.removeEventListener('node-edit:break', handleNodeBreak)
       window.removeEventListener('node-edit:fillet', handleNodeFillet)
       window.removeEventListener('node-edit:chamfer', handleNodeChamfer)
       window.removeEventListener('node-edit:dogbone', handleNodeDogbone)
@@ -2293,11 +2509,20 @@ export function DesignCanvas() {
   }, [rebuildWorkArea])
 
   // ------------------------------------------
+  // Hoja activa: mostrar solo lo que vive en ella
+  // ------------------------------------------
+  useEffect(() => {
+    if (!fabricRef.current) return
+    cm.applySheetVisibility()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSheetId])
+
+  // ------------------------------------------
   // Repintar al cambiar grilla o reglas
   // ------------------------------------------
   useEffect(() => {
     fabricRef.current?.requestRenderAll()
-  }, [gridSpacingMm, gridAdaptive, showRulers, showGrid])
+  }, [gridSpacingMm, gridAdaptive, showRulers, showGrid, guides, showGuides])
 
   // ------------------------------------------
   // Drawing mode: setup/teardown event handlers
@@ -3066,6 +3291,13 @@ export function DesignCanvas() {
 
           {contextMenu.hasSelection && (
             <>
+              <div className="h-px bg-border my-1" />
+
+              {/* Seleccionar similares */}
+              <ContextMenuItem label={t('selectSameType')} onClick={() => handleContextAction(() => cm.selectSimilar('type'))} />
+              <ContextMenuItem label={t('selectSameLayer')} onClick={() => handleContextAction(() => cm.selectSimilar('layer'))} />
+              <ContextMenuItem label={t('selectSameColor')} onClick={() => handleContextAction(() => cm.selectSimilar('color'))} />
+
               <div className="h-px bg-border my-1" />
 
               {/* Edit */}

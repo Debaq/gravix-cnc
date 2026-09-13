@@ -16,7 +16,7 @@ import {
   Point,
   util,
 } from 'fabric'
-import { useCanvasStore } from '@/stores/useCanvasStore'
+import { useCanvasStore, DEFAULT_SHEET_ID } from '@/stores/useCanvasStore'
 import { invalidateSnapCache } from '@/lib/snap-engine'
 import type { CanvasElement, GCodePath, GCodeJob, Point2D } from '@/lib/types'
 import { isTauri } from '@/lib/tauri'
@@ -1463,6 +1463,82 @@ export function useCanvasManager() {
   )
 
   // ------------------------------------------
+  // Hojas: solo la activa se ve y se puede tocar
+  // ------------------------------------------
+
+  /**
+   * Sincroniza el canvas con la hoja activa. Un elemento se ve si esta en la
+   * hoja activa Y su propio toggle de visibilidad esta encendido; los de otras
+   * hojas quedan ocultos, y por eso tampoco entran al G-code (el generador
+   * saltea lo invisible).
+   */
+  const applySheetVisibility = useCallback(() => {
+    const canvas = getCanvas()
+    if (!canvas) return
+
+    const state = useCanvasStore.getState()
+    const active = state.activeSheetId
+
+    for (const obj of canvas.getObjects()) {
+      if (getCustomProp(obj, NON_INTERACTIVE_KEY) === true) continue
+      const id = getCustomProp(obj, ELEMENT_ID_KEY)
+      if (typeof id !== 'string') continue
+
+      const element = state.findElementById(id)
+      const sheetId = element?.sheetId ?? DEFAULT_SHEET_ID
+      const onActiveSheet = sheetId === active
+      const visible = onActiveSheet && (element?.visible ?? true)
+
+      obj.set({ visible, evented: onActiveSheet && !(element?.locked ?? false) })
+      obj.selectable = onActiveSheet && !(element?.locked ?? false)
+    }
+
+    canvas.discardActiveObject()
+    canvas.requestRenderAll()
+  }, [])
+
+  const switchSheet = useCallback((sheetId: string) => {
+    const state = useCanvasStore.getState()
+    if (state.activeSheetId === sheetId) return
+    state.setActiveSheet(sheetId)
+    selectElement(null)
+    applySheetVisibility()
+  }, [applySheetVisibility, selectElement])
+
+  const createSheet = useCallback(() => {
+    const id = useCanvasStore.getState().addSheet()
+    switchSheet(id)
+    return id
+  }, [switchSheet])
+
+  /** Borra la hoja y todo lo que vive en ella. */
+  const deleteSheet = useCallback((sheetId: string) => {
+    const canvas = getCanvas()
+    const state = useCanvasStore.getState()
+    if (state.sheets.length <= 1) return
+
+    const doomed = state.elements.filter(
+      (el) => (el.sheetId ?? DEFAULT_SHEET_ID) === sheetId,
+    )
+
+    if (canvas) {
+      for (const el of doomed) {
+        const obj = canvas.getObjects().find(
+          (o) => getCustomProp(o, ELEMENT_ID_KEY) === el.id,
+        )
+        if (obj) canvas.remove(obj)
+      }
+    }
+    for (const el of doomed) removeElement(el.id)
+
+    state.removeSheet(sheetId)
+    selectElement(null)
+    applySheetVisibility()
+    pushToHistory()
+    markGCodeStale()
+  }, [applySheetVisibility, removeElement, selectElement])
+
+  // ------------------------------------------
   // Toggle lock
   // ------------------------------------------
   const toggleLock = useCallback(
@@ -1639,9 +1715,12 @@ export function useCanvasManager() {
     useCanvasStore.getState().setElements(elements)
     useCanvasStore.getState().selectElement(entry.selectedElementId)
 
+    // El JSON trae todo visible: hay que volver a ocultar las otras hojas
+    applySheetVisibility()
+
     canvas.requestRenderAll()
     isRestoring = false
-  }, [])
+  }, [applySheetVisibility])
 
   // ------------------------------------------
   // Redo
@@ -1662,9 +1741,12 @@ export function useCanvasManager() {
     useCanvasStore.getState().setElements(elements)
     useCanvasStore.getState().selectElement(entry.selectedElementId)
 
+    // El JSON trae todo visible: hay que volver a ocultar las otras hojas
+    applySheetVisibility()
+
     canvas.requestRenderAll()
     isRestoring = false
-  }, [])
+  }, [applySheetVisibility])
 
   // ------------------------------------------
   // Delete selected object(s)
@@ -2296,6 +2378,65 @@ export function useCanvasManager() {
     cancelAnimationFrame(rafId.current)
     rafId.current = requestAnimationFrame(updateSelectedObjectPropsImmediate)
   }, [updateSelectedObjectPropsImmediate])
+
+  /**
+   * Selecciona todo lo que comparte un rasgo con lo seleccionado: mismo tipo de
+   * forma, misma capa o mismo color de trazo. Util para aplicar una config a un
+   * grupo entero sin ir uno por uno.
+   */
+  const selectSimilar = useCallback((criterion: 'type' | 'layer' | 'color') => {
+    const canvas = getCanvas()
+    if (!canvas) return
+
+    const active = canvas.getActiveObject()
+    if (!active) return
+
+    const state = useCanvasStore.getState()
+    const elementOf = (obj: FabricObject) => {
+      const id = getCustomProp(obj, ELEMENT_ID_KEY)
+      return typeof id === 'string' ? state.findElementById(id) : undefined
+    }
+
+    // La referencia es el objeto activo, o el primero de una seleccion multiple
+    const reference = active instanceof ActiveSelection
+      ? active.getObjects()[0]
+      : active
+    if (!reference) return
+
+    const refElement = elementOf(reference)
+    const refKind = refElement ? (refElement.makerType ?? refElement.type) : reference.type
+    const refLayer = refElement?.layerId ?? state.activeLayerId
+    const refStroke = reference.stroke
+
+    const matches = canvas.getObjects().filter((obj) => {
+      if (getCustomProp(obj, NON_INTERACTIVE_KEY) === true) return false
+      if (!obj.visible || obj.selectable === false) return false
+
+      const element = elementOf(obj)
+      switch (criterion) {
+        case 'type': {
+          const kind = element ? (element.makerType ?? element.type) : obj.type
+          return kind === refKind
+        }
+        case 'layer':
+          return (element?.layerId ?? state.activeLayerId) === refLayer
+        case 'color':
+          return obj.stroke === refStroke
+      }
+    })
+
+    if (matches.length === 0) return
+
+    canvas.discardActiveObject()
+    if (matches.length === 1) {
+      canvas.setActiveObject(matches[0])
+    } else {
+      canvas.setActiveObject(new ActiveSelection(matches, { canvas }))
+    }
+    canvas.requestRenderAll()
+    updateSelectedObjectProps()
+  }, [updateSelectedObjectProps])
+
 
   // ------------------------------------------
   // Apply property changes from the footer to the canvas object
@@ -3503,6 +3644,10 @@ export function useCanvasManager() {
     updateMakerParams,
     removeObject,
     toggleVisibility,
+    applySheetVisibility,
+    switchSheet,
+    createSheet,
+    deleteSheet,
     toggleLock,
     zoomIn,
     zoomOut,
@@ -3515,6 +3660,7 @@ export function useCanvasManager() {
     deleteSelected,
     duplicateSelected,
     selectAll,
+    selectSimilar,
     deselectAll,
     nudge,
     commitNudge,

@@ -350,9 +350,10 @@ Feature set más ambicioso. Aspire se diferencia de VCarve Pro por su modelado 3
 
 ## Fase 4D: Diseño 2D Avanzado — Gap con Aspire (Semana 6-8)
 
-### ~~4D.1 Node Editing Avanzado~~ ✅ ~85% COMPLETADO
-- **Qué**: Smooth/sharp, delete, insert midpoint, split, open/close, fillet, chamfer, dogbone, constraints H/V. Falta symmetric nodes y break node para 100%
-- **Archivos**: `node-editor.ts`, `useCanvasManager.ts`, `NodeEditToolbar.tsx`
+### ~~4D.1 Node Editing Avanzado~~ ✅ COMPLETADO (2026-09-12)
+- **Qué**: Smooth/sharp, delete, insert midpoint, split, open/close, fillet, chamfer, dogbone, constraints H/V
+- **2026-09-12**: cerrado al 100% con `symmetricNode()` (handles colineales y de igual largo, sin quiebre en el nodo) y `breakNode()` (corta el path dejando un solo objeto: abre y reordena el contorno cerrado, o inserta un M en el abierto). Botones nuevos en NodeEditToolbar
+- **Archivos**: `node-editor.ts`, `DesignCanvas.tsx`, `NodeEditToolbar.tsx`, i18n
 
 ### 4D.2 ~~Fillet y Chamfer en Vectores~~ ✅ COMPLETADO
 - **Qué**: Fillet y chamfer ya existían. Agregado **dog-bone fillet**: `dogboneNode()` en node-editor.ts que extiende arco INTO la esquina para compensar radio de fresa. Botón en NodeEditToolbar
@@ -392,10 +393,14 @@ Feature set más ambicioso. Aspire se diferencia de VCarve Pro por su modelado 3
   `useCanvasStore.ts`, `useKeyboardShortcuts.ts`, `CanvasToolbar.tsx`,
   `CanvasFooter.tsx`, `PropertiesPanel.tsx`, `DesignPanel.tsx`, `HelpModal.tsx`, i18n
 
-### 4D.6 Multiple Sheets — ❌ NO EMPEZADO
+### ~~4D.10 Guias de usuario y seleccion por similitud~~ ✅ COMPLETADO (2026-09-12)
+- **Qué**: guias arrastrables desde las reglas (crear, mover, borrar soltandolas de vuelta en la regla), que ademas son candidatos del snap — tanto del cursor al dibujar como del bounding box al arrastrar objetos. Y "seleccionar mismo tipo / misma capa / mismo color" en el menu contextual
+- **Archivos**: `snap-engine.ts`, `DesignCanvas.tsx`, `useCanvasStore.ts`, `useCanvasManager.ts`, `CanvasToolbar.tsx`, i18n
+
+### ~~4D.6 Multiple Sheets~~ ✅ COMPLETADO (2026-09-12)
 - **Qué**: hojas multiples con pestañas y elementos asociados a cada hoja
-- **2026-09-12**: el stub `sheets[]` (add/remove/rename/setActive sin un solo consumidor) se **elimino** del store. Guardar la estructura sin la feature solo hacia que el plan se leyera como mas avanzado de lo que estaba
-- **Esfuerzo restante**: M (campo `sheetId` en CanvasElement, filtrado en canvas, barra de pestañas)
+- **2026-09-12**: rehecho de verdad. `sheetId` en `CanvasElement` (lo estampa `addElement`, asi que ninguna via de creacion se lo saltea), `sheets[]` + `activeSheetId` en el store, `applySheetVisibility()` en useCanvasManager (solo la hoja activa se ve, se edita y entra al G-code, porque el generador saltea lo invisible) y `SheetTabs.tsx` con crear, renombrar (doble click) y borrar en dos pasos. Persiste en el `.gravix` (v1.2) y en el export JSON
+- **Archivos**: `SheetTabs.tsx` (nuevo), `useCanvasStore.ts`, `useCanvasManager.ts`, `App.tsx`, `DesignPanel.tsx`, `CanvasFooter.tsx`, `project-file.ts`, `useProject.ts`, `ProjectsScreen.tsx`, `types.ts`, i18n
 
 ### 4D.7 ~~Array Circular~~ ✅ YA EXISTÍA
 - **Qué**: `arrayPolar()` en useCanvasManager + tab "Polar" en ArrayModal con count, totalAngle, centerX/Y
@@ -642,7 +647,6 @@ canvas.
 | 7.7 | Agujeros de registro | Se reduce a generar 2-4 circulos en esquinas y mandarlos al drill toolpath existente | S |
 | 4.7 / 7.8 | Backlash compensation | Post-proceso sobre las lineas ya emitidas, detectando cambio de signo por eje | M |
 | 5.6 | Gamepad / pendant | Gamepad API del browser contra el `jog()` que ya existe en `useSerial` | M |
-| 4D.6 | Multiple sheets real | Campo `sheetId` en CanvasElement + filtrado en canvas + pestañas | M |
 
 Lo grande que sigue pendiente y **no** es barato: Gerber import (7.1), isolation
 routing (7.3), surface auto-leveling (7.4), auto-vectorizacion (3.5), nesting

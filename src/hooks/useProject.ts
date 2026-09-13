@@ -31,14 +31,16 @@ export function useProject() {
     addConsoleLine,
   } = useAppStore()
 
-  const { elements, globalConfig, workArea } = useCanvasStore()
+  const { elements, globalConfig, workArea, sheets, activeSheetId } = useCanvasStore()
   const { gcode, gcodeGenerated, gcodeLines } = useGCodeStore()
 
   const newProject = useCallback(() => {
     const { clearGCode } = useGCodeStore.getState()
-    const { setElements } = useCanvasStore.getState()
+    const { setElements, setSheets, clearGuides } = useCanvasStore.getState()
     setProjectName('Untitled Project')
     setElements([])
+    setSheets([])
+    clearGuides()
     clearGCode()
     addConsoleLine('Nuevo proyecto creado')
   }, [setProjectName, addConsoleLine])
@@ -61,6 +63,7 @@ export function useProject() {
         visible: el.visible,
         locked: el.locked,
         layerId: el.layerId,
+        sheetId: el.sheetId,
         config: el.config,
         operations: el.operations,
         makerType: el.makerType,
@@ -73,6 +76,7 @@ export function useProject() {
           visible: child.visible,
           locked: child.locked,
           layerId: child.layerId,
+          sheetId: child.sheetId,
           config: child.config,
           operations: child.operations,
           makerType: child.makerType,
@@ -89,9 +93,9 @@ export function useProject() {
       },
       selectedTool: globalConfig.tool,
       selectedMaterial: globalConfig.material,
-      extensions: {},
+      extensions: { sheets, activeSheetId },
     }
-  }, [projectName, workArea, elements, globalConfig, gcode, gcodeGenerated, gcodeLines])
+  }, [projectName, workArea, elements, globalConfig, gcode, gcodeGenerated, gcodeLines, sheets, activeSheetId])
 
   const saveProject = useCallback(async () => {
     const data = serializeProject()
@@ -163,12 +167,17 @@ export function useProject() {
   }, [addConsoleLine])
 
   const restoreProject = useCallback((data: ProjectData) => {
-    const { setElements, setWorkArea, setGlobalConfig } = useCanvasStore.getState()
+    const { setElements, setWorkArea, setGlobalConfig, setSheets } = useCanvasStore.getState()
     const { setGCode } = useGCodeStore.getState()
 
     setProjectName(data.metadata.projectName)
     setWorkArea(data.workArea)
     setGlobalConfig(data.globalConfig)
+
+    // Las hojas viajan en extensions para no romper archivos viejos
+    const ext = data.extensions as { sheets?: { id: string; name: string }[]; activeSheetId?: string } | undefined
+    setSheets(ext?.sheets ?? [], ext?.activeSheetId)
+
     setElements(data.elements as ReturnType<typeof useCanvasStore.getState>['elements'])
 
     if (data.gcode.generated && data.gcode.code) {

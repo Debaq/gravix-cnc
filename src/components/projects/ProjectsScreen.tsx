@@ -184,8 +184,10 @@ export function ProjectsScreen() {
     const filePath = workspacePath ? `${workspacePath}/${filename}` : filename
 
     // Limpiar canvas
-    const { setElements } = useCanvasStore.getState()
+    const { setElements, setSheets, clearGuides } = useCanvasStore.getState()
     setElements([])
+    setSheets([])
+    clearGuides()
     clearGCode()
 
     // Configurar proyecto
@@ -255,8 +257,11 @@ export function ProjectsScreen() {
           operationType: (data.mode as OperationType) || 'cnc',
         })
 
+        // Las hojas van antes que los elementos: cada elemento apunta a una
+        const { setElements, setSheets } = useCanvasStore.getState()
+        setSheets(data.sheets ?? [], data.activeSheetId)
+
         if (data.elements?.length) {
-          const { setElements } = useCanvasStore.getState()
           setElements(data.elements)
         }
 

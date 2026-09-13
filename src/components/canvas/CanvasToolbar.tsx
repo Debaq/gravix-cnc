@@ -172,6 +172,10 @@ export function CanvasToolbar() {
     setGridSpacing,
     toggleGridAdaptive,
     toggleRulers,
+    showGuides,
+    guides,
+    toggleGuides,
+    clearGuides,
     drawingMode,
     setDrawingMode,
     measuringMode,
@@ -376,6 +380,24 @@ export function CanvasToolbar() {
             />
             {t('showRulers')}
           </label>
+          <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showGuides}
+              onChange={toggleGuides}
+              className="h-3.5 w-3.5"
+            />
+            {t('showGuides')}
+          </label>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 w-full text-[11px]"
+            disabled={guides.length === 0}
+            onClick={clearGuides}
+          >
+            {t('clearGuides')} ({guides.length})
+          </Button>
           <Separator />
           <label className="flex items-center gap-2 text-xs cursor-pointer">
             <input
@@ -404,6 +426,7 @@ export function CanvasToolbar() {
             </div>
           </div>
           <p className="text-[10px] text-muted-foreground italic">{t('gridAdaptiveHint')}</p>
+          <p className="text-[10px] text-muted-foreground italic">{t('guidesHint')}</p>
         </div>
       </PopoverContent>
     </Popover>

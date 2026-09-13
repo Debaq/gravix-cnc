@@ -823,3 +823,170 @@ export function dogboneNode(
   obj.dirty = true
   return extractNodes(obj)
 }
+
+// ============================================
+// Nodo simetrico: handles alineados y del mismo largo
+// ============================================
+
+/**
+ * Deja los dos handles bezier de un anchor colineales y de igual longitud,
+ * de modo que la curva pase sin quiebre por el nodo. Requiere que el anchor
+ * este entre dos curvas C (con una sola curva no hay nada que simetrizar).
+ */
+export function symmetricNode(
+  obj: FabricObject,
+  nodeData: NodeEditData,
+  nodeIndex: number,
+): NodeEditData | null {
+  if (!(obj instanceof Path)) return null
+  const node = nodeData.nodes[nodeIndex]
+  if (!node || node.type !== 'anchor') return null
+
+  const pathData = obj.path as unknown as number[][]
+  if (!pathData) return null
+
+  // Indice del anchor dentro de la secuencia de anchors
+  let anchorIdx = -1
+  for (let i = 0; i <= nodeIndex; i++) {
+    if (nodeData.nodes[i].type === 'anchor') anchorIdx++
+  }
+
+  const handle = nodeData.handles.get(anchorIdx)
+  if (!handle?.cp1 || !handle?.cp2) return null
+
+  const cp1Node = nodeData.nodes[handle.cp1.nodeIndex]
+  const cp2Node = nodeData.nodes[handle.cp2.nodeIndex]
+  if (!cp1Node || !cp2Node) return null
+
+  const cmd1 = pathData[cp1Node.cmdIndex]
+  const cmd2 = pathData[cp2Node.cmdIndex]
+  // cp1 es el segundo control de la curva entrante, cp2 el primero de la saliente
+  if (!cmd1 || !cmd2 || String(cmd1[0]) !== 'C' || String(cmd2[0]) !== 'C') return null
+
+  const ax = node.localX
+  const ay = node.localY
+
+  const inX = cp1Node.localX - ax
+  const inY = cp1Node.localY - ay
+  const outX = cp2Node.localX - ax
+  const outY = cp2Node.localY - ay
+
+  const lenIn = Math.hypot(inX, inY)
+  const lenOut = Math.hypot(outX, outY)
+  if (lenIn < 1e-6 && lenOut < 1e-6) return null
+
+  // Direccion promedio de la tangente (el handle entrante apunta al reves)
+  let dirX = outX - inX
+  let dirY = outY - inY
+  const dirLen = Math.hypot(dirX, dirY)
+  if (dirLen < 1e-6) {
+    // Ya son opuestos: basta con igualar longitudes
+    dirX = outX
+    dirY = outY
+    const l = Math.hypot(dirX, dirY)
+    if (l < 1e-6) return null
+    dirX /= l
+    dirY /= l
+  } else {
+    dirX /= dirLen
+    dirY /= dirLen
+  }
+
+  const half = (lenIn + lenOut) / 2
+
+  // cp1 (entrante) va hacia atras, cp2 (saliente) hacia adelante
+  cmd1[3] = ax - dirX * half
+  cmd1[4] = ay - dirY * half
+  cmd2[1] = ax + dirX * half
+  cmd2[2] = ay + dirY * half
+
+  ;(obj as unknown as { setDimensions(): void }).setDimensions()
+  obj.setCoords()
+  obj.dirty = true
+
+  return extractNodes(obj)
+}
+
+// ============================================
+// Romper nodo: cortar el path sin partir el objeto
+// ============================================
+
+/** Punto final (absoluto, local al path) de un comando. */
+function commandEndPoint(cmd: number[]): { x: number; y: number } | null {
+  switch (String(cmd[0])) {
+    case 'M':
+    case 'L':
+      return { x: cmd[1], y: cmd[2] }
+    case 'Q':
+      return { x: cmd[3], y: cmd[4] }
+    case 'C':
+      return { x: cmd[5], y: cmd[6] }
+    default:
+      return null
+  }
+}
+
+/**
+ * Corta el path en el nodo dejando un solo objeto:
+ * - path cerrado: lo abre y lo reordena para que empiece y termine en ese nodo
+ * - path abierto: inserta un M, con lo que queda un objeto de dos subpaths
+ *   cuyos extremos coinciden y se pueden separar arrastrandolos
+ */
+export function breakNode(
+  obj: FabricObject,
+  nodeData: NodeEditData,
+  nodeIndex: number,
+): NodeEditData | null {
+  if (!(obj instanceof Path)) return null
+  const node = nodeData.nodes[nodeIndex]
+  if (!node || node.type !== 'anchor') return null
+
+  const pathData = obj.path as unknown as number[][]
+  if (!pathData || pathData.length < 3) return null
+
+  const idx = node.cmdIndex
+  const hasZ = String(pathData[pathData.length - 1][0]) === 'Z'
+
+  if (hasZ) {
+    if (node.isFirst) {
+      // Romper en el nodo inicial es simplemente abrir el contorno
+      pathData.pop()
+    } else {
+      const first = commandEndPoint(pathData[0])
+      const at = commandEndPoint(pathData[idx])
+      if (!first || !at) return null
+
+      // Cuerpo sin el M inicial ni el Z final
+      const body = pathData.slice(1, pathData.length - 1).map(c => [...c])
+      const rel = idx - 1
+      if (rel < 0 || rel >= body.length) return null
+
+      const rotated: number[][] = [
+        ['M', at.x, at.y] as unknown as number[],
+        ...body.slice(rel + 1),
+        // El tramo que antes cerraba el contorno (la Z) se vuelve explicito
+        ['L', first.x, first.y] as unknown as number[],
+        ...body.slice(0, rel + 1),
+      ]
+      obj.path = rotated as unknown as Path['path']
+    }
+  } else {
+    // En un extremo no hay nada que romper
+    if (node.isFirst || idx === pathData.length - 1) return null
+    const at = commandEndPoint(pathData[idx])
+    if (!at) return null
+
+    const next: number[][] = [
+      ...pathData.slice(0, idx + 1).map(c => [...c]),
+      ['M', at.x, at.y] as unknown as number[],
+      ...pathData.slice(idx + 1).map(c => [...c]),
+    ]
+    obj.path = next as unknown as Path['path']
+  }
+
+  ;(obj as unknown as { setDimensions(): void }).setDimensions()
+  obj.setCoords()
+  obj.dirty = true
+
+  return extractNodes(obj)
+}

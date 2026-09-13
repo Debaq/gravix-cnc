@@ -49,7 +49,11 @@ import {
 export function DesignPanel() {
   const { t } = useTranslation('canvas')
   const { t: ts } = useTranslation('settings')
-  const { elements, selectedElementId, selectElement, globalConfig, workArea, setDrawingMode } = useCanvasStore()
+  const { elements, selectedElementId, selectElement, globalConfig, workArea, setDrawingMode, activeSheetId, sheets } = useCanvasStore()
+  // El listado muestra solo lo que vive en la hoja activa
+  const sheetElements = elements.filter(
+    (el) => (el.sheetId ?? sheets[0]?.id) === activeSheetId,
+  )
   const { tools, materials } = useLibraryStore()
   const { addConsoleLine, openModal } = useAppStore()
   const handleTextToPath = () => openModal('textToPath')
@@ -305,7 +309,7 @@ return (
             {t('loadSVG')}
           </p>
         )}
-        {elements.map((el) => (
+        {sheetElements.map((el) => (
           <div
             key={el.id}
             className={`flex items-center gap-1 px-2 py-1.5 rounded-md cursor-pointer text-sm transition-colors ${

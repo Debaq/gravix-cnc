@@ -48,6 +48,9 @@
   "copy": "Copy",
   "paste": "Paste",
   "selectAll": "Select all",
+  "selectSameType": "Select same type",
+  "selectSameLayer": "Select same layer",
+  "selectSameColor": "Select same color",
   "bringForward": "Bring forward",
   "sendBackward": "Send backward",
   "bringToFront": "Bring to front",
@@ -93,6 +96,9 @@
   "gridSettings": "Grid & rulers",
   "showGrid": "Show grid",
   "showRulers": "Show rulers",
+  "showGuides": "Show guides",
+  "clearGuides": "Clear guides",
+  "guidesHint": "Drag from a ruler to create a guide; drop it back on the ruler to delete it.",
   "gridAdaptive": "Zoom-adaptive grid",
   "gridSpacing": "Grid step (mm)",
   "gridAdaptiveHint": "Adaptive: the step subdivides when zooming in and groups when zooming out.",
@@ -109,6 +115,7 @@
     "center": "Center",
     "quadrant": "Quadrant",
     "intersection": "Intersection",
+    "guide": "Guide",
     "perpendicular": "Perpendicular",
     "tangent": "Tangent",
     "grid": "Grid",
@@ -153,6 +160,8 @@
   "nodeEditHint": "Editing nodes of {{name}} — Click: select/add node, Del: delete node, Escape: exit",
   "nodeDeleteNode": "Delete node",
   "nodeToggleSmooth": "Smooth / Corner",
+  "nodeSymmetric": "Symmetric node (aligned handles)",
+  "nodeBreak": "Break node (cut the path)",
   "nodeSplitPath": "Split path",
   "nodeToggleClosed": "Close / Open path",
   "nodeExit": "Exit editing",
@@ -227,5 +236,9 @@
     "overlapTooBig": "Overlap must be smaller than the tile size",
     "export": "Export",
     "exporting": "Exporting..."
-  }
+  },
+  "sheetAdd": "Add sheet",
+  "sheetDelete": "Delete sheet",
+  "sheetConfirmDelete": "Delete?",
+  "sheetRenameHint": "Double-click to rename"
 }

@@ -32,6 +32,7 @@ import { segmentIntersection, type Segment } from '@/lib/trim-extend'
 export type SnapKind =
   | 'endpoint'
   | 'intersection'
+  | 'guide'
   | 'center'
   | 'quadrant'
   | 'midpoint'
@@ -44,13 +45,14 @@ export type SnapKind =
 const KIND_PRIORITY: Record<SnapKind, number> = {
   endpoint: 0,
   intersection: 1,
-  center: 2,
-  quadrant: 3,
-  midpoint: 4,
-  perpendicular: 5,
-  tangent: 6,
-  grid: 7,
-  onEdge: 8,
+  guide: 2,
+  center: 3,
+  quadrant: 4,
+  midpoint: 5,
+  perpendicular: 6,
+  tangent: 7,
+  grid: 8,
+  onEdge: 9,
 }
 
 export interface SnapHit {
@@ -85,6 +87,8 @@ export interface SnapQueryOptions {
   grid?: { spacing: number; originX: number; originY: number }
   /** Punto de referencia (ultimo punto colocado) para perpendicular y tangente. */
   reference?: Point2D | null
+  /** Guias de usuario en coordenadas canvas. Solo se usan si kinds.guide. */
+  guides?: { x: number[]; y: number[] }
 }
 
 export const EMPTY_SNAP_INDEX: SnapIndex = { points: [], segments: [], circles: [] }
@@ -421,6 +425,22 @@ export function querySnap(
         const a = base + sign * alpha
         consider(c.cx + c.r * Math.cos(a), c.cy + c.r * Math.sin(a), 'tangent')
       }
+    }
+  }
+
+  // ---- Guias de usuario ----
+  if (kinds.guide && opts.guides) {
+    const nearX = opts.guides.x.filter(gx => Math.abs(gx - cursor.x) <= threshold)
+    const nearY = opts.guides.y.filter(gy => Math.abs(gy - cursor.y) <= threshold)
+    // El cruce de dos guias es un punto exacto; una sola guia fija un solo eje
+    for (const gx of nearX) {
+      for (const gy of nearY) consider(gx, gy, 'guide')
+    }
+    if (nearY.length === 0) {
+      for (const gx of nearX) consider(gx, cursor.y, 'guide')
+    }
+    if (nearX.length === 0) {
+      for (const gy of nearY) consider(cursor.x, gy, 'guide')
     }
   }
 

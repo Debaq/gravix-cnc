@@ -55,6 +55,13 @@ Lo que faltaba para que el lienzo se sienta CAD y no editor vectorial.
 - **Ancho/Alto en el panel de propiedades** con candado de proporcion
 - **Zoom a la seleccion** y atajos de teclado de herramienta (R/C/E/L/A/B/D/M/N,
   G/S/O/F8, +/-, Ctrl+0, Ctrl+Shift+0, Ctrl+X)
+- **Guias de usuario**: se arrastran desde las reglas, se mueven, se borran
+  soltandolas sobre la regla y participan del snap (cursor y arrastre de objetos)
+- **Nodos al 100%**: symmetric node (handles colineales y de igual largo) y
+  break node (corta el path sin partir el objeto)
+- **Seleccionar similares**: mismo tipo, misma capa o mismo color
+- **Hojas multiples**: pestañas tipo planilla; cada elemento guarda su `sheetId`
+  y solo la hoja activa se ve, se edita y entra al G-code
 
 Archivos: `snap-engine.ts` (nuevo), `DesignCanvas.tsx`, `useCanvasManager.ts`,
 `useCanvasStore.ts`, `useKeyboardShortcuts.ts`, `CanvasToolbar.tsx`,

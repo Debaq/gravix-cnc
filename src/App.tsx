@@ -13,6 +13,7 @@ import { WorkspaceLayout } from '@/components/layout/WorkspaceLayout'
 import { DesignCanvas } from '@/components/canvas/DesignCanvas'
 import { CanvasToolbar } from '@/components/canvas/CanvasToolbar'
 import { CanvasFooter } from '@/components/canvas/CanvasFooter'
+import { SheetTabs } from '@/components/canvas/SheetTabs'
 import { NodeEditToolbar } from '@/components/canvas/NodeEditToolbar'
 import { GCodeViewer3D } from '@/components/viewer/GCodeViewer3D'
 import { PropertiesPanel } from '@/components/panels/PropertiesPanel'
@@ -208,6 +209,7 @@ function App() {
               <DesignCanvas />
               <CanvasToolbar />
               <NodeEditToolbar />
+              <SheetTabs />
               <CanvasFooter />
               <PropertiesPanel />
             </div>

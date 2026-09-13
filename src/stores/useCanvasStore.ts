@@ -4,8 +4,11 @@ import { useGCodeStore } from '@/stores/useGCodeStore'
 import type { NodeConstraint } from '@/lib/constraints'
 import type { SnapKind } from '@/lib/snap-engine'
 
-/** Subconjunto de SnapKind que el usuario puede activar/desactivar. */
-export type GeometricSnapKind = Exclude<SnapKind, 'grid'>
+/**
+ * Tipos de snap que el usuario activa/desactiva en el popover.
+ * La grilla tiene su propio toggle y las guias dependen de `showGuides`.
+ */
+export type GeometricSnapKind = Exclude<SnapKind, 'grid' | 'guide'>
 
 export const GEOMETRIC_SNAP_KINDS: GeometricSnapKind[] = [
   'endpoint',
@@ -35,6 +38,21 @@ export type DrawingMode =
   | 'rect' | 'circle' | 'ellipse'
   | null
 
+/** Hoja de trabajo: subdivide el proyecto sin abrir otro archivo. */
+export interface Sheet {
+  id: string
+  name: string
+}
+
+export const DEFAULT_SHEET_ID = 'sheet_001'
+
+/** Guia de usuario: linea infinita en X o Y, posicionada en mm desde el origen. */
+export interface Guide {
+  id: string
+  axis: 'x' | 'y'
+  mm: number
+}
+
 export interface SelectedObjectProps {
   x: number
   y: number
@@ -61,6 +79,10 @@ interface CanvasState {
   gridAdaptive: boolean
   /** Reglas en mm en los bordes del lienzo. */
   showRulers: boolean
+
+  // Guias de usuario (se arrastran desde las reglas)
+  guides: Guide[]
+  showGuides: boolean
 
   // Lectura del lienzo
   /** Posicion del cursor en mm respecto al origen del area de trabajo. */
@@ -122,6 +144,10 @@ interface CanvasState {
   layers: Layer[]
   activeLayerId: string
 
+  // Hojas
+  sheets: Sheet[]
+  activeSheetId: string
+
   // Color mappings for laser mode
   colorMappings: ColorMapping[]
 
@@ -148,6 +174,11 @@ interface CanvasState {
   setGridSpacing: (mm: number) => void
   toggleGridAdaptive: () => void
   toggleRulers: () => void
+  toggleGuides: () => void
+  addGuide: (axis: 'x' | 'y', mm: number) => string
+  moveGuide: (id: string, mm: number) => void
+  removeGuide: (id: string) => void
+  clearGuides: () => void
   setCursorMm: (pos: { x: number; y: number } | null) => void
   setZoomLevel: (zoom: number) => void
   toggleSnapToGrid: () => void
@@ -163,6 +194,13 @@ interface CanvasState {
   setNodeEditing: (elementId: string | null) => void
   setNodeConstraints: (constraints: NodeConstraint[]) => void
   setNodeEditSelectedNode: (index: number) => void
+
+  // Sheet actions (la visibilidad en el canvas la aplica useCanvasManager)
+  addSheet: (name?: string) => string
+  renameSheet: (id: string, name: string) => void
+  removeSheet: (id: string) => void
+  setActiveSheet: (id: string) => void
+  setSheets: (sheets: Sheet[], activeId?: string) => void
 
   // Layer actions
   addLayer: (name?: string, color?: string) => void
@@ -253,6 +291,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   gridAdaptive: true,
   showRulers: true,
 
+  guides: [],
+  showGuides: true,
+
   // Lectura del lienzo
   cursorMm: null,
   zoomLevel: 1,
@@ -315,6 +356,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   ],
   activeLayerId: 'layer_001',
 
+  // Hojas
+  sheets: [{ id: DEFAULT_SHEET_ID, name: 'Hoja 1' }],
+  activeSheetId: DEFAULT_SHEET_ID,
+
 
   // Default color mappings (LightBurn style)
   colorMappings: [
@@ -342,8 +387,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   // Actions
   addElement: (element) =>
-    set((state) => ({ 
-      elements: [...state.elements, { ...element, layerId: element.layerId || state.activeLayerId }] 
+    set((state) => ({
+      elements: [...state.elements, {
+        ...element,
+        layerId: element.layerId || state.activeLayerId,
+        sheetId: element.sheetId || state.activeSheetId,
+      }],
     })),
 
   removeElement: (id) =>
@@ -434,6 +483,19 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   setGridSpacing: (mm) => set({ gridSpacingMm: Math.max(0.1, Math.min(500, mm)) }),
   toggleGridAdaptive: () => set((state) => ({ gridAdaptive: !state.gridAdaptive })),
   toggleRulers: () => set((state) => ({ showRulers: !state.showRulers })),
+  toggleGuides: () => set((state) => ({ showGuides: !state.showGuides })),
+  addGuide: (axis, mm) => {
+    const id = `guide_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+    set((state) => ({ guides: [...state.guides, { id, axis, mm }] }))
+    return id
+  },
+  moveGuide: (id, mm) =>
+    set((state) => ({
+      guides: state.guides.map((g) => (g.id === id ? { ...g, mm } : g)),
+    })),
+  removeGuide: (id) =>
+    set((state) => ({ guides: state.guides.filter((g) => g.id !== id) })),
+  clearGuides: () => set({ guides: [] }),
   setCursorMm: (pos) => set({ cursorMm: pos }),
   setZoomLevel: (zoom) => set({ zoomLevel: zoom }),
   toggleSnapToGrid: () => set((state) => ({ snapToGrid: !state.snapToGrid })),
@@ -451,6 +513,32 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   setNodeConstraints: (constraints) => set({ nodeConstraints: constraints }),
   setNodeEditSelectedNode: (index) => set({ nodeEditSelectedNode: index }),
 
+
+  addSheet: (name) => {
+    const id = `sheet_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+    set((state) => ({
+      sheets: [...state.sheets, { id, name: name || `Hoja ${state.sheets.length + 1}` }],
+    }))
+    return id
+  },
+  renameSheet: (id, name) =>
+    set((state) => ({
+      sheets: state.sheets.map((sh) => (sh.id === id ? { ...sh, name } : sh)),
+    })),
+  removeSheet: (id) =>
+    set((state) => {
+      // Siempre queda al menos una hoja
+      if (state.sheets.length <= 1) return state
+      const sheets = state.sheets.filter((sh) => sh.id !== id)
+      const activeSheetId = state.activeSheetId === id ? sheets[0].id : state.activeSheetId
+      return { sheets, activeSheetId }
+    }),
+  setActiveSheet: (id) => set({ activeSheetId: id }),
+  setSheets: (sheets, activeId) => {
+    const list = sheets.length > 0 ? sheets : [{ id: DEFAULT_SHEET_ID, name: 'Hoja 1' }]
+    const active = activeId && list.some((sh) => sh.id === activeId) ? activeId : list[0].id
+    set({ sheets: list, activeSheetId: active })
+  },
 
   addLayer: (name, color) => set((state) => {
     const id = `layer_${Date.now()}`

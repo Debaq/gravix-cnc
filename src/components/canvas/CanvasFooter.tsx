@@ -6,7 +6,12 @@ export function CanvasFooter() {
   const {
     workArea, selectedObjectProps, drawingMode, selectedElementId, elements,
     nodeEditingElementId, measuringMode, trimMode, cursorMm, zoomLevel,
+    activeSheetId, sheets,
   } = useCanvasStore()
+
+  const sheetElementCount = elements.filter(
+    (el) => (el.sheetId ?? sheets[0]?.id) === activeSheetId,
+  ).length
 
   const selectedElement = selectedElementId
     ? elements.find((e) => e.id === selectedElementId)
@@ -57,8 +62,8 @@ export function CanvasFooter() {
           </span>
         ) : (
           <span className="text-muted-foreground/60">
-            {elements.length > 0
-              ? `${elements.length} ${t('elements').toLowerCase()}`
+            {sheetElementCount > 0
+              ? `${sheetElementCount} ${t('elements').toLowerCase()}`
               : t('loadSVG')}
           </span>
         )}
