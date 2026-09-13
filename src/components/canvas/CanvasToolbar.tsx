@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useCanvasManager } from '@/hooks/useCanvasManager'
-import { useCanvasStore } from '@/stores/useCanvasStore'
+import { useCanvasStore, GEOMETRIC_SNAP_KINDS } from '@/stores/useCanvasStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import { useAppStore } from '@/stores/useAppStore'
 import { GCodeGenerator } from '@/lib/gcode-generator'
@@ -53,6 +53,11 @@ import {
   Columns2,
   Columns3,
   GripVertical,
+  Crosshair,
+  Spline,
+  Grid2x2,
+  Focus,
+  Shapes,
 } from 'lucide-react'
 
 function ToolbarButton({
@@ -153,6 +158,25 @@ export function CanvasToolbar() {
     snapToObjects,
     toggleSnapToGrid,
     toggleSnapToObjects,
+    snapGeometry,
+    snapKinds,
+    toggleSnapGeometry,
+    setSnapKind,
+    orthoMode,
+    orthoAngleDeg,
+    toggleOrtho,
+    setOrthoAngle,
+    showGrid,
+    gridSpacingMm,
+    gridAdaptive,
+    showRulers,
+    setGridSpacing,
+    toggleGridAdaptive,
+    toggleRulers,
+    showGuides,
+    guides,
+    toggleGuides,
+    clearGuides,
     drawingMode,
     setDrawingMode,
     measuringMode,
@@ -320,10 +344,204 @@ export function CanvasToolbar() {
     </Popover>
   )
 
+  // Grilla y reglas
+  const gridPopover = (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              variant={showGrid ? 'secondary' : 'ghost'}
+              size="icon"
+              className={compact ? 'h-7 w-7' : 'h-8 w-8'}
+            >
+              <Grid2x2 className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="right">{t('gridSettings')}</TooltipContent>
+      </Tooltip>
+      <PopoverContent className="w-56 p-3" side="right" align="start">
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showGrid}
+              onChange={() => useCanvasStore.setState({ showGrid: !showGrid })}
+              className="h-3.5 w-3.5"
+            />
+            {t('showGrid')}
+          </label>
+          <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showRulers}
+              onChange={toggleRulers}
+              className="h-3.5 w-3.5"
+            />
+            {t('showRulers')}
+          </label>
+          <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showGuides}
+              onChange={toggleGuides}
+              className="h-3.5 w-3.5"
+            />
+            {t('showGuides')}
+          </label>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 w-full text-[11px]"
+            disabled={guides.length === 0}
+            onClick={clearGuides}
+          >
+            {t('clearGuides')} ({guides.length})
+          </Button>
+          <Separator />
+          <label className="flex items-center gap-2 text-xs cursor-pointer">
+            <input
+              type="checkbox"
+              checked={gridAdaptive}
+              onChange={toggleGridAdaptive}
+              className="h-3.5 w-3.5"
+            />
+            {t('gridAdaptive')}
+          </label>
+          <div className={gridAdaptive ? 'opacity-50' : ''}>
+            <label className="text-xs font-medium">{t('gridSpacing')}</label>
+            <div className="flex gap-1 mt-1">
+              {[1, 5, 10, 25].map((mm) => (
+                <Button
+                  key={mm}
+                  size="sm"
+                  variant={gridSpacingMm === mm ? 'secondary' : 'outline'}
+                  className="h-7 flex-1 px-1 text-[11px]"
+                  disabled={gridAdaptive}
+                  onClick={() => setGridSpacing(mm)}
+                >
+                  {mm}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <p className="text-[10px] text-muted-foreground italic">{t('gridAdaptiveHint')}</p>
+          <p className="text-[10px] text-muted-foreground italic">{t('guidesHint')}</p>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+
+  // Snap geometrico: toggle maestro en el boton, tipos en el popover
+  const snapGeometryPopover = (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              variant={snapGeometry ? 'secondary' : 'ghost'}
+              size="icon"
+              className={compact ? 'h-7 w-7' : 'h-8 w-8'}
+            >
+              <Crosshair className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="right">{t('snapGeometry')}</TooltipContent>
+      </Tooltip>
+      <PopoverContent className="w-56 p-3" side="right" align="start">
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+            <input
+              type="checkbox"
+              checked={snapGeometry}
+              onChange={toggleSnapGeometry}
+              className="h-3.5 w-3.5"
+            />
+            {t('snapGeometry')}
+          </label>
+          <Separator />
+          <div className="space-y-1.5">
+            {GEOMETRIC_SNAP_KINDS.map((kind) => (
+              <label
+                key={kind}
+                className={`flex items-center gap-2 text-xs cursor-pointer ${snapGeometry ? '' : 'opacity-50'}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={snapKinds[kind]}
+                  disabled={!snapGeometry}
+                  onChange={(e) => setSnapKind(kind, e.target.checked)}
+                  className="h-3.5 w-3.5"
+                />
+                {t(`snapKind.${kind}`)}
+              </label>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground italic">{t('snapGeometryHint')}</p>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+
+  // Ortho / polar: toggle maestro + paso angular
+  const orthoPopover = (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              variant={orthoMode ? 'secondary' : 'ghost'}
+              size="icon"
+              className={compact ? 'h-7 w-7' : 'h-8 w-8'}
+            >
+              <Spline className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="right">{t('ortho')}</TooltipContent>
+      </Tooltip>
+      <PopoverContent className="w-56 p-3" side="right" align="start">
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+            <input
+              type="checkbox"
+              checked={orthoMode}
+              onChange={toggleOrtho}
+              className="h-3.5 w-3.5"
+            />
+            {t('ortho')}
+          </label>
+          <Separator />
+          <label className="text-xs font-medium">{t('orthoAngle')}</label>
+          <div className="flex gap-1">
+            {[90, 45, 30, 15].map((deg) => (
+              <Button
+                key={deg}
+                size="sm"
+                variant={orthoAngleDeg === deg ? 'secondary' : 'outline'}
+                className="h-7 flex-1 px-1 text-[11px]"
+                onClick={() => setOrthoAngle(deg)}
+              >
+                {deg}°
+              </Button>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground italic">{t('orthoHint')}</p>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+
   const colWidth = compact ? '1.75rem' : '2rem'
 
   return (
-    <div className="absolute top-2 left-2 z-10 bg-background/90 backdrop-blur-sm border rounded-lg p-1 shadow-sm max-h-[calc(100%-3rem)] overflow-y-auto">
+    <div
+      className={`absolute z-10 bg-background/90 backdrop-blur-sm border rounded-lg p-1 shadow-sm max-h-[calc(100%-3rem)] overflow-y-auto ${
+        showRulers ? 'top-6 left-6' : 'top-2 left-2'
+      }`}
+    >
       {/* Column toggle */}
       <div className="flex justify-center">
         <ToolbarButton
@@ -356,6 +574,7 @@ export function CanvasToolbar() {
         <ToolbarButton icon={ZoomIn} label={t('zoomIn')} onClick={cm.zoomIn} compact={compact} />
         <ToolbarButton icon={ZoomOut} label={t('zoomOut')} onClick={cm.zoomOut} compact={compact} />
         <ToolbarButton icon={Maximize} label={t('fitView')} onClick={cm.fitView} compact={compact} />
+        <ToolbarButton icon={Focus} label={t('fitSelection')} onClick={cm.fitSelection} compact={compact} />
 
         {sep}
 
@@ -423,6 +642,9 @@ export function CanvasToolbar() {
         {showTitles && <SectionTitle>{t('sectionSnap')}</SectionTitle>}
         <ToolbarButton icon={Grid3x3} label={t('snapToGrid')} onClick={toggleSnapToGrid} active={snapToGrid} compact={compact} />
         <ToolbarButton icon={Magnet} label={t('snapToObjects')} onClick={toggleSnapToObjects} active={snapToObjects} compact={compact} />
+        {snapGeometryPopover}
+        {orthoPopover}
+        {gridPopover}
 
         {sep}
 
@@ -453,6 +675,14 @@ export function CanvasToolbar() {
           label={t('array.title') || 'Patron (Array)'}
           onClick={() => useAppStore.getState().openModal('array')}
           disabled={!hasSelection}
+          compact={compact}
+        />
+
+        {/* ── Nesting / auto-layout ── */}
+        <ToolbarButton
+          icon={Shapes}
+          label={t('nesting.title')}
+          onClick={() => useAppStore.getState().openModal('nesting')}
           compact={compact}
         />
 

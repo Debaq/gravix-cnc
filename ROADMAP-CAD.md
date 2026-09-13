@@ -32,6 +32,43 @@ Estado CAM: **PENDIENTE** — visor 3D funcional, falta generacion de toolpaths 
 - Export SVG (via Fabric.js toSVG)
 - Export DXF (Rect, Circle, Ellipse, Path, Polygon, Line, Group)
 
+## P4 — Precision y lectura del lienzo ✅ (2026-09-12)
+
+Lo que faltaba para que el lienzo se sienta CAD y no editor vectorial.
+
+- **Motor de snap geometrico** (`src/lib/snap-engine.ts`): extremo, punto medio,
+  centro, cuadrante, interseccion, perpendicular, tangente y sobre-el-borde,
+  con prioridad por tipo y marcador + etiqueta bajo el cursor. Antes solo habia
+  snap de bounding box y grilla, y **el dibujo no snapeaba a nada**
+- **Snap durante el dibujo y la edicion de nodos**: linea, arco, curva, cota,
+  medicion y arrastre de nodos pasan por el motor (antes usaban el pixel crudo)
+- **Ortho / polar**: bloqueo de direccion a multiplos configurables (90/45/30/15),
+  con Shift como inversor temporal. Sobre el rayo la longitud se redondea a la
+  grilla y los snaps solo fijan distancia, nunca sacan el punto del eje
+- **Entrada numerica de angulo** junto a la de longitud (Tab salta entre ambas)
+- **Reglas en mm** en los bordes con marcador de cursor, y coordenadas vivas
+  del cursor + zoom % en el footer
+- **Grilla adaptativa al zoom** (escalones 1/2/5 x 10^k) o paso fijo configurable;
+  el snap de grilla usa el mismo paso que se dibuja
+- **Formas por arrastre**: rectangulo, circulo y elipse se dibujan arrastrando
+  con preview y medidas en vivo (Shift = 1:1). Antes solo se insertaban a 50mm
+- **Ancho/Alto en el panel de propiedades** con candado de proporcion
+- **Zoom a la seleccion** y atajos de teclado de herramienta (R/C/E/L/A/B/D/M/N,
+  G/S/O/F8, +/-, Ctrl+0, Ctrl+Shift+0, Ctrl+X)
+- **Guias de usuario**: se arrastran desde las reglas, se mueven, se borran
+  soltandolas sobre la regla y participan del snap (cursor y arrastre de objetos)
+- **Nodos al 100%**: symmetric node (handles colineales y de igual largo) y
+  break node (corta el path sin partir el objeto)
+- **Seleccionar similares**: mismo tipo, misma capa o mismo color
+- **Hojas multiples**: pestañas tipo planilla; cada elemento guarda su `sheetId`
+  y solo la hoja activa se ve, se edita y entra al G-code
+- **Nesting**: acomoda las piezas en el area de trabajo (MaxRects + rectangulo de
+  area minima + giro 90°). Empaca por rectangulo envolvente, no por contorno real
+
+Archivos: `snap-engine.ts` (nuevo), `DesignCanvas.tsx`, `useCanvasManager.ts`,
+`useCanvasStore.ts`, `useKeyboardShortcuts.ts`, `CanvasToolbar.tsx`,
+`CanvasFooter.tsx`, `PropertiesPanel.tsx`, `DesignPanel.tsx`, `HelpModal.tsx`, i18n.
+
 ---
 
 # CAM — De visor 3D a CAM real

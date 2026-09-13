@@ -16,7 +16,10 @@ import {
   Point,
   util,
 } from 'fabric'
-import { useCanvasStore } from '@/stores/useCanvasStore'
+import { useCanvasStore, DEFAULT_SHEET_ID } from '@/stores/useCanvasStore'
+import { invalidateSnapCache } from '@/lib/snap-engine'
+import { extractSegments } from '@/lib/trim-extend'
+import { planNesting, type NestingPiece } from '@/lib/nesting'
 import type { CanvasElement, GCodePath, GCodeJob, Point2D } from '@/lib/types'
 import { isTauri } from '@/lib/tauri'
 import { useAppStore } from '@/stores/useAppStore'
@@ -426,6 +429,10 @@ const MAX_HISTORY = 50
 let isRestoring = false
 
 export function pushToHistory(): void {
+  // Toda mutacion pasa por aca, asi que es el punto natural para tirar el
+  // indice de snaps (booleanas, offset, arrays, nodos, trim/extend, undo...)
+  invalidateSnapCache()
+
   if (isRestoring) return
   const canvas = sharedCanvasRef
   if (!canvas) return
@@ -433,8 +440,14 @@ export function pushToHistory(): void {
   // Truncate future entries
   historyStack.splice(historyIndex + 1)
 
+  // OJO: en Fabric 6 `toJSON()` ignora la lista de propiedades; hay que pasar
+  // por `toObject()` o el snapshot pierde el id de elemento y la marca de no
+  // interactivo — y al deshacer los objetos quedan huerfanos del store.
   const fabricJSON = JSON.stringify(
-    (canvas as unknown as { toJSON(props: string[]): object }).toJSON([ELEMENT_ID_KEY, NON_INTERACTIVE_KEY]),
+    (canvas as unknown as { toObject(props: string[]): object }).toObject([
+      ELEMENT_ID_KEY,
+      NON_INTERACTIVE_KEY,
+    ]),
   )
   const state = useCanvasStore.getState()
   const storeElements = JSON.stringify(state.elements, (key, val) =>
@@ -475,6 +488,82 @@ let clipboardElementData: Omit<CanvasElement, 'fabricObject'> | null = null
 // ============================================
 // Hook: useCanvasManager
 // ============================================
+
+/**
+ * Aplica una propiedad (x/y/width/height/angle en mm o grados) sobre el objeto,
+ * respetando el anclaje que corresponde al origen configurado.
+ * No toca historial ni render: eso lo hace quien llama.
+ */
+function applyObjectPropRaw(active: FabricObject, prop: string, value: number): void {
+    const wa = useCanvasStore.getState().workArea
+    const originPos = getOriginPixels(
+      wa.origin,
+      wa.width * PIXELS_PER_MM,
+      wa.height * PIXELS_PER_MM,
+      WORK_AREA_PADDING,
+      WORK_AREA_PADDING,
+    )
+    const flipY = wa.origin.startsWith('bottom')
+
+    switch (prop) {
+      case 'x':
+        active.set('left', value * PIXELS_PER_MM + originPos.x)
+        break
+      case 'y': {
+        const bounds = active.getBoundingRect()
+        if (flipY) {
+          active.set('top', originPos.y - value * PIXELS_PER_MM - bounds.height)
+        } else {
+          active.set('top', value * PIXELS_PER_MM + originPos.y)
+        }
+        break
+      }
+      case 'width': {
+        // Use geometric width (not bounding rect which includes stroke)
+        const geomW = (active.width ?? 0) * (active.scaleX ?? 1)
+        const currentWMm = geomW / PIXELS_PER_MM
+        if (currentWMm > 0) {
+          const boundsW = active.getBoundingRect()
+          const rightEdge = (active.left ?? 0) + boundsW.width
+          const scale = value / currentWMm
+          active.set('scaleX', (active.scaleX ?? 1) * scale)
+          active.setCoords()
+          if (wa.origin.endsWith('right')) {
+            const newW = active.getBoundingRect().width
+            active.set('left', rightEdge - newW)
+          } else if (wa.origin.endsWith('center') || wa.origin === 'center') {
+            const newW = active.getBoundingRect().width
+            active.set('left', (active.left ?? 0) - (newW - boundsW.width) / 2)
+          }
+        }
+        break
+      }
+      case 'height': {
+        const geomH = (active.height ?? 0) * (active.scaleY ?? 1)
+        const currentHMm = geomH / PIXELS_PER_MM
+        if (currentHMm > 0) {
+          const boundsH = active.getBoundingRect()
+          const bottomEdge = (active.top ?? 0) + boundsH.height
+          const scale = value / currentHMm
+          active.set('scaleY', (active.scaleY ?? 1) * scale)
+          active.setCoords()
+          if (flipY) {
+            const newH = active.getBoundingRect().height
+            active.set('top', bottomEdge - newH)
+          } else if (wa.origin.startsWith('center')) {
+            const newH = active.getBoundingRect().height
+            active.set('top', (active.top ?? 0) - (newH - boundsH.height) / 2)
+          }
+        }
+        break
+      }
+      case 'angle':
+        active.set('angle', value)
+        break
+    }
+
+}
+
 export function useCanvasManager() {
   // We use the module-level sharedCanvasRef so all hook instances share the same canvas
   const getCanvas = useCallback((): Canvas | null => sharedCanvasRef, [])
@@ -1016,6 +1105,89 @@ export function useCanvasManager() {
   // ------------------------------------------
   // Add polyline from drawn points (pixel coords)
   // ------------------------------------------
+  /**
+   * Crea rect / circulo / elipse a partir del rectangulo que el usuario
+   * arrastro en el lienzo (coordenadas canvas en px).
+   */
+  const addShapeAt = useCallback(
+    (
+      type: 'rect' | 'circle' | 'ellipse',
+      box: { left: number; top: number; width: number; height: number },
+    ) => {
+      const canvas = getCanvas()
+      if (!canvas) return
+      if (box.width < 2 || box.height < 2) return
+
+      const elementId = generateId()
+      const baseProps = { fill: 'transparent', stroke: '#333333', strokeWidth: 1 }
+
+      let fabricObj: FabricObject
+      let makerType: string | undefined
+      let makerParams: Record<string, number> | undefined
+
+      if (type === 'circle') {
+        const r = Math.min(box.width, box.height) / 2
+        fabricObj = new Circle({ left: box.left, top: box.top, radius: r, ...baseProps })
+      } else if (type === 'ellipse') {
+        fabricObj = new Ellipse({
+          left: box.left,
+          top: box.top,
+          rx: box.width / 2,
+          ry: box.height / 2,
+          ...baseProps,
+        })
+        makerType = 'ellipse'
+        makerParams = {
+          rx: +(box.width / 2 / PIXELS_PER_MM).toFixed(2),
+          ry: +(box.height / 2 / PIXELS_PER_MM).toFixed(2),
+        }
+      } else {
+        fabricObj = new Rect({
+          left: box.left,
+          top: box.top,
+          width: box.width,
+          height: box.height,
+          ...baseProps,
+        })
+      }
+
+      setCustomProp(fabricObj, ELEMENT_ID_KEY, elementId)
+
+      // Las formas parametricas se redimensionan por parametros, no por handles
+      if (makerType) {
+        fabricObj.set({ lockScalingX: true, lockScalingY: true })
+        fabricObj.setControlsVisibility({
+          ml: false, mr: false, mt: false, mb: false,
+          tl: false, tr: false, bl: false, br: false,
+        })
+      }
+
+      canvas.add(fabricObj)
+      canvas.setActiveObject(fabricObj)
+      canvas.requestRenderAll()
+
+      const names: Record<string, string> = { rect: 'Rect', circle: 'Circle', ellipse: 'Ellipse' }
+      const element: CanvasElement = {
+        id: elementId,
+        type: makerType ? 'maker' : (type as CanvasElement['type']),
+        name: `${names[type]} ${Date.now() % 1000}`,
+        visible: true,
+        locked: false,
+        config: null,
+        children: [],
+        fabricObject: fabricObj,
+        makerType,
+        makerParams,
+      }
+
+      addElement(element)
+      selectElement(elementId)
+      pushToHistory()
+      markGCodeStale()
+    },
+    [addElement, selectElement],
+  )
+
   const addPolyline = useCallback(
     (pixelPoints: { x: number; y: number }[], closed = false) => {
       const canvas = getCanvas()
@@ -1299,6 +1471,82 @@ export function useCanvasManager() {
   )
 
   // ------------------------------------------
+  // Hojas: solo la activa se ve y se puede tocar
+  // ------------------------------------------
+
+  /**
+   * Sincroniza el canvas con la hoja activa. Un elemento se ve si esta en la
+   * hoja activa Y su propio toggle de visibilidad esta encendido; los de otras
+   * hojas quedan ocultos, y por eso tampoco entran al G-code (el generador
+   * saltea lo invisible).
+   */
+  const applySheetVisibility = useCallback(() => {
+    const canvas = getCanvas()
+    if (!canvas) return
+
+    const state = useCanvasStore.getState()
+    const active = state.activeSheetId
+
+    for (const obj of canvas.getObjects()) {
+      if (getCustomProp(obj, NON_INTERACTIVE_KEY) === true) continue
+      const id = getCustomProp(obj, ELEMENT_ID_KEY)
+      if (typeof id !== 'string') continue
+
+      const element = state.findElementById(id)
+      const sheetId = element?.sheetId ?? DEFAULT_SHEET_ID
+      const onActiveSheet = sheetId === active
+      const visible = onActiveSheet && (element?.visible ?? true)
+
+      obj.set({ visible, evented: onActiveSheet && !(element?.locked ?? false) })
+      obj.selectable = onActiveSheet && !(element?.locked ?? false)
+    }
+
+    canvas.discardActiveObject()
+    canvas.requestRenderAll()
+  }, [])
+
+  const switchSheet = useCallback((sheetId: string) => {
+    const state = useCanvasStore.getState()
+    if (state.activeSheetId === sheetId) return
+    state.setActiveSheet(sheetId)
+    selectElement(null)
+    applySheetVisibility()
+  }, [applySheetVisibility, selectElement])
+
+  const createSheet = useCallback(() => {
+    const id = useCanvasStore.getState().addSheet()
+    switchSheet(id)
+    return id
+  }, [switchSheet])
+
+  /** Borra la hoja y todo lo que vive en ella. */
+  const deleteSheet = useCallback((sheetId: string) => {
+    const canvas = getCanvas()
+    const state = useCanvasStore.getState()
+    if (state.sheets.length <= 1) return
+
+    const doomed = state.elements.filter(
+      (el) => (el.sheetId ?? DEFAULT_SHEET_ID) === sheetId,
+    )
+
+    if (canvas) {
+      for (const el of doomed) {
+        const obj = canvas.getObjects().find(
+          (o) => getCustomProp(o, ELEMENT_ID_KEY) === el.id,
+        )
+        if (obj) canvas.remove(obj)
+      }
+    }
+    for (const el of doomed) removeElement(el.id)
+
+    state.removeSheet(sheetId)
+    selectElement(null)
+    applySheetVisibility()
+    pushToHistory()
+    markGCodeStale()
+  }, [applySheetVisibility, removeElement, selectElement])
+
+  // ------------------------------------------
   // Toggle lock
   // ------------------------------------------
   const toggleLock = useCallback(
@@ -1383,6 +1631,52 @@ export function useCanvasManager() {
     canvas.requestRenderAll()
   }, [])
 
+  /** Zoom a la seleccion actual (o a todos los elementos si no hay seleccion). */
+  const fitSelection = useCallback(() => {
+    const canvas = getCanvas()
+    if (!canvas) return
+
+    const active = canvas.getActiveObject()
+    const targets = active
+      ? [active]
+      : canvas.getObjects().filter(o => getCustomProp(o, NON_INTERACTIVE_KEY) !== true && o.visible)
+
+    if (targets.length === 0) {
+      fitView()
+      return
+    }
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const obj of targets) {
+      const b = obj.getBoundingRect()
+      minX = Math.min(minX, b.left)
+      minY = Math.min(minY, b.top)
+      maxX = Math.max(maxX, b.left + b.width)
+      maxY = Math.max(maxY, b.top + b.height)
+    }
+    const w = maxX - minX
+    const h = maxY - minY
+    if (!isFinite(w) || !isFinite(h) || w <= 0 || h <= 0) {
+      fitView()
+      return
+    }
+
+    const margin = 40
+    const canvasW = canvas.getWidth()
+    const canvasH = canvas.getHeight()
+    const zoom = Math.max(
+      MIN_ZOOM,
+      Math.min(MAX_ZOOM, Math.min((canvasW - margin * 2) / w, (canvasH - margin * 2) / h)),
+    )
+
+    canvas.setViewportTransform([
+      zoom, 0, 0, zoom,
+      canvasW / 2 - (minX + w / 2) * zoom,
+      canvasH / 2 - (minY + h / 2) * zoom,
+    ])
+    canvas.requestRenderAll()
+  }, [fitView])
+
   // ------------------------------------------
   // Flip controls
   // ------------------------------------------
@@ -1429,9 +1723,12 @@ export function useCanvasManager() {
     useCanvasStore.getState().setElements(elements)
     useCanvasStore.getState().selectElement(entry.selectedElementId)
 
+    // El JSON trae todo visible: hay que volver a ocultar las otras hojas
+    applySheetVisibility()
+
     canvas.requestRenderAll()
     isRestoring = false
-  }, [])
+  }, [applySheetVisibility])
 
   // ------------------------------------------
   // Redo
@@ -1452,9 +1749,12 @@ export function useCanvasManager() {
     useCanvasStore.getState().setElements(elements)
     useCanvasStore.getState().selectElement(entry.selectedElementId)
 
+    // El JSON trae todo visible: hay que volver a ocultar las otras hojas
+    applySheetVisibility()
+
     canvas.requestRenderAll()
     isRestoring = false
-  }, [])
+  }, [applySheetVisibility])
 
   // ------------------------------------------
   // Delete selected object(s)
@@ -2087,6 +2387,155 @@ export function useCanvasManager() {
     rafId.current = requestAnimationFrame(updateSelectedObjectPropsImmediate)
   }, [updateSelectedObjectPropsImmediate])
 
+  /**
+   * Selecciona todo lo que comparte un rasgo con lo seleccionado: mismo tipo de
+   * forma, misma capa o mismo color de trazo. Util para aplicar una config a un
+   * grupo entero sin ir uno por uno.
+   */
+  /**
+   * Acomoda piezas dentro del area de trabajo para desperdiciar menos material.
+   * Trabaja sobre la seleccion, o sobre toda la hoja activa si no hay nada
+   * seleccionado. Las piezas que no entran se quedan donde estaban.
+   */
+  const nestElements = useCallback((opts: {
+    spacing: number
+    margin: number
+    allowRotate90: boolean
+    alignToMinRect: boolean
+    scope: 'selection' | 'sheet'
+  }): { placed: number; unplaced: number; usage: number } => {
+    const canvas = getCanvas()
+    if (!canvas) return { placed: 0, unplaced: 0, usage: 0 }
+
+    const state = useCanvasStore.getState()
+    const wa = state.workArea
+
+    const active = canvas.getActiveObject()
+    let targets: FabricObject[]
+    if (opts.scope === 'selection' && active) {
+      targets = active instanceof ActiveSelection ? [...active.getObjects()] : [active]
+    } else {
+      targets = canvas.getObjects().filter(
+        (o) => getCustomProp(o, NON_INTERACTIVE_KEY) !== true && o.visible,
+      )
+    }
+    if (targets.length === 0) return { placed: 0, unplaced: 0, usage: 0 }
+
+    // Soltar la seleccion multiple: mover objetos dentro de un ActiveSelection
+    // pelea con las coordenadas relativas del grupo
+    canvas.discardActiveObject()
+
+    const byId = new Map<string, FabricObject>()
+    const pieces: NestingPiece[] = []
+
+    for (const obj of targets) {
+      const key = (getCustomProp(obj, ELEMENT_ID_KEY) as string | undefined) ?? `obj_${pieces.length}`
+      byId.set(key, obj)
+
+      // Contorno real si se puede; si no, las esquinas del bounding box
+      const segments = extractSegments(obj)
+      const canvasPts: Point2D[] = segments.length > 0
+        ? segments.map((sg) => sg.start)
+        : obj.getCoords().map((c) => ({ x: c.x, y: c.y }))
+
+      pieces.push({
+        id: key,
+        outline: canvasPts.map((p) => canvasToMm(p.x, p.y, wa)),
+        currentAngleDeg: obj.angle ?? 0,
+      })
+    }
+
+    const result = planNesting(pieces, {
+      binWidth: wa.width,
+      binHeight: wa.height,
+      spacing: opts.spacing,
+      margin: opts.margin,
+      allowRotate90: opts.allowRotate90,
+      alignToMinRect: opts.alignToMinRect,
+    })
+
+    for (const placement of result.placements) {
+      const obj = byId.get(placement.id)
+      if (!obj) continue
+
+      // Fabric gira en sentido horario con angulos positivos; el plan viene en
+      // convencion CAD (antihorario), asi que el delta se invierte
+      if (Math.abs(placement.rotateDeg) > 1e-6) {
+        obj.rotate((obj.angle ?? 0) - placement.rotateDeg)
+      }
+      obj.setCoords()
+
+      const target = mmToCanvas(placement.centerX, placement.centerY, wa)
+      obj.setPositionByOrigin(new Point(target.x, target.y), 'center', 'center')
+      obj.setCoords()
+    }
+
+    canvas.requestRenderAll()
+    updateSelectedObjectProps()
+    pushToHistory()
+    markGCodeStale()
+
+    return {
+      placed: result.placements.length,
+      unplaced: result.unplaced.length,
+      usage: result.usage,
+    }
+  }, [updateSelectedObjectProps])
+
+  const selectSimilar = useCallback((criterion: 'type' | 'layer' | 'color') => {
+    const canvas = getCanvas()
+    if (!canvas) return
+
+    const active = canvas.getActiveObject()
+    if (!active) return
+
+    const state = useCanvasStore.getState()
+    const elementOf = (obj: FabricObject) => {
+      const id = getCustomProp(obj, ELEMENT_ID_KEY)
+      return typeof id === 'string' ? state.findElementById(id) : undefined
+    }
+
+    // La referencia es el objeto activo, o el primero de una seleccion multiple
+    const reference = active instanceof ActiveSelection
+      ? active.getObjects()[0]
+      : active
+    if (!reference) return
+
+    const refElement = elementOf(reference)
+    const refKind = refElement ? (refElement.makerType ?? refElement.type) : reference.type
+    const refLayer = refElement?.layerId ?? state.activeLayerId
+    const refStroke = reference.stroke
+
+    const matches = canvas.getObjects().filter((obj) => {
+      if (getCustomProp(obj, NON_INTERACTIVE_KEY) === true) return false
+      if (!obj.visible || obj.selectable === false) return false
+
+      const element = elementOf(obj)
+      switch (criterion) {
+        case 'type': {
+          const kind = element ? (element.makerType ?? element.type) : obj.type
+          return kind === refKind
+        }
+        case 'layer':
+          return (element?.layerId ?? state.activeLayerId) === refLayer
+        case 'color':
+          return obj.stroke === refStroke
+      }
+    })
+
+    if (matches.length === 0) return
+
+    canvas.discardActiveObject()
+    if (matches.length === 1) {
+      canvas.setActiveObject(matches[0])
+    } else {
+      canvas.setActiveObject(new ActiveSelection(matches, { canvas }))
+    }
+    canvas.requestRenderAll()
+    updateSelectedObjectProps()
+  }, [updateSelectedObjectProps])
+
+
   // ------------------------------------------
   // Apply property changes from the footer to the canvas object
   // ------------------------------------------
@@ -2097,72 +2546,40 @@ export function useCanvasManager() {
     const active = canvas.getActiveObject()
     if (!active) return
 
-    const wa = useCanvasStore.getState().workArea
-    const originPos = getOriginPixels(
-      wa.origin,
-      wa.width * PIXELS_PER_MM,
-      wa.height * PIXELS_PER_MM,
-      WORK_AREA_PADDING,
-      WORK_AREA_PADDING,
-    )
-    const flipY = wa.origin.startsWith('bottom')
+    applyObjectPropRaw(active, prop, value)
 
-    switch (prop) {
-      case 'x':
-        active.set('left', value * PIXELS_PER_MM + originPos.x)
-        break
-      case 'y': {
-        const bounds = active.getBoundingRect()
-        if (flipY) {
-          active.set('top', originPos.y - value * PIXELS_PER_MM - bounds.height)
-        } else {
-          active.set('top', value * PIXELS_PER_MM + originPos.y)
-        }
-        break
-      }
-      case 'width': {
-        // Use geometric width (not bounding rect which includes stroke)
-        const geomW = (active.width ?? 0) * (active.scaleX ?? 1)
-        const currentWMm = geomW / PIXELS_PER_MM
-        if (currentWMm > 0) {
-          const boundsW = active.getBoundingRect()
-          const rightEdge = (active.left ?? 0) + boundsW.width
-          const scale = value / currentWMm
-          active.set('scaleX', (active.scaleX ?? 1) * scale)
-          active.setCoords()
-          if (wa.origin.endsWith('right')) {
-            const newW = active.getBoundingRect().width
-            active.set('left', rightEdge - newW)
-          } else if (wa.origin.endsWith('center') || wa.origin === 'center') {
-            const newW = active.getBoundingRect().width
-            active.set('left', (active.left ?? 0) - (newW - boundsW.width) / 2)
-          }
-        }
-        break
-      }
-      case 'height': {
-        const geomH = (active.height ?? 0) * (active.scaleY ?? 1)
-        const currentHMm = geomH / PIXELS_PER_MM
-        if (currentHMm > 0) {
-          const boundsH = active.getBoundingRect()
-          const bottomEdge = (active.top ?? 0) + boundsH.height
-          const scale = value / currentHMm
-          active.set('scaleY', (active.scaleY ?? 1) * scale)
-          active.setCoords()
-          if (flipY) {
-            const newH = active.getBoundingRect().height
-            active.set('top', bottomEdge - newH)
-          } else if (wa.origin.startsWith('center')) {
-            const newH = active.getBoundingRect().height
-            active.set('top', (active.top ?? 0) - (newH - boundsH.height) / 2)
-          }
-        }
-        break
-      }
-      case 'angle':
-        active.set('angle', value)
-        break
-    }
+    active.setCoords()
+    canvas.requestRenderAll()
+    updateSelectedObjectProps()
+    pushToHistory()
+  }, [updateSelectedObjectProps])
+
+  /**
+   * Redimensiona la seleccion al valor que muestra el panel (bounding box en
+   * mm). Se calcula la razon contra el bounding box y se aplica sobre la
+   * medida geometrica, que es la que entiende el anclaje por origen.
+   */
+  const resizeSelected = useCallback((
+    dim: 'width' | 'height',
+    valueMm: number,
+    keepAspect: boolean,
+  ) => {
+    const canvas = getCanvas()
+    if (!canvas || valueMm <= 0) return
+
+    const active = canvas.getActiveObject()
+    if (!active) return
+
+    const bounds = active.getBoundingRect()
+    const currentMm = (dim === 'width' ? bounds.width : bounds.height) / PIXELS_PER_MM
+    if (currentMm <= 1e-4) return
+
+    const ratio = valueMm / currentMm
+    const geomWmm = ((active.width ?? 0) * (active.scaleX ?? 1)) / PIXELS_PER_MM
+    const geomHmm = ((active.height ?? 0) * (active.scaleY ?? 1)) / PIXELS_PER_MM
+
+    if (keepAspect || dim === 'width') applyObjectPropRaw(active, 'width', geomWmm * ratio)
+    if (keepAspect || dim === 'height') applyObjectPropRaw(active, 'height', geomHmm * ratio)
 
     active.setCoords()
     canvas.requestRenderAll()
@@ -3317,6 +3734,7 @@ export function useCanvasManager() {
     loadImage,
     addRasterToCanvas,
     addShape,
+    addShapeAt,
     addPolyline,
     addArc,
     addBezierCurve,
@@ -3324,10 +3742,15 @@ export function useCanvasManager() {
     updateMakerParams,
     removeObject,
     toggleVisibility,
+    applySheetVisibility,
+    switchSheet,
+    createSheet,
+    deleteSheet,
     toggleLock,
     zoomIn,
     zoomOut,
     fitView,
+    fitSelection,
     flipH,
     flipV,
     undo,
@@ -3335,6 +3758,8 @@ export function useCanvasManager() {
     deleteSelected,
     duplicateSelected,
     selectAll,
+    selectSimilar,
+    nestElements,
     deselectAll,
     nudge,
     commitNudge,
@@ -3348,6 +3773,7 @@ export function useCanvasManager() {
     getJobsForGCode,
     updateSelectedObjectProps,
     applyObjectProps,
+    resizeSelected,
     alignToFirst,
     alignToWorkArea,
     distribute,
@@ -3512,6 +3938,99 @@ function extractObjectPaths(
   return paths
 }
 
+/**
+ * Paso de grilla efectivo en mm para el zoom actual.
+ *
+ * Con la grilla adaptativa activa se elige el escalon 1/2/5 x 10^k mas chico
+ * que todavia se vea separado en pantalla, asi la grilla se subdivide al
+ * acercarse y se agrupa al alejarse en vez de desaparecer o empastarse.
+ * `major` es cada cuantas lineas va la linea gruesa.
+ */
+export function effectiveGridSpacing(zoom: number): { spacingMm: number; major: number } {
+  const { gridSpacingMm, gridAdaptive } = useCanvasStore.getState()
+  const base = gridSpacingMm > 0 ? gridSpacingMm : 10
+
+  if (!gridAdaptive) {
+    return { spacingMm: base, major: GRID_MAJOR_EVERY }
+  }
+
+  const MIN_SCREEN_PX = 12
+  const mantissas = [1, 2, 5]
+  // Arranca bien abajo y sube hasta que la separacion en pantalla alcanza
+  let decade = -2
+  for (let i = 0; i < 12; i++) {
+    for (const m of mantissas) {
+      const candidate = m * Math.pow(10, decade)
+      if (candidate * PIXELS_PER_MM * zoom >= MIN_SCREEN_PX) {
+        // Linea gruesa en el salto de decada: 1 -> cada 10, 2 -> cada 5, 5 -> cada 2
+        const major = m === 1 ? 10 : m === 2 ? 5 : 2
+        return { spacingMm: candidate, major }
+      }
+    }
+    decade++
+  }
+  return { spacingMm: base, major: GRID_MAJOR_EVERY }
+}
+
+/**
+ * Escalon 1/2/5 x 10^k mas chico cuyo ancho en pantalla llega a `minPx`.
+ * Sirve tanto para la grilla como para el espaciado de etiquetas de las reglas.
+ */
+export function niceStepMm(zoom: number, minPx: number): number {
+  const mantissas = [1, 2, 5]
+  let decade = -2
+  for (let i = 0; i < 12; i++) {
+    for (const m of mantissas) {
+      const candidate = m * Math.pow(10, decade)
+      if (candidate * PIXELS_PER_MM * zoom >= minPx) return candidate
+    }
+    decade++
+  }
+  return 100
+}
+
+/** Convierte un punto del canvas (px) a mm respecto al origen del area. */
+export function canvasToMm(
+  canvasX: number,
+  canvasY: number,
+  workArea: { width: number; height: number; origin: string },
+): { x: number; y: number } {
+  const originPos = getOriginPixels(
+    workArea.origin,
+    workArea.width * PIXELS_PER_MM,
+    workArea.height * PIXELS_PER_MM,
+    WORK_AREA_PADDING,
+    WORK_AREA_PADDING,
+  )
+  const flipY = workArea.origin.startsWith('bottom')
+  return {
+    x: (canvasX - originPos.x) / PIXELS_PER_MM,
+    y: flipY
+      ? (originPos.y - canvasY) / PIXELS_PER_MM
+      : (canvasY - originPos.y) / PIXELS_PER_MM,
+  }
+}
+
+/** Inverso de canvasToMm: mm -> px del canvas. */
+export function mmToCanvas(
+  mmX: number,
+  mmY: number,
+  workArea: { width: number; height: number; origin: string },
+): { x: number; y: number } {
+  const originPos = getOriginPixels(
+    workArea.origin,
+    workArea.width * PIXELS_PER_MM,
+    workArea.height * PIXELS_PER_MM,
+    WORK_AREA_PADDING,
+    WORK_AREA_PADDING,
+  )
+  const flipY = workArea.origin.startsWith('bottom')
+  return {
+    x: originPos.x + mmX * PIXELS_PER_MM,
+    y: flipY ? originPos.y - mmY * PIXELS_PER_MM : originPos.y + mmY * PIXELS_PER_MM,
+  }
+}
+
 // Re-export constants for use in DesignCanvas
 export {
   PIXELS_PER_MM,
@@ -3524,4 +4043,5 @@ export {
   ELEMENT_ID_KEY,
   NON_INTERACTIVE_KEY,
   getCustomProp,
+  getOriginPixels,
 }

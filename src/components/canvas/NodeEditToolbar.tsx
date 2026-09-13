@@ -15,6 +15,8 @@ import {
   CornerUpRight,
   Square,
   Dog,
+  Waves,
+  Unlink,
 } from 'lucide-react'
 
 export function NodeEditToolbar() {
@@ -130,6 +132,38 @@ export function NodeEditToolbar() {
           </Button>
         </TooltipTrigger>
         <TooltipContent>{t('nodeToggleSmooth')}</TooltipContent>
+      </Tooltip>
+
+      {/* Symmetric handles */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            disabled={!hasSelectedNode}
+            onClick={() => window.dispatchEvent(new CustomEvent('node-edit:symmetric'))}
+          >
+            <Waves className="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{t('nodeSymmetric')}</TooltipContent>
+      </Tooltip>
+
+      {/* Break node */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            disabled={!hasSelectedNode}
+            onClick={() => window.dispatchEvent(new CustomEvent('node-edit:break'))}
+          >
+            <Unlink className="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{t('nodeBreak')}</TooltipContent>
       </Tooltip>
 
       {/* Split path at node */}

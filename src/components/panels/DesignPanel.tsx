@@ -43,12 +43,17 @@ import {
   SquareDashed,
   BoxSelect,
   Table2,
+  Egg,
 } from 'lucide-react'
 
 export function DesignPanel() {
   const { t } = useTranslation('canvas')
   const { t: ts } = useTranslation('settings')
-  const { elements, selectedElementId, selectElement, globalConfig, workArea, setDrawingMode } = useCanvasStore()
+  const { elements, selectedElementId, selectElement, globalConfig, workArea, setDrawingMode, activeSheetId, sheets } = useCanvasStore()
+  // El listado muestra solo lo que vive en la hoja activa
+  const sheetElements = elements.filter(
+    (el) => (el.sheetId ?? sheets[0]?.id) === activeSheetId,
+  )
   const { tools, materials } = useLibraryStore()
   const { addConsoleLine, openModal } = useAppStore()
   const handleTextToPath = () => openModal('textToPath')
@@ -219,6 +224,18 @@ return (
                 <Circle className="h-4 w-4 mr-2" />
                 {t('addCircle')}
               </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setDrawingMode('rect')}>
+                <SquareDashed className="h-4 w-4 mr-2" />
+                {t('drawRect')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setDrawingMode('circle')}>
+                <CircleDashed className="h-4 w-4 mr-2" />
+                {t('drawCircle')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setDrawingMode('ellipse')}>
+                <Egg className="h-4 w-4 mr-2" />
+                {t('drawEllipse')}
+              </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setDrawingMode('line')}>
                 <Minus className="h-4 w-4 mr-2" />
                 {t('drawLine')}
@@ -292,7 +309,7 @@ return (
             {t('loadSVG')}
           </p>
         )}
-        {elements.map((el) => (
+        {sheetElements.map((el) => (
           <div
             key={el.id}
             className={`flex items-center gap-1 px-2 py-1.5 rounded-md cursor-pointer text-sm transition-colors ${

@@ -48,6 +48,24 @@ export function HelpModal() {
             <div>
               <h3 className="font-semibold text-sm flex items-center gap-2">
                 <Keyboard className="h-4 w-4" />
+                {t('shortcutsTitle')}
+              </h3>
+              <ul className="text-sm text-muted-foreground mt-1 space-y-1">
+                <li>{t('scTools')}</li>
+                <li>{t('scDraw')}</li>
+                <li>{t('scNodes')}</li>
+                <li>{t('scSnap')}</li>
+                <li>{t('scOrtho')}</li>
+                <li>{t('scZoom')}</li>
+                <li>{t('scEdit')}</li>
+              </ul>
+            </div>
+
+            <Separator />
+
+            <div>
+              <h3 className="font-semibold text-sm flex items-center gap-2">
+                <Keyboard className="h-4 w-4" />
                 {t('workspacesTitle')}
               </h3>
               <ul className="text-sm text-muted-foreground mt-1 space-y-1">

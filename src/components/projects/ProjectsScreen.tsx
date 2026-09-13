@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/stores/useAppStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
+import { canvasSnapshotFromElements } from '@/lib/project-file'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import { useLibraryStore } from '@/stores/useLibraryStore'
 import { useWorkspaceStore, type ProjectMeta } from '@/stores/useWorkspaceStore'
@@ -184,8 +185,10 @@ export function ProjectsScreen() {
     const filePath = workspacePath ? `${workspacePath}/${filename}` : filename
 
     // Limpiar canvas
-    const { setElements } = useCanvasStore.getState()
+    const { setElements, setSheets, clearGuides } = useCanvasStore.getState()
     setElements([])
+    setSheets([])
+    clearGuides()
     clearGCode()
 
     // Configurar proyecto
@@ -255,10 +258,19 @@ export function ProjectsScreen() {
           operationType: (data.mode as OperationType) || 'cnc',
         })
 
+        // Las hojas van antes que los elementos: cada elemento apunta a una
+        const { setElements, setSheets, setPendingCanvasJSON } = useCanvasStore.getState()
+        setSheets(data.sheets ?? [], data.activeSheetId)
+
         if (data.elements?.length) {
-          const { setElements } = useCanvasStore.getState()
           setElements(data.elements)
         }
+
+        // La geometria la levanta DesignCanvas al montarse. En archivos <= 1.2
+        // no hay snapshot, pero si la copia que quedaba colgada de cada elemento.
+        setPendingCanvasJSON(
+          data.canvas ?? canvasSnapshotFromElements(data.elements ?? []),
+        )
 
         if (data.gcode?.code) {
           useGCodeStore.getState().setGCode(data.gcode.code)

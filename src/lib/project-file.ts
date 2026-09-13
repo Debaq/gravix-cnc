@@ -1,7 +1,9 @@
+import { getSharedCanvas, ELEMENT_ID_KEY, NON_INTERACTIVE_KEY } from '@/hooks/useCanvasManager'
 import { useAppStore } from '@/stores/useAppStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import type { CanvasElement, GlobalConfig, OperationType } from '@/lib/types'
+import type { Sheet } from '@/stores/useCanvasStore'
 
 /**
  * Formato del archivo `.gravix`.
@@ -24,17 +26,35 @@ export interface GravixFile {
   globalConfig?: GlobalConfig
   gcode?: { generated: boolean; code: string }
   appVersion?: string
+  /** Desde 1.2: hojas del proyecto (cada elemento guarda su `sheetId`). */
+  sheets?: Sheet[]
+  activeSheetId?: string
+  /**
+   * Desde 1.3: snapshot Fabric del lienzo. Sin esto el archivo guardaba la
+   * metadata de los elementos pero no la geometria, y al abrir el proyecto
+   * aparecia la lista llena y el lienzo vacio.
+   */
+  canvas?: unknown
 }
 
-export const GRAVIX_FILE_VERSION = '1.1.0'
+export const GRAVIX_FILE_VERSION = '1.3.0'
 
 /** Arma el contenido del `.gravix` con el estado actual de los stores. */
 export function serializeGravixProject(createdAt?: number): GravixFile {
   const { projectName, projectOperationType } = useAppStore.getState()
-  const { elements, workArea, globalConfig } = useCanvasStore.getState()
+  const { elements, workArea, globalConfig, sheets, activeSheetId } = useCanvasStore.getState()
   const { gcode, gcodeGenerated } = useGCodeStore.getState()
 
   const now = Math.floor(Date.now() / 1000)
+
+  // La geometria viaja en el snapshot, no colgada de cada elemento
+  const canvas = getSharedCanvas()
+  const canvasSnapshot = canvas
+    ? (canvas as unknown as { toObject(props: string[]): object }).toObject([
+        ELEMENT_ID_KEY,
+        NON_INTERACTIVE_KEY,
+      ])
+    : undefined
 
   return {
     name: projectName,
@@ -44,19 +64,22 @@ export function serializeGravixProject(createdAt?: number): GravixFile {
     version: GRAVIX_FILE_VERSION,
     created_at: createdAt ?? now,
     updated_at: now,
-    elements,
+    elements: elements.map((el) => ({ ...el, fabricObject: undefined })),
     operations: [],
     materials: [],
+    canvas: canvasSnapshot,
     globalConfig,
     gcode: { generated: gcodeGenerated, code: gcode },
     appVersion: __APP_VERSION__,
+    sheets,
+    activeSheetId,
   }
 }
 
 /** Huella barata del contenido, para no reescribir el archivo sin cambios. */
 export function projectFingerprint(): string {
   const { projectName, projectOperationType } = useAppStore.getState()
-  const { elements, workArea, globalConfig } = useCanvasStore.getState()
+  const { elements, workArea, globalConfig, sheets, activeSheetId } = useCanvasStore.getState()
   const { gcode } = useGCodeStore.getState()
 
   return JSON.stringify([
@@ -65,6 +88,28 @@ export function projectFingerprint(): string {
     workArea,
     globalConfig,
     elements,
+    sheets,
+    activeSheetId,
     gcode.length,
   ])
+}
+
+/**
+ * Arma un snapshot Fabric a partir de los elementos de un archivo viejo
+ * (<= 1.2), donde la geometria venia colgada de `element.fabricObject`.
+ * Devuelve null si no hay nada aprovechable.
+ */
+export function canvasSnapshotFromElements(
+  elements: Array<{ id: string; fabricObject?: unknown }>,
+): { version: string; objects: unknown[] } | null {
+  const objects = elements
+    .filter((el) => el.fabricObject && typeof el.fabricObject === 'object')
+    .map((el) => ({
+      ...(el.fabricObject as Record<string, unknown>),
+      // toJSON() no incluye props custom: hay que volver a estampar el id
+      [ELEMENT_ID_KEY]: el.id,
+    }))
+
+  if (objects.length === 0) return null
+  return { version: '6.0.0', objects }
 }

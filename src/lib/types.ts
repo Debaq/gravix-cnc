@@ -133,6 +133,7 @@ export interface CanvasElement {
   visible: boolean
   locked: boolean
   layerId?: string // ID de la capa a la que pertenece
+  sheetId?: string // ID de la hoja en la que vive
   expanded?: boolean
   showConfig?: boolean
   config: GlobalConfig | null
@@ -271,6 +272,7 @@ export interface SerializedElement {
   name: string
   visible: boolean
   locked: boolean
+  sheetId?: string
   config: GlobalConfig | null
   operations?: GlobalConfig[]
   makerType?: string
