@@ -406,6 +406,20 @@ Sobre un cajeado de 200x150x6 con fresa de 6mm: 591 movimientos, grilla de
 
 Es 2.5D: no hay socavados, que una maquina de 3 ejes tampoco hace.
 
+### Desbaste adaptativo (engagement constante)
+`engagement.ts` lleva el material que queda en una capa como grilla booleana y
+mide el arco de contacto muestreando el circulo de corte; `adaptive.ts` marcha
+paso a paso buscando la curvatura que deja ese arco en el objetivo, con radio
+minimo de curvatura, entrada en helice y enlace a profundidad por la zona ya
+vaciada (Dijkstra sobre la grilla). En un bolsillo de 120x80 con fresa de 6mm:
+89% del bocado pedido, cero levantes, una sola bajada al material y 2% de
+sobrante contra la pared, que es la demasia de la pasada de acabado.
+
+Queda **un problema abierto**: los cuellos de material que deja el reenganche se
+rompen casi a ranurado (3-9% de los pasos sobre 1.75x el objetivo). El recorrido
+solo es seguro con el avance modulado por el arco de contacto que sale punto por
+punto. Ver `docs/adaptive-cuellos.md`.
+
 ### Tabs con click en el visor
 El G-code no trae los contornos de origen, pero la tira continua de cortes entre
 dos rapidos ES el lazo sobre el que el generador reparte los tabs, asi que la
@@ -416,4 +430,4 @@ igual, que es lo que hace el generador.
 
 Archivos nuevos: `history-bridge.ts`, `job-sheet.ts`, `save-file.ts`,
 `collision.ts`, `heightmap.ts`, `heightmap.worker.ts`, `useMaterialSim.ts`,
-`JobSheetModal.tsx`.
+`JobSheetModal.tsx`, `engagement.ts`, `adaptive.ts`.
