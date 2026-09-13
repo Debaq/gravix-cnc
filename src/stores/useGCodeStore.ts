@@ -28,7 +28,6 @@ interface GCodeState {
 
   // Actions
   setGCode: (gcode: string) => void
-  setGCodeGenerated: (generated: boolean) => void
   setGCodeNeedsRegeneration: (needs: boolean) => void
   setGenerating: (generating: boolean) => void
   setEstimates: (estimates: MachiningEstimates) => void
@@ -74,8 +73,6 @@ export const useGCodeStore = create<GCodeState>((set) => ({
       gcodeGenerated: gcode.length > 0,
       gcodeNeedsRegeneration: false,
     }),
-
-  setGCodeGenerated: (generated) => set({ gcodeGenerated: generated }),
 
   setGCodeNeedsRegeneration: (needs) => set({ gcodeNeedsRegeneration: needs }),
 

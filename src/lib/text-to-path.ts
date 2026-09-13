@@ -41,19 +41,3 @@ export function textToSvgPath(
   return path.toPathData(2)
 }
 
-export function textBoundsMm(
-  text: string,
-  font: Font,
-  sizeMm: number,
-  letterSpacing = 0,
-  pixelsPerMm = 3.78,
-): { width: number; height: number } {
-  const sizePx = sizeMm * pixelsPerMm
-  const spacingPx = letterSpacing * pixelsPerMm
-  const path = font.getPath(text, 0, sizePx, sizePx, { letterSpacing: spacingPx / sizePx })
-  const bb = path.getBoundingBox()
-  return {
-    width: (bb.x2 - bb.x1) / pixelsPerMm,
-    height: (bb.y2 - bb.y1) / pixelsPerMm,
-  }
-}

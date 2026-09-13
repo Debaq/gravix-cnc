@@ -253,21 +253,6 @@ export function OperationEditor() {
                 </div>
               </div>
 
-              {/* Compensation */}
-              <div>
-                <label className="text-[11px] text-muted-foreground">Compensacion</label>
-                <Select value={config.compensation} onValueChange={(v) => update({ compensation: v as GlobalConfig['compensation'] })}>
-                  <SelectTrigger className="h-8 mt-0.5">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="center">Centro</SelectItem>
-                    <SelectItem value="inside">Interior</SelectItem>
-                    <SelectItem value="outside">Exterior</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
               {/* Pocket-specific */}
               {config.workType === 'pocket' && (
                 <>

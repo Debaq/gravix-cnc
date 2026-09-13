@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { CanvasElement, WorkArea, GlobalConfig, RasterData, Layer, ColorMapping, VectorCleanupConfig } from '@/lib/types'
 import { useGCodeStore } from '@/stores/useGCodeStore'
+import type { NodeConstraint } from '@/lib/constraints'
 
 export interface SelectedObjectProps {
   x: number
@@ -16,27 +17,22 @@ interface CanvasState {
   selectedElementId: string | null
   selectedElements: CanvasElement[]
   isGroupSelection: boolean
-  showPropertiesPanel: boolean
 
   // Work area
   workArea: WorkArea
 
   // Grid
-  gridSize: number
   showGrid: boolean
+
 
   // SVG info
   svgX: number
   svgY: number
   svgWidth: number
   svgHeight: number
-  proportionalScale: boolean
 
   // Selected object properties (in mm, relative to work area origin)
   selectedObjectProps: SelectedObjectProps | null
-
-  // Config status
-  configStatus: 'unified' | 'multiple' | 'none'
 
   // Global config
   globalConfig: GlobalConfig
@@ -64,7 +60,7 @@ interface CanvasState {
   // Node editing mode
   nodeEditingElementId: string | null
   nodeEditSelectedNode: number   // índice del nodo seleccionado, -1 = ninguno
-  nodeConstraints: { id: string; type: string; nodeIndex: number }[]
+  nodeConstraints: NodeConstraint[]
 
   // Toolbar layout
   toolbarColumns: 1 | 2 | 3
@@ -80,9 +76,6 @@ interface CanvasState {
   // Limpieza automatica de vectores antes de generar G-code
   vectorCleanup: VectorCleanupConfig
 
-  // Multiple sheets
-  sheets: { id: string; name: string }[]
-  activeSheetId: string
 
   // Per-operation-type remembered defaults (last used tool/material)
   operationDefaults: Record<string, { tool: string; material: string }>
@@ -95,12 +88,8 @@ interface CanvasState {
   selectElement: (id: string | null) => void
   setSelectedElements: (elements: CanvasElement[]) => void
   setIsGroupSelection: (is: boolean) => void
-  setShowPropertiesPanel: (show: boolean) => void
   setWorkArea: (wa: WorkArea) => void
-  setGridSize: (size: number) => void
-  toggleGrid: () => void
   setSvgDimensions: (dims: { x?: number; y?: number; width?: number; height?: number }) => void
-  toggleProportionalScale: () => void
   setSelectedObjectProps: (props: SelectedObjectProps | null) => void
   setGlobalConfig: (config: Partial<GlobalConfig>) => void
   setRasterData: (data: RasterData | null) => void
@@ -111,9 +100,8 @@ interface CanvasState {
   setTrimMode: (active: boolean) => void
   setExtendMode: (active: boolean) => void
   setNodeEditing: (elementId: string | null) => void
-  setNodeConstraints: (constraints: { id: string; type: string; nodeIndex: number }[]) => void
+  setNodeConstraints: (constraints: NodeConstraint[]) => void
   setNodeEditSelectedNode: (index: number) => void
-  updateConfigStatus: () => void
 
   // Layer actions
   addLayer: (name?: string, color?: string) => void
@@ -121,10 +109,6 @@ interface CanvasState {
   updateLayer: (id: string, updates: Partial<Layer>) => void
   reorderLayers: (layers: Layer[]) => void
   setActiveLayer: (id: string) => void
-  addSheet: (name?: string) => void
-  removeSheet: (id: string) => void
-  setActiveSheet: (id: string) => void
-  renameSheet: (id: string, name: string) => void
   setColorMappings: (mappings: ColorMapping[]) => void
   setVectorCleanup: (cleanup: Partial<VectorCleanupConfig>) => void
   moveElementToLayer: (elementId: string, layerId: string) => void
@@ -147,7 +131,6 @@ const defaultGlobalConfig: GlobalConfig = {
   depth: -3,
   depthStep: 0.5,
   toolDiameter: 3.175,
-  compensation: 'center',
   stepover: 0.5,
   pocketStrategy: 'contour-parallel',
   pressure: 15,
@@ -199,27 +182,22 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   selectedElementId: null,
   selectedElements: [],
   isGroupSelection: false,
-  showPropertiesPanel: false,
 
   // Work area
   workArea: { width: 400, height: 400, origin: 'bottom-left' },
 
   // Grid
-  gridSize: 20,
   showGrid: true,
+
 
   // SVG info
   svgX: 0,
   svgY: 0,
   svgWidth: 0,
   svgHeight: 0,
-  proportionalScale: true,
 
   // Selected object properties
   selectedObjectProps: null,
-
-  // Config status
-  configStatus: 'unified',
 
   // Global config
   globalConfig: { ...defaultGlobalConfig },
@@ -261,9 +239,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   ],
   activeLayerId: 'layer_001',
 
-  // Sheets
-  sheets: [{ id: 'sheet_001', name: 'Sheet 1' }],
-  activeSheetId: 'sheet_001',
 
   // Default color mappings (LightBurn style)
   colorMappings: [
@@ -311,10 +286,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         if (gcState.gcodeGenerated) {
           gcState.setGCodeNeedsRegeneration(true)
         }
-        const hasCustom = elements.some(
-          (el) => el.config !== null || el.children?.some((c) => c.config !== null)
-        )
-        return { elements, configStatus: hasCustom ? 'multiple' as const : 'unified' as const }
       }
       return { elements }
     }),
@@ -327,13 +298,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   setIsGroupSelection: (is) => set({ isGroupSelection: is }),
 
-  setShowPropertiesPanel: (show) => set({ showPropertiesPanel: show }),
-
   setWorkArea: (wa) => set({ workArea: wa }),
-
-  setGridSize: (size) => set({ gridSize: size }),
-
-  toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),
 
   setSvgDimensions: (dims) =>
     set((state) => ({
@@ -342,9 +307,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       svgWidth: dims.width ?? state.svgWidth,
       svgHeight: dims.height ?? state.svgHeight,
     })),
-
-  toggleProportionalScale: () =>
-    set((state) => ({ proportionalScale: !state.proportionalScale })),
 
   setSelectedObjectProps: (props) => set({ selectedObjectProps: props }),
 
@@ -403,17 +365,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   setNodeConstraints: (constraints) => set({ nodeConstraints: constraints }),
   setNodeEditSelectedNode: (index) => set({ nodeEditSelectedNode: index }),
 
-  updateConfigStatus: () => {
-    const { elements } = get()
-    const hasCustomConfig = elements.some((el) => {
-      if (el.config) return true
-      if (el.children) {
-        return el.children.some((c) => c.config)
-      }
-      return false
-    })
-    set({ configStatus: hasCustomConfig ? 'multiple' : 'unified' })
-  },
 
   addLayer: (name, color) => set((state) => {
     const id = `layer_${Date.now()}`
@@ -453,26 +404,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   reorderLayers: (layers) => set({ layers }),
 
   setActiveLayer: (id) => set({ activeLayerId: id }),
-
-  addSheet: (name) => set((state) => {
-    const id = `sheet_${Date.now()}`
-    return {
-      sheets: [...state.sheets, { id, name: name || `Sheet ${state.sheets.length + 1}` }],
-      activeSheetId: id,
-    }
-  }),
-  removeSheet: (id) => set((state) => {
-    if (state.sheets.length <= 1) return state
-    const sheets = state.sheets.filter(s => s.id !== id)
-    return {
-      sheets,
-      activeSheetId: state.activeSheetId === id ? sheets[0].id : state.activeSheetId,
-    }
-  }),
-  setActiveSheet: (id) => set({ activeSheetId: id }),
-  renameSheet: (id, name) => set((state) => ({
-    sheets: state.sheets.map(s => s.id === id ? { ...s, name } : s),
-  })),
 
   setColorMappings: (mappings) => set({ colorMappings: mappings }),
 

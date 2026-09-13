@@ -90,8 +90,6 @@ export function ControlPanel() {
     position,
     posMode,
     baudRate,
-    feedOverride,
-    spindleOverride,
     diagnostics,
     parserState,
     jogDistance,
@@ -497,13 +495,13 @@ export function ControlPanel() {
                   <div className={`rounded-md px-2 py-1.5 text-center ${simulating ? 'bg-cyan-500/10 border border-cyan-500/20' : 'bg-muted'}`}>
                     <span className="text-[10px] text-muted-foreground block">Feed</span>
                     <span className={`text-sm font-semibold font-mono ${simulating ? 'text-cyan-300' : ''}`}>
-                      {simulating ? `${simulatedFeed}` : `${feedOverride}%`}
+                      {simulating ? `${simulatedFeed}` : `${diagnostics.feedOverride}%`}
                     </span>
                   </div>
                   <div className={`rounded-md px-2 py-1.5 text-center ${simulating ? 'bg-cyan-500/10 border border-cyan-500/20' : 'bg-muted'}`}>
                     <span className="text-[10px] text-muted-foreground block">Spindle</span>
                     <span className={`text-sm font-semibold font-mono ${simulating ? 'text-cyan-300' : ''}`}>
-                      {simulating ? `${simulatedSpindle}` : `${spindleOverride}%`}
+                      {simulating ? `${simulatedSpindle}` : `${diagnostics.spindleOverride}%`}
                     </span>
                   </div>
                 </div>

@@ -110,11 +110,6 @@ export interface MachineProfile {
   updatedAt?: string
 }
 
-// Helper: crea un origen por defecto si falta.
-export function defaultOrigin(): OriginPosition {
-  return 'bottom-left'
-}
-
 // ============================================
 // Toolpath Templates (sin cambios)
 // ============================================

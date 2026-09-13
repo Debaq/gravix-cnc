@@ -15,8 +15,6 @@ interface SerialState {
   machineState: MachineState
   position: MachinePosition
   posMode: PositionMode
-  feedOverride: number
-  spindleOverride: number
 
   // Jog
   jogDistance: number
@@ -53,15 +51,12 @@ interface SerialState {
   setMachineState: (state: MachineState) => void
   setPosition: (pos: Partial<MachinePosition>) => void
   togglePosMode: () => void
-  setFeedOverride: (value: number) => void
-  setSpindleOverride: (value: number) => void
   setJogDistance: (distance: number) => void
   setJogSpeed: (speed: number) => void
   setMaxTravel: (travel: { x: number; y: number; z: number }) => void
   setSoftLimitsEnabled: (enabled: boolean) => void
   setActiveWorkspace: (ws: string) => void
   setLaserPower: (power: number) => void
-  setLaserTestDuration: (ms: number) => void
   setLastError: (error: string | null) => void
   clearLastError: () => void
   setDiagnostics: (diag: Partial<GrblDiagnostics>) => void
@@ -82,8 +77,6 @@ export const useSerialStore = create<SerialState>((set) => ({
   machineState: 'Idle',
   position: { x: '0.000', y: '0.000', z: '0.000' },
   posMode: 'WPos',
-  feedOverride: 100,
-  spindleOverride: 100,
 
   // Jog
   jogDistance: 1,
@@ -134,15 +127,12 @@ export const useSerialStore = create<SerialState>((set) => ({
     set((state) => ({
       posMode: state.posMode === 'WPos' ? 'MPos' : 'WPos',
     })),
-  setFeedOverride: (value) => set({ feedOverride: value }),
-  setSpindleOverride: (value) => set({ spindleOverride: value }),
   setJogDistance: (distance) => set({ jogDistance: distance }),
   setJogSpeed: (speed) => set({ jogSpeed: speed }),
   setMaxTravel: (travel) => set({ maxTravel: travel }),
   setSoftLimitsEnabled: (enabled) => set({ softLimitsEnabled: enabled }),
   setActiveWorkspace: (ws) => set({ activeWorkspace: ws }),
   setLaserPower: (power) => set({ laserPower: Math.max(0, Math.min(1000, power)) }),
-  setLaserTestDuration: (ms) => set({ laserTestDuration: Math.max(100, Math.min(5000, ms)) }),
   setLastError: (error) => set({ lastError: error, lastErrorTime: error ? Date.now() : null }),
   clearLastError: () => set({ lastError: null, lastErrorTime: null }),
 

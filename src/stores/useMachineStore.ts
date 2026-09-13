@@ -19,11 +19,9 @@ interface MachineState {
   persist: () => Promise<void>
   setActive: (id: string | null) => Promise<void>
   getActive: () => MachineProfile | null
-  addMachine: (m: MachineProfile) => Promise<void>
   updateMachine: (id: string, patch: Partial<MachineProfile>) => void
   deleteMachine: (id: string) => Promise<void>
   cloneFromPreset: (presetId: string, name?: string) => Promise<MachineProfile | null>
-  resetPresets: () => Promise<void>
 }
 
 function mergeWithPresets(user: MachineProfile[]): MachineProfile[] {
@@ -92,11 +90,6 @@ export const useMachineStore = create<MachineState>((set, get) => ({
     return machines.find((m) => m.id === activeMachineId) ?? null
   },
 
-  addMachine: async (m) => {
-    set((s) => ({ machines: [...s.machines, m] }))
-    await get().persist()
-  },
-
   updateMachine: (id, patch) => {
     set((s) => ({
       machines: s.machines.map((m) =>
@@ -123,12 +116,8 @@ export const useMachineStore = create<MachineState>((set, get) => ({
     const preset = get().machines.find((m) => m.id === presetId)
     if (!preset) return null
     const clone = clonePreset(preset, name)
-    await get().addMachine(clone)
-    return clone
-  },
-
-  resetPresets: async () => {
-    set({ machines: mergeWithPresets(get().machines.filter((m) => !m.isBuiltin)) })
+    set((s) => ({ machines: [...s.machines, clone] }))
     await get().persist()
+    return clone
   },
 }))

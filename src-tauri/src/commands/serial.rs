@@ -1425,11 +1425,6 @@ pub fn serial_cancel_send(state: State<'_, Arc<SerialState>>) -> Result<(), Stri
     state.send_request(IoRequest::AbortJob)
 }
 
-#[tauri::command]
-pub fn serial_get_status(state: State<'_, Arc<SerialState>>) -> Option<GrblStatus> {
-    state.last_status()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -36,7 +36,6 @@ export interface RasterData {
 }
 
 // Compensación de herramienta
-export type ToolCompensation = 'center' | 'inside' | 'outside'
 
 // Estrategia de cajeado (pocket)
 export type PocketStrategy = 'contour-parallel' | 'zigzag'
@@ -74,7 +73,6 @@ export interface GlobalConfig {
   depth: number
   depthStep: number
   toolDiameter: number
-  compensation: ToolCompensation
   stepover: number
   pocketStrategy: PocketStrategy
   pressure: number

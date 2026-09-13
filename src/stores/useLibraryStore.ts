@@ -8,12 +8,8 @@ interface LibraryState {
   materials: Material[]
 
   // Auth
-  authenticated: boolean
-  authPassword: string
 
   // Status
-  toolsStatus: { type: string; message: string } | null
-  materialsStatus: { type: string; message: string } | null
 
   // Modal state
   toolsModalTab: string
@@ -24,10 +20,6 @@ interface LibraryState {
   // Actions
   setTools: (tools: Tool[]) => void
   setMaterials: (materials: Material[]) => void
-  setAuthenticated: (auth: boolean) => void
-  setAuthPassword: (pwd: string) => void
-  setToolsStatus: (status: { type: string; message: string } | null) => void
-  setMaterialsStatus: (status: { type: string; message: string } | null) => void
   setToolsModalTab: (tab: string) => void
   setMaterialsModalTab: (tab: string) => void
   setEditingTool: (tool: Tool | null) => void
@@ -43,12 +35,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   materials: [],
 
   // Auth
-  authenticated: false,
-  authPassword: '',
 
   // Status
-  toolsStatus: null,
-  materialsStatus: null,
 
   // Modal state
   toolsModalTab: 'cnc',
@@ -59,10 +47,6 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   // Actions
   setTools: (tools) => set({ tools }),
   setMaterials: (materials) => set({ materials }),
-  setAuthenticated: (auth) => set({ authenticated: auth }),
-  setAuthPassword: (pwd) => set({ authPassword: pwd }),
-  setToolsStatus: (status) => set({ toolsStatus: status }),
-  setMaterialsStatus: (status) => set({ materialsStatus: status }),
   setToolsModalTab: (tab) => set({ toolsModalTab: tab }),
   setMaterialsModalTab: (tab) => set({ materialsModalTab: tab }),
   setEditingTool: (tool) => set({ editingTool: tool }),

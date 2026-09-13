@@ -6,13 +6,11 @@ interface WorkflowState {
   macros: SavedMacro[]
   addMacro: (macro: SavedMacro) => void
   removeMacro: (id: string) => void
-  updateMacro: (id: string, data: Partial<SavedMacro>) => void
 
   // Posiciones guardadas
   positions: SavedPosition[]
   addPosition: (pos: SavedPosition) => void
   removePosition: (id: string) => void
-  updatePosition: (id: string, data: Partial<SavedPosition>) => void
 
   // Workflow queue
   steps: WorkflowStep[]
@@ -62,8 +60,6 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   macros: [],
   addMacro: (macro) => set((s) => ({ macros: [...s.macros, macro] })),
   removeMacro: (id) => set((s) => ({ macros: s.macros.filter((m) => m.id !== id) })),
-  updateMacro: (id, data) =>
-    set((s) => ({ macros: s.macros.map((m) => (m.id === id ? { ...m, ...data } : m)) })),
 
   // Posiciones
   positions: [
@@ -71,8 +67,6 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   ],
   addPosition: (pos) => set((s) => ({ positions: [...s.positions, pos] })),
   removePosition: (id) => set((s) => ({ positions: s.positions.filter((p) => p.id !== id) })),
-  updatePosition: (id, data) =>
-    set((s) => ({ positions: s.positions.map((p) => (p.id === id ? { ...p, ...data } : p)) })),
 
   // Workflow
   steps: [],

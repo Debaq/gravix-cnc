@@ -55,36 +55,6 @@ pub async fn process_image_for_laser(
     .map_err(|e| format!("Error en thread: {}", e))?
 }
 
-#[tauri::command]
-pub async fn process_image_base64_for_laser(
-    image_base64: String,
-    width_mm: f64,
-    height_mm: f64,
-    dpi: f64,
-    dithering: DitheringMode,
-    threshold: u8,
-    invert: bool,
-) -> Result<RasterResult, String> {
-    tokio::task::spawn_blocking(move || {
-        let b64_data = if let Some(pos) = image_base64.find(",") {
-            &image_base64[pos + 1..]
-        } else {
-            &image_base64
-        };
-
-        let bytes = STANDARD
-            .decode(b64_data)
-            .map_err(|e| format!("Error decodificando base64: {}", e))?;
-
-        let img = image::load_from_memory(&bytes)
-            .map_err(|e| format!("Error al cargar imagen desde bytes: {}", e))?;
-
-        process_image(img, width_mm, height_mm, dpi, dithering, threshold, invert)
-    })
-    .await
-    .map_err(|e| format!("Error en thread: {}", e))?
-}
-
 /// Lee los pixeles crudos desde el archivo temporal
 #[tauri::command]
 pub fn read_raster_pixels(pixels_path: String) -> Result<Vec<u8>, String> {

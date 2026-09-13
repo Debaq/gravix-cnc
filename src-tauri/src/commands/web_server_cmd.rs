@@ -87,11 +87,6 @@ pub fn check_port(port: u16) -> bool {
 }
 
 #[tauri::command]
-pub fn get_local_ips() -> Vec<String> {
-    web_server::get_local_ips()
-}
-
-#[tauri::command]
 pub fn check_firewall(port: u16) -> Vec<String> {
     web_server::check_firewall(port)
 }

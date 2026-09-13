@@ -19,6 +19,7 @@ import {
 } from '@/hooks/useCanvasManager'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { arcFrom3Points, sampleCatmullRom } from '@/lib/geometry'
+import { applyConstraints, getConstraintIndicators } from '@/lib/constraints'
 import {
   extractNodes,
   moveNode,
@@ -1070,20 +1071,21 @@ export function DesignCanvas() {
         }
 
         // Draw constraint indicators (H/V badges)
-        const consts = useCanvasStore.getState().nodeConstraints
-        for (const c of consts) {
-          const cNode = nodeEditData.nodes[c.nodeIndex]
-          if (!cNode) continue
+        const indicators = getConstraintIndicators(
+          useCanvasStore.getState().nodeConstraints,
+          nodeEditData.nodes,
+        )
+        for (const ind of indicators) {
           const badgeSize = 6 / z
-          const badgeX = cNode.x + nodeR * 1.5
-          const badgeY = cNode.y - nodeR * 1.5
-          ctx.fillStyle = c.type === 'horizontal' ? '#F59E0B' : c.type === 'vertical' ? '#10B981' : '#EF4444'
+          const badgeX = ind.x + nodeR * 1.5
+          const badgeY = ind.y - nodeR * 1.5
+          ctx.fillStyle = ind.type === 'horizontal' ? '#F59E0B' : ind.type === 'vertical' ? '#10B981' : '#EF4444'
           ctx.fillRect(badgeX - badgeSize, badgeY - badgeSize, badgeSize * 2, badgeSize * 2)
           ctx.fillStyle = '#FFF'
           ctx.font = `bold ${8 / z}px sans-serif`
           ctx.textAlign = 'center'
           ctx.textBaseline = 'middle'
-          const label = c.type === 'horizontal' ? 'H' : c.type === 'vertical' ? 'V' : 'F'
+          const label = ind.type === 'horizontal' ? 'H' : ind.type === 'vertical' ? 'V' : 'F'
           ctx.fillText(label, badgeX, badgeY)
         }
       }
@@ -1483,15 +1485,12 @@ export function DesignCanvas() {
           targetY = Math.round(cy / gridPx) * gridPx
         }
 
-        // Apply persistent constraints
-        const nodeConsts = state.nodeConstraints.filter(c => c.nodeIndex === nodeDragIndex)
-        for (const nc of nodeConsts) {
-          const origNode = nodeEditData.nodes[nodeDragIndex]
-          if (!origNode) break
-          if (nc.type === 'horizontal') targetY = origNode.y
-          else if (nc.type === 'vertical') targetX = origNode.x
-          else if (nc.type === 'fixed') { targetX = origNode.x; targetY = origNode.y }
-        }
+        // Apply persistent constraints (H/V/fixed)
+        const constrained = applyConstraints(
+          targetX, targetY, nodeDragIndex, state.nodeConstraints, nodeEditData.nodes,
+        )
+        targetX = constrained.x
+        targetY = constrained.y
 
         moveNode(nodeEditObject, nodeEditData, nodeDragIndex, targetX, targetY)
         // Re-extraer todos los nodos para sincronizar overlay con path real
