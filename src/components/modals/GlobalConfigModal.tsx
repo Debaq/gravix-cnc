@@ -18,6 +18,7 @@ import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { Palette, Save, Download, Trash2 } from 'lucide-react'
 import type { OperationType, LaserMode, WorkType } from '@/lib/types'
+import { autoLineSpacing } from '@/lib/photo-vcarve'
 import {
   createTemplate,
   exportTemplates,
@@ -262,6 +263,7 @@ export function GlobalConfigModal() {
                     <SelectItem value="vcarve">{t('workTypes.vcarve')}</SelectItem>
                     <SelectItem value="drill">{t('workTypes.drill')}</SelectItem>
                     <SelectItem value="chamfer">{t('workTypes.chamfer')}</SelectItem>
+                    <SelectItem value="photoVcarve">{t('workTypes.photoVcarve')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -357,6 +359,114 @@ export function GlobalConfigModal() {
                       min={0}
                       step={0.5}
                       placeholder="0 = standard"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Photo V-Carve: los surcos salen de la imagen raster */}
+              {globalConfig.workType === 'photoVcarve' && (
+                <div className="space-y-3">
+                  <p className="text-[11px] text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
+                    {t('globalConfig.photoHint')}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">{t('globalConfig.vcarveAngle')}</Label>
+                      <Input
+                        type="number"
+                        value={globalConfig.vcarveAngle ?? 90}
+                        onChange={(e) => setGlobalConfig({ vcarveAngle: parseFloat(e.target.value) || 90 })}
+                        className="mt-1"
+                        min={10}
+                        max={180}
+                        step={5}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">{t('globalConfig.photoMaxDepth')}</Label>
+                      <Input
+                        type="number"
+                        value={globalConfig.photoMaxDepth ?? 2}
+                        onChange={(e) => setGlobalConfig({ photoMaxDepth: parseFloat(e.target.value) || 0.1 })}
+                        className="mt-1"
+                        min={0.1}
+                        step={0.1}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">{t('globalConfig.photoLineSpacing')}</Label>
+                      <Input
+                        type="number"
+                        value={globalConfig.photoLineSpacing ?? 0}
+                        onChange={(e) => setGlobalConfig({ photoLineSpacing: parseFloat(e.target.value) || 0 })}
+                        className="mt-1"
+                        min={0}
+                        step={0.1}
+                        placeholder="0 = auto"
+                      />
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        {t('globalConfig.photoLineSpacingAuto', {
+                          mm: autoLineSpacing(
+                            globalConfig.vcarveAngle ?? 90,
+                            globalConfig.photoMaxDepth ?? 2,
+                          ).toFixed(2),
+                        })}
+                      </p>
+                    </div>
+                    <div>
+                      <Label className="text-xs">{t('globalConfig.photoMinDepth')}</Label>
+                      <Input
+                        type="number"
+                        value={globalConfig.photoMinDepth ?? 0.05}
+                        onChange={(e) => setGlobalConfig({ photoMinDepth: parseFloat(e.target.value) || 0 })}
+                        className="mt-1"
+                        min={0}
+                        step={0.05}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">{t('globalConfig.photoDirection')}</Label>
+                      <Select
+                        value={globalConfig.photoDirection ?? 'horizontal'}
+                        onValueChange={(v) => setGlobalConfig({ photoDirection: v as 'horizontal' | 'vertical' })}
+                      >
+                        <SelectTrigger className="mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="horizontal">{t('globalConfig.photoHorizontal')}</SelectItem>
+                          <SelectItem value="vertical">{t('globalConfig.photoVertical')}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">{t('globalConfig.photoStep')}</Label>
+                      <Input
+                        type="number"
+                        value={globalConfig.photoStepMm ?? 0}
+                        onChange={(e) => setGlobalConfig({ photoStepMm: parseFloat(e.target.value) || 0 })}
+                        className="mt-1"
+                        min={0}
+                        step={0.05}
+                        placeholder="0 = 1 px"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs">{t('globalConfig.photoInvert')}</Label>
+                    <Switch
+                      checked={globalConfig.photoInvert ?? false}
+                      onCheckedChange={(checked) => setGlobalConfig({ photoInvert: checked })}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs">{t('globalConfig.photoBidirectional')}</Label>
+                    <Switch
+                      checked={globalConfig.photoBidirectional !== false}
+                      onCheckedChange={(checked) => setGlobalConfig({ photoBidirectional: checked })}
                     />
                   </div>
                 </div>

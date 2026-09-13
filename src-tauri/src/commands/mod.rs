@@ -6,6 +6,7 @@ pub mod auth;
 pub mod serial;
 pub mod image_processing;
 pub mod centerline;
+pub mod vector_import;
 pub mod vectorize;
 pub mod web_server_cmd;
 pub mod workspace_cmd;

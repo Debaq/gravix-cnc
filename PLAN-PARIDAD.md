@@ -399,12 +399,34 @@ Feature set más ambicioso. Aspire se diferencia de VCarve Pro por su modelado 3
 - **Archivos**: `node-editor.ts`, `DesignCanvas.tsx`, `NodeEditToolbar.tsx`, i18n
 - **Esfuerzo**: M
 
-### 4D.3 Import DWG + AI + EPS + PDF vectores
+### 4D.3 Import PDF + AI + EPS ✅ COMPLETADO (2026-09-13) — DWG sigue afuera
 - **Referencia**: Aspire
-- **Qué**: Importar formatos de industria: DWG (AutoCAD), AI (Illustrator), EPS (PostScript), PDF (extracción de vectores)
-- **Por qué**: Aspire soporta todos. Nosotros solo SVG y DXF básico. Mayoría de archivos industriales son DWG
-- **Archivos**: Nuevos parsers o usar bibliotecas Rust
-- **Esfuerzo**: L
+- **Qué**: `vector_import.rs` saca la geometria de PDF, AI y EPS. Los tres usan el
+  mismo puñado de operadores de trazado; lo que cambia es el envoltorio. PDF los
+  guarda en streams comprimidos (FlateDecode) dentro de una estructura de objetos, y
+  EPS/PostScript los deja en texto con una maquina de pila alrededor
+- **El formato se decide por el contenido, no por la extension**: un `.ai` moderno es
+  un PDF y uno viejo es PostScript
+- **PDF**: se recorren los pares `stream`/`endstream` en vez de resolver la xref —
+  para sacar geometria alcanza y sobrevive a los archivos con la tabla rota. Se
+  interpretan `m l c v y h re cm q Q` con su CTM y se descartan los paths que solo
+  eran recorte (`W n`)
+- **EPS**: interprete de pila con los operadores de trazado mas `exch dup neg roll
+  index copy add sub mul div`, porque los generadores abrevian todo (`/m {moveto}
+  bind def`) y el `re` de cairo arma el rectangulo con pura manipulacion de pila
+  antes de trazar nada
+- **Lo que no hace, dicho de frente**: el texto no se convierte a curvas (pide leer
+  las fuentes embebidas) — se detecta y se avisa por toast; los PDF cifrados se
+  rechazan en vez de devolver basura; color, relleno y grosor se descartan; y **DWG
+  no entra**: es binario y propietario, no hay lectura razonable sin una libreria
+  dedicada
+- **Verificado**: mismo dibujo exportado a PDF y a EPS por cairo entra identico en
+  los dos caminos (3 contornos, 21 nodos, 100x75 mm, ~1 ms), y un `.ai` se reconoce
+  por contenido. 11 tests cubren rectangulo en mm, matriz `cm`, recorte descartado,
+  aviso de texto, PDF cifrado, atajos `bind def`, el `re` de pila, colores que no se
+  cuelan como coordenadas, `translate`, formato desconocido y archivo sin geometria
+- **Archivos**: `vector_import.rs` (nuevo), `Cargo.toml` (flate2), `lib.rs`,
+  `commands/mod.rs`, `useCanvasManager.ts`, `DesignPanel.tsx`, `types.ts`, i18n
 
 ### ~~4D.4 Variable Text / Merge Codes~~ ✅ COMPLETADO (UI 2026-09-12)
 - **Qué**: Módulo `variable-text.ts` con parseCSV(), mergeText(), extractVariables(), previewMerge(). Soporta placeholders + variables built-in (index/date/time)
@@ -446,12 +468,29 @@ Feature set más ambicioso. Aspire se diferencia de VCarve Pro por su modelado 3
 - **Archivos**: `ArrayModal.tsx`, `useCanvasManager.ts`
 - **Esfuerzo**: (ya hecho)
 
-### 4D.8 Photo V-Carve (Lithophane)
-- **Referencia**: Aspire
-- **Qué**: Convertir foto directamente a toolpath V-carve. Control de brillo, contraste, resolución de líneas, ángulo
-- **Por qué**: Feature popular en signage: retratos en madera con V-bit
-- **Archivos**: `image_processing.rs`, `gcode-generator.ts`
-- **Esfuerzo**: L
+### ~~4D.8 Photo V-Carve~~ ✅ COMPLETADO (2026-09-13)
+- **Referencia**: Aspire (PhotoVCarve)
+- **Qué**: `photo-vcarve.ts` — la foto se talla con surcos paralelos donde la
+  profundidad sigue el tono: es el grabado raster, pero cambiando potencia por Z.
+  Como la fresa es conica, a mas profundidad mas ancho el surco, y la suma de surcos
+  de ancho variable reconstruye los grises
+- **La separacion se calcula sola**: el ancho de un surco a profundidad d es
+  2·d·tan(angulo/2), asi que la separacion por defecto es la del surco a profundidad
+  maxima — con eso el negro pleno se cierra y los claros dejan material entre surcos
+- **Muestreo por banda**: cada tramo promedia los pixeles del ancho del surco, no
+  toma un pixel suelto, que dejaria el tallado a merced del ruido de la foto. Los
+  tramos contiguos de igual profundidad se funden en un solo G1, si no el archivo
+  tendria una linea por pixel
+- **Controles**: angulo de la fresa, profundidad del negro, profundidad minima (bajo
+  ella no se talla), separacion (0 = auto), direccion, paso de muestreo, invertir
+  tonos y zig-zag. Los filtros de brillo/contraste/gamma del wizard de imagen (3.7)
+  ya operan antes, que es justo lo que pedia el item original
+- **Verificado** con un degradado sintetico: separacion auto 4.00 mm a 90°/2 mm, Z
+  siempre dentro de [-profundidad, safeZ], profundidad monotona sobre el degradado,
+  cero plunges sin posicionar antes, vertical emite avances en Y y el zig-zag arranca
+  cada surco por el extremo opuesto
+- **Archivos**: `photo-vcarve.ts` (nuevo), `gcode-generator.ts`, `types.ts`,
+  `useCanvasStore.ts`, `GlobalConfigModal.tsx`, `OperationEditor.tsx`, `GCodePanel.tsx`, i18n
 
 ---
 
@@ -524,11 +563,25 @@ Feature set más ambicioso. Aspire se diferencia de VCarve Pro por su modelado 3
   conocerlos. `nestElements()` en useCanvasManager toma la seleccion o la hoja entera,
   saca el contorno real con `extractSegments()` y aplica giro + posicion; lo que no
   entra se queda donde estaba y se avisa
-- **Alcance**: empaca por **rectangulo envolvente**, no por contorno real. True-shape
-  con no-fit polygons queda pendiente: una pieza en U no anida otra adentro
-- **Archivos**: `nesting.ts` (nuevo), `NestingModal.tsx` (nuevo), `useCanvasManager.ts`,
+- **2026-09-13 — true-shape**: segunda estrategia, seleccionable en el modal. Cada
+  pieza se rasteriza a una grilla de ocupacion (scanline par-impar + dilatacion para
+  la separacion) y se coloca con bottom-left first-fit, probando 1/2/4/8 giros mas el
+  angulo que la endereza. Una pieza en U ahora si anida otra adentro
+- **Por que grilla y no no-fit polygons**: el NFP exacto para poligonos con
+  concavidades y agujeros es otro orden de problema — descomposicion convexa, suma de
+  Minkowski y robustez numerica — y la grilla da el mismo resultado practico con un
+  error acotado por el paso (0.4–3 mm segun el tamaño del area)
+- **Dos detalles que costaron**: la separacion no va contra el borde del area (la
+  grilla se agranda `pad` celdas por lado, si no una pieza del ancho exacto del area
+  no entraba), y la mascara no lleva celda de sobra por el mismo motivo
+- **Medido**: caso con piezas en U + cuadrados chicos en 130x95 mm — rectangulo coloca
+  2 piezas, contorno real coloca 6. Cama de 600x400 con 30 piezas: 100–180 ms segun
+  los giros, contra 3 ms del rectangulo. Validado por muestreo denso: cero solapes y
+  nada fuera del area
+- **Uso del area**: ahora se mide sobre el contorno en las dos estrategias (antes el
+  rectangulo reportaba el area de su bbox, que inflaba el numero)
+- **Archivos**: `nesting.ts`, `NestingModal.tsx`, `useCanvasManager.ts`,
   `CanvasToolbar.tsx`, `App.tsx`, i18n
-- **Esfuerzo**: XL (entregado el empaque por bbox; true-shape sigue siendo XL)
 
 ### ~~5.5 Undo/Redo Robusto~~ ✅ COMPLETADO
 - **Qué**: Ya robusto: snapshot completo Fabric JSON + store elements, 50 entradas de historial, 38 llamadas a pushToHistory cubriendo todas las operaciones

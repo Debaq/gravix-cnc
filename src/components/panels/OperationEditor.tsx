@@ -178,6 +178,7 @@ export function OperationEditor() {
                     <SelectItem value="pocket">{ts('workTypes.pocket')}</SelectItem>
                     <SelectItem value="drill">{ts('workTypes.drill') ?? 'Drill'}</SelectItem>
                     <SelectItem value="vcarve">{ts('workTypes.vcarve') ?? 'V-Carve'}</SelectItem>
+                    <SelectItem value="photoVcarve">{ts('workTypes.photoVcarve') ?? 'Photo V-Carve'}</SelectItem>
                     <SelectItem value="chamfer">{ts('workTypes.chamfer') ?? 'Chamfer'}</SelectItem>
                   </SelectContent>
                 </Select>

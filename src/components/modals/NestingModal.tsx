@@ -29,11 +29,15 @@ export function NestingModal() {
   const [allowRotate90, setAllowRotate90] = useState(true)
   const [alignToMinRect, setAlignToMinRect] = useState(true)
   const [scope, setScope] = useState<'selection' | 'sheet'>('sheet')
+  const [trueShape, setTrueShape] = useState(false)
+  const [rotations, setRotations] = useState(4)
 
   const isOpen = activeModal === 'nesting'
 
   const handleApply = () => {
-    const result = cm.nestElements({ spacing, margin, allowRotate90, alignToMinRect, scope })
+    const result = cm.nestElements({
+      spacing, margin, allowRotate90, alignToMinRect, scope, trueShape, rotations,
+    })
 
     if (result.placed === 0) {
       toast.warning(t('nesting.nothingPlaced'))
@@ -111,9 +115,36 @@ export function NestingModal() {
           </div>
 
           <div className="flex items-center justify-between">
-            <Label className="text-xs font-normal">{t('nesting.rotate90')}</Label>
-            <Switch checked={allowRotate90} onCheckedChange={setAllowRotate90} />
+            <div>
+              <Label className="text-xs font-normal">{t('nesting.trueShape')}</Label>
+              <p className="text-[10px] text-muted-foreground">{t('nesting.trueShapeHint')}</p>
+            </div>
+            <Switch checked={trueShape} onCheckedChange={setTrueShape} />
           </div>
+
+          {trueShape ? (
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t('nesting.rotations')}</Label>
+              <div className="flex gap-2">
+                {[1, 2, 4, 8].map((n) => (
+                  <Button
+                    key={n}
+                    size="sm"
+                    variant={rotations === n ? 'secondary' : 'outline'}
+                    className="flex-1 h-8 text-xs"
+                    onClick={() => setRotations(n)}
+                  >
+                    {n === 1 ? t('nesting.rotationsNone') : `${360 / n}°`}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-normal">{t('nesting.rotate90')}</Label>
+              <Switch checked={allowRotate90} onCheckedChange={setAllowRotate90} />
+            </div>
+          )}
 
           <div className="flex items-center justify-between">
             <div>
@@ -126,7 +157,7 @@ export function NestingModal() {
           <p className="text-[11px] text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
             {t('nesting.areaInfo', { width: workArea.width, height: workArea.height })}
             <br />
-            {t('nesting.bboxNote')}
+            {trueShape ? t('nesting.trueShapeNote') : t('nesting.bboxNote')}
           </p>
         </div>
 

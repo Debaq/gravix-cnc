@@ -53,7 +53,18 @@
     "restMachining": "Rest Machining",
     "restToolDiameter": "Fresa acabado (mm)",
     "rampEnabled": "Entrada en rampa",
-    "rampAngle": "Ángulo de rampa (°)"
+    "rampAngle": "Ángulo de rampa (°)",
+    "photoHint": "Talla una foto con fresa en V: cada surco baja mas donde la imagen es oscura. Carga la imagen desde Cargar > Imagen.",
+    "photoMaxDepth": "Profundidad del negro (mm)",
+    "photoMinDepth": "Profundidad minima (mm)",
+    "photoLineSpacing": "Separacion de surcos (mm)",
+    "photoLineSpacingAuto": "Auto: {{mm}} mm (ancho del surco a profundidad maxima)",
+    "photoDirection": "Direccion",
+    "photoHorizontal": "Horizontal",
+    "photoVertical": "Vertical",
+    "photoStep": "Paso de muestreo (mm)",
+    "photoInvert": "Invertir tonos (claro = profundo)",
+    "photoBidirectional": "Tallar en zig-zag"
   },
   "laserModes": {
     "cut": "Corte",
@@ -95,7 +106,8 @@
     "pocket": "Cajeado (vaciar interior)",
     "vcarve": "V-Carve",
     "drill": "Taladrado",
-    "chamfer": "Bisel (Chamfer)"
+    "chamfer": "Bisel (Chamfer)",
+    "photoVcarve": "Photo V-Carve (foto)"
   },
   "compensation": {
     "center": "Centro",

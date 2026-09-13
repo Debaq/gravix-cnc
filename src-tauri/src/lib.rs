@@ -8,7 +8,7 @@ mod shared_state;
 mod web_server;
 mod workspace;
 
-use commands::{files, image_processing, license_cmd, machines, materials, serial, tools, vectorize, web_server_cmd, workspace_cmd};
+use commands::{files, image_processing, license_cmd, machines, materials, serial, tools, vector_import, vectorize, web_server_cmd, workspace_cmd};
 use shared_state::AppState;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU16};
@@ -100,6 +100,7 @@ pub fn run() {
             image_processing::process_image_for_laser,
             image_processing::read_raster_pixels,
             vectorize::trace_image_to_svg,
+            vector_import::import_vector_file,
             web_server_cmd::get_server_status,
             web_server_cmd::start_web_server,
             web_server_cmd::stop_web_server,

@@ -31,15 +31,18 @@ export function GCodePanel() {
 
   const handleGenerate = async () => {
     const jobs = getJobsForGCode()
-    const isRaster = globalConfig.operationType === 'laser' && globalConfig.laserMode === 'raster'
+    // Los dos modos que tallan/graban desde la imagen y no desde la geometria
+    const isLaserRaster = globalConfig.operationType === 'laser' && globalConfig.laserMode === 'raster'
+    const isPhotoVCarve = globalConfig.operationType === 'cnc' && globalConfig.workType === 'photoVcarve'
+    const fromImage = isLaserRaster || isPhotoVCarve
 
-    if (jobs.length === 0 && !isRaster) {
+    if (jobs.length === 0 && !fromImage) {
       addConsoleLine('No se encontraron elementos validos en el canvas')
       return
     }
 
-    if (isRaster && !rasterData) {
-      addConsoleLine('No hay imagen raster cargada - importa una imagen primero')
+    if (fromImage && !rasterData) {
+      addConsoleLine('No hay imagen cargada - importa una imagen primero')
       return
     }
 

@@ -2,14 +2,21 @@
  * Nesting / auto-layout — acomoda piezas dentro del area de trabajo para
  * desperdiciar menos material.
  *
- * Alcance honesto: el empaque trabaja sobre el **rectangulo minimo** de cada
- * pieza, no sobre su contorno real (true-shape nesting con no-fit polygons es
- * otro orden de problema). A cambio hace dos cosas que si rinden:
+ * Dos estrategias:
  *
- *  1. Alinea cada pieza a su rectangulo de area minima antes de empacar, asi
- *     una pieza diagonal deja de ocupar el cuadrado que la contiene.
- *  2. Empaca con MaxRects (best short side fit), que aprovecha bastante mejor
- *     que una grilla o un shelf simple, y prueba la pieza girada 90 grados.
+ *  - **Por rectangulo** (rapida): alinea cada pieza a su rectangulo de area
+ *    minima — asi una pieza diagonal deja de ocupar el cuadrado que la
+ *    contiene — y empaca con MaxRects (best short side fit), probando tambien
+ *    la pieza girada 90 grados.
+ *  - **Por contorno real** (true-shape): rasteriza cada pieza y la coloca con
+ *    bottom-left first-fit sobre una grilla de ocupacion. Una pieza en U o en
+ *    L deja anidar otra adentro, cosa que el rectangulo nunca permite. Cuesta
+ *    mas tiempo y la precision es la del paso de grilla.
+ *
+ * La via rasterizada se eligio sobre los no-fit polygons a proposito: el NFP
+ * exacto para poligonos con concavidades y agujeros es otro orden de problema
+ * (descomposicion convexa + suma de Minkowski + robustez numerica), y la
+ * grilla da el mismo resultado practico con un error acotado por el paso.
  *
  * Todo en milimetros; el canvas hace la conversion.
  */
@@ -40,6 +47,10 @@ export interface NestingOptions {
   allowRotate90: boolean
   /** Girar cada pieza para alinearla con su rectangulo de area minima. */
   alignToMinRect: boolean
+  /** Empacar por contorno real en vez de por rectangulo envolvente. */
+  trueShape?: boolean
+  /** Giros a probar en true-shape (2 = 0/180, 4 = cada 90, 8 = cada 45...). */
+  rotations?: number
 }
 
 export interface NestingPlacement {
@@ -55,7 +66,7 @@ export interface NestingResult {
   placements: NestingPlacement[]
   /** Piezas que no entraron: se quedan donde estaban. */
   unplaced: string[]
-  /** Fraccion del area util ocupada por los rectangulos colocados (0..1). */
+  /** Fraccion del area util cubierta por el contorno de las piezas (0..1). */
   usage: number
 }
 
@@ -276,6 +287,305 @@ function pruneFreeRects(free: FreeRect[]): void {
 }
 
 // ============================================
+// TRUE-SHAPE: RASTERIZADO + BOTTOM-LEFT
+// ============================================
+
+/** Mascara de una pieza en celdas, guardada como tramos por fila. */
+interface ShapeMask {
+  /** Ancho y alto en celdas, ya con el borde de separacion incluido. */
+  cols: number
+  rows: number
+  /** Por fila, pares [inicio, fin) de celdas ocupadas. */
+  spans: number[][]
+  /** Celdas de relleno agregadas alrededor del contorno (separacion). */
+  pad: number
+  /** Bounding box del contorno girado, en mm. */
+  minX: number
+  minY: number
+  width: number
+  height: number
+}
+
+/** Area del poligono (shoelace). Siempre positiva. */
+export function polygonArea(pts: Point2D[]): number {
+  let acc = 0
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i]
+    const b = pts[(i + 1) % pts.length]
+    acc += a.x * b.y - b.x * a.y
+  }
+  return Math.abs(acc) / 2
+}
+
+/** Gira el poligono alrededor del origen, en grados CAD (CCW). */
+function rotatePolygon(pts: Point2D[], deg: number): Point2D[] {
+  if (deg === 0) return pts
+  const rad = (deg * Math.PI) / 180
+  const c = Math.cos(rad)
+  const sn = Math.sin(rad)
+  return pts.map((p) => ({ x: p.x * c - p.y * sn, y: p.x * sn + p.y * c }))
+}
+
+/**
+ * Rasteriza el poligono a celdas con relleno par-impar por scanline, y lo
+ * engorda `pad` celdas para que la separacion entre piezas salga sola.
+ */
+function rasterizeShape(pts: Point2D[], cell: number, pad: number): ShapeMask | null {
+  if (pts.length < 3) return null
+
+  const xs = pts.map((p) => p.x)
+  const ys = pts.map((p) => p.y)
+  const minX = Math.min(...xs)
+  const minY = Math.min(...ys)
+  const width = Math.max(...xs) - minX
+  const height = Math.max(...ys) - minY
+  if (width <= 0 || height <= 0) return null
+
+  // Sin celda de sobra: una pieza que mide exactamente lo que queda libre
+  // tiene que entrar
+  const cols = Math.max(1, Math.ceil(width / cell)) + pad * 2
+  const rows = Math.max(1, Math.ceil(height / cell)) + pad * 2
+  const grid = new Uint8Array(cols * rows)
+
+  // Scanline por el centro de cada fila de celdas
+  for (let r = pad; r < rows - pad; r++) {
+    const y = minY + (r - pad + 0.5) * cell
+    const crossings: number[] = []
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i]
+      const b = pts[(i + 1) % pts.length]
+      if (a.y === b.y) continue
+      if (y >= Math.min(a.y, b.y) && y < Math.max(a.y, b.y)) {
+        crossings.push(a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x))
+      }
+    }
+    crossings.sort((p, q) => p - q)
+
+    for (let k = 0; k + 1 < crossings.length; k += 2) {
+      const c0 = Math.floor((crossings[k] - minX) / cell)
+      const c1 = Math.ceil((crossings[k + 1] - minX) / cell)
+      for (let c = Math.max(0, c0); c <= Math.min(cols - 1 - pad * 2, c1); c++) {
+        grid[r * cols + (c + pad)] = 1
+      }
+    }
+  }
+
+  // Un contorno muy fino puede no cruzar ningun centro de fila: se marca al
+  // menos la celda de cada vertice para que la pieza no desaparezca
+  for (const p of pts) {
+    const c = Math.round((p.x - minX) / cell) + pad
+    const r = Math.round((p.y - minY) / cell) + pad
+    if (c >= 0 && c < cols && r >= 0 && r < rows) grid[r * cols + c] = 1
+  }
+
+  if (pad > 0) dilate(grid, cols, rows, pad)
+
+  const spans: number[][] = []
+  for (let r = 0; r < rows; r++) {
+    const rowSpans: number[] = []
+    let start = -1
+    for (let c = 0; c < cols; c++) {
+      const on = grid[r * cols + c] === 1
+      if (on && start < 0) start = c
+      if (!on && start >= 0) {
+        rowSpans.push(start, c)
+        start = -1
+      }
+    }
+    if (start >= 0) rowSpans.push(start, cols)
+    spans.push(rowSpans)
+  }
+
+  return { cols, rows, spans, pad, minX, minY, width, height }
+}
+
+/** Dilatacion cuadrada de radio `r`, separada en horizontal y vertical. */
+function dilate(grid: Uint8Array, cols: number, rows: number, r: number): void {
+  const tmp = new Uint8Array(grid.length)
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (!grid[y * cols + x]) continue
+      const from = Math.max(0, x - r)
+      const to = Math.min(cols - 1, x + r)
+      for (let c = from; c <= to; c++) tmp[y * cols + c] = 1
+    }
+  }
+  grid.fill(0)
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (!tmp[y * cols + x]) continue
+      const from = Math.max(0, y - r)
+      const to = Math.min(rows - 1, y + r)
+      for (let rr = from; rr <= to; rr++) grid[rr * cols + x] = 1
+    }
+  }
+}
+
+/** Grilla de ocupacion del area util, en bits (32 celdas por palabra). */
+class OccupancyGrid {
+  readonly cols: number
+  readonly rows: number
+  private readonly wordsPerRow: number
+  private readonly bits: Uint32Array
+
+  constructor(cols: number, rows: number) {
+    this.cols = cols
+    this.rows = rows
+    this.wordsPerRow = Math.ceil(cols / 32)
+    this.bits = new Uint32Array(this.wordsPerRow * rows)
+  }
+
+  /** true si alguna celda del tramo [x0, x1) de la fila esta ocupada. */
+  spanBusy(row: number, x0: number, x1: number): boolean {
+    const base = row * this.wordsPerRow
+    const w0 = x0 >> 5
+    const w1 = (x1 - 1) >> 5
+    // Palabras del medio: comparacion directa; los bordes van enmascarados
+    for (let w = w0; w <= w1; w++) {
+      let mask = 0xffffffff
+      if (w === w0) mask &= 0xffffffff << (x0 & 31)
+      if (w === w1) {
+        const end = (x1 - 1) & 31
+        mask &= end === 31 ? 0xffffffff : ~(0xffffffff << (end + 1))
+      }
+      if ((this.bits[base + w] & mask) !== 0) return true
+    }
+    return false
+  }
+
+  markSpan(row: number, x0: number, x1: number): void {
+    const base = row * this.wordsPerRow
+    for (let x = x0; x < x1; x++) {
+      this.bits[base + (x >> 5)] |= 1 << (x & 31)
+    }
+  }
+}
+
+/** ¿Cabe la mascara con su esquina inferior izquierda en (cx, cy)? */
+function maskFits(grid: OccupancyGrid, mask: ShapeMask, cx: number, cy: number): boolean {
+  for (let r = 0; r < mask.rows; r++) {
+    const rowSpans = mask.spans[r]
+    if (rowSpans.length === 0) continue
+    const row = cy + r
+    for (let i = 0; i < rowSpans.length; i += 2) {
+      if (grid.spanBusy(row, cx + rowSpans[i], cx + rowSpans[i + 1])) return false
+    }
+  }
+  return true
+}
+
+function stampMask(grid: OccupancyGrid, mask: ShapeMask, cx: number, cy: number): void {
+  for (let r = 0; r < mask.rows; r++) {
+    const rowSpans = mask.spans[r]
+    for (let i = 0; i < rowSpans.length; i += 2) {
+      grid.markSpan(cy + r, cx + rowSpans[i], cx + rowSpans[i + 1])
+    }
+  }
+}
+
+/**
+ * Empaque por contorno real: para cada pieza se prueba cada giro y se toma la
+ * primera posicion libre recorriendo de abajo hacia arriba y de izquierda a
+ * derecha (bottom-left first-fit). Entre giros gana el que quede mas abajo.
+ */
+function planTrueShape(pieces: NestingPiece[], opts: NestingOptions): NestingResult {
+  const usableW = opts.binWidth - opts.margin * 2
+  const usableH = opts.binHeight - opts.margin * 2
+
+  // El paso de grilla acota la precision y el costo: mas fino aprovecha mejor
+  // el material pero multiplica las posiciones a probar
+  const cell = Math.min(3, Math.max(0.4, Math.min(usableW, usableH) / 250))
+  const gridCols = Math.floor(usableW / cell)
+  const gridRows = Math.floor(usableH / cell)
+  if (gridCols <= 0 || gridRows <= 0) {
+    return { placements: [], unplaced: pieces.map((p) => p.id), usage: 0 }
+  }
+
+  const pad = Math.max(0, Math.round(opts.spacing / 2 / cell))
+
+  // La grilla se agranda `pad` celdas por lado y el area util queda adentro:
+  // la separacion es entre piezas, no contra el borde, asi que el relleno
+  // puede asomarse fuera del area sin que la pieza se salga
+  const grid = new OccupancyGrid(gridCols + pad * 2, gridRows + pad * 2)
+  const originOffset = opts.margin - pad * cell
+
+  const steps = Math.max(1, Math.round(opts.rotations ?? 4))
+  const angles = Array.from({ length: steps }, (_, i) => (360 / steps) * i)
+  const placements: NestingPlacement[] = []
+  const unplaced: string[] = []
+  let usedArea = 0
+
+  // Las piezas grandes primero: colocadas al final no encuentran hueco
+  const queue = [...pieces]
+    .filter((p) => p.outline.length >= 3)
+    .sort((a, b) => polygonArea(b.outline) - polygonArea(a.outline))
+
+  for (const piece of pieces) {
+    if (piece.outline.length < 3) unplaced.push(piece.id)
+  }
+
+  for (const piece of queue) {
+    let best: { angle: number; cx: number; cy: number; mask: ShapeMask } | null = null
+
+    // Enderezar la pieza contra su rectangulo minimo suele dar el mejor
+    // encaje de todos, y los pasos regulares no lo encuentran salvo por azar
+    const candidates = [...angles]
+    if (opts.alignToMinRect) {
+      const straighten = -(minAreaRect(piece.outline).angle * 180) / Math.PI
+      candidates.push(straighten, straighten + 90)
+    }
+
+    for (const angle of candidates) {
+      const rotated = rotatePolygon(piece.outline, angle)
+      const mask = rasterizeShape(rotated, cell, pad)
+      if (!mask) continue
+      if (mask.cols > grid.cols || mask.rows > grid.rows) continue
+
+      let found: { cx: number; cy: number } | null = null
+      for (let cy = 0; cy + mask.rows <= grid.rows && !found; cy++) {
+        for (let cx = 0; cx + mask.cols <= grid.cols; cx++) {
+          if (maskFits(grid, mask, cx, cy)) {
+            found = { cx, cy }
+            break
+          }
+        }
+      }
+      if (!found) continue
+
+      // Gana la posicion mas baja; a igual altura, la mas a la izquierda
+      if (!best || found.cy < best.cy || (found.cy === best.cy && found.cx < best.cx)) {
+        best = { angle, cx: found.cx, cy: found.cy, mask: mask }
+      }
+    }
+
+    if (!best) {
+      unplaced.push(piece.id)
+      continue
+    }
+
+    stampMask(grid, best.mask, best.cx, best.cy)
+    usedArea += polygonArea(piece.outline)
+
+    // La mascara arranca `pad` celdas antes del contorno
+    const originX = originOffset + (best.cx + best.mask.pad) * cell
+    const originY = originOffset + (best.cy + best.mask.pad) * cell
+
+    placements.push({
+      id: piece.id,
+      rotateDeg: best.angle,
+      centerX: originX + best.mask.width / 2,
+      centerY: originY + best.mask.height / 2,
+    })
+  }
+
+  return {
+    placements,
+    unplaced,
+    usage: usableW * usableH > 0 ? usedArea / (usableW * usableH) : 0,
+  }
+}
+
+// ============================================
 // PLAN COMPLETO
 // ============================================
 
@@ -292,6 +602,8 @@ export function planNesting(
   if (usableW <= 0 || usableH <= 0) {
     return { placements: [], unplaced: pieces.map(p => p.id), usage: 0 }
   }
+
+  if (opts.trueShape) return planTrueShape(pieces, opts)
 
   // Paso 1: medir cada pieza (y, si corresponde, enderezarla)
   const measured = new Map<string, { w: number; h: number; extraRotDeg: number }>()
@@ -331,6 +643,7 @@ export function planNesting(
 
   const placements: NestingPlacement[] = []
   let usedArea = 0
+  const outlineById = new Map(pieces.map((p) => [p.id, p.outline]))
 
   for (const rect of packed) {
     const m = measured.get(rect.id)
@@ -338,7 +651,9 @@ export function planNesting(
 
     const realW = rect.rotated ? m.h : m.w
     const realH = rect.rotated ? m.w : m.h
-    usedArea += realW * realH
+    // El area ocupada se mide sobre el contorno, no sobre el rectangulo: asi
+    // el porcentaje significa lo mismo en las dos estrategias
+    usedArea += polygonArea(outlineById.get(rect.id) ?? [])
 
     placements.push({
       id: rect.id,
