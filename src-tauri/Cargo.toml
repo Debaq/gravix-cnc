@@ -35,4 +35,9 @@ mdns-sd = "0.11"
 jsonwebtoken = "9"
 ts-rs = "10"
 tauri-plugin-updater = "2.11.0"
+
+# Linux: el pellizco del touchpad lo maneja WebKitGTK adentro del webview, no
+# llega al DOM. Para apagarlo hay que hablarle al widget directamente.
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0"
 tauri-plugin-process = "2.3.1"

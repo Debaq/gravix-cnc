@@ -20,6 +20,7 @@
   "elements": "Elements",
   "load": "Load",
   "loadSVG": "Load SVG",
+  "loadDXF": "Load DXF",
   "loadImage": "Image (laser raster)",
   "traceImage": "Trace image",
   "loadVector": "PDF / AI / EPS",
@@ -265,5 +266,10 @@
     "done": "{{placed}} pieces arranged — {{usage}}% of the area used",
     "unplaced": "{{count}} did not fit and stayed where they were",
     "nothingPlaced": "Nothing fit: try a smaller spacing or margin"
-  }
+  },
+  "layers": {
+    "title": "Layers",
+    "add": "New layer"
+  },
+  "apply": "Apply"
 }

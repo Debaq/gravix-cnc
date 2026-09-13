@@ -20,6 +20,7 @@
   "elements": "Elementos",
   "load": "Cargar",
   "loadSVG": "Cargar SVG",
+  "loadDXF": "Cargar DXF",
   "loadImage": "Imagen (laser raster)",
   "traceImage": "Vectorizar imagen",
   "loadVector": "PDF / AI / EPS",
@@ -265,5 +266,10 @@
     "done": "{{placed}} piezas acomodadas — {{usage}}% del area usada",
     "unplaced": "{{count}} no entraron y quedaron donde estaban",
     "nothingPlaced": "No entro ninguna pieza: probá bajar la separacion o el margen"
-  }
+  },
+  "layers": {
+    "title": "Capas",
+    "add": "Nueva capa"
+  },
+  "apply": "Aplicar"
 }

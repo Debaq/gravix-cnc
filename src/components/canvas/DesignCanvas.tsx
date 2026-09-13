@@ -1052,9 +1052,15 @@ export function DesignCanvas() {
       evt.preventDefault()
       evt.stopPropagation()
 
-      const delta = evt.deltaY
-      let newZoom = canvas.getZoom()
-      newZoom *= delta > 0 ? 1 / 1.05 : 1.05
+      // El pellizco del touchpad llega como wheel con Ctrl y con deltas
+      // chicos y continuos: a escalones fijos se siente a los saltos, asi que
+      // ahi el factor sale del delta
+      const factor = evt.ctrlKey
+        ? Math.exp(-evt.deltaY * 0.01)
+        : evt.deltaY > 0
+          ? 1 / 1.05
+          : 1.05
+      let newZoom = canvas.getZoom() * factor
       newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom))
 
       canvas.zoomToPoint(new Point(evt.offsetX, evt.offsetY), newZoom)

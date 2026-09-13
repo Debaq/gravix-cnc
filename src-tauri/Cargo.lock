@@ -1627,6 +1627,7 @@ dependencies = [
  "tower-http",
  "ts-rs",
  "uuid",
+ "webkit2gtk",
 ]
 
 [[package]]

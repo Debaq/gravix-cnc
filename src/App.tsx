@@ -42,6 +42,7 @@ import { ColorMappingModal } from '@/components/modals/ColorMappingModal'
 import { TilingModal } from '@/components/modals/TilingModal'
 import { VariableTextModal } from '@/components/modals/VariableTextModal'
 import { useLicense } from '@/hooks/useLicense'
+import { usePreventAppZoom } from '@/hooks/usePreventAppZoom'
 import { useUpdateStore } from '@/stores/useUpdateStore'
 import { startAutosave, stopAutosave, flushAutosave } from '@/lib/autosave'
 import { isTauri, tauriInvoke } from '@/lib/tauri'
@@ -88,6 +89,10 @@ async function loadInitialData(): Promise<{ tools: Tool[]; materials: Material[]
 }
 
 function App() {
+  // El pellizco del touchpad llega como Ctrl+wheel: sin esto agranda toda la
+  // interfaz en vez de hacer zoom en el dibujo
+  usePreventAppZoom()
+
   const { currentView, currentWorkspace, controlOnly } = useAppStore()
   const { setTools, setMaterials } = useLibraryStore()
   const { applyInitialDefaults } = useCanvasStore()

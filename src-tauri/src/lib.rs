@@ -27,6 +27,32 @@ async fn close_splashscreen(app: tauri::AppHandle) {
     }
 }
 
+/// Deja el zoom del webview clavado en 1.
+///
+/// En Linux el pellizco del touchpad no llega al DOM como Ctrl+rueda: lo
+/// atiende WebKitGTK y cambia su propio `zoom-level`, con lo que se agranda
+/// toda la interfaz. Cancelarlo desde JavaScript no sirve porque el evento
+/// nunca pasa por ahi, asi que se escucha el cambio de zoom y se vuelve a 1.
+#[cfg(target_os = "linux")]
+fn lock_webview_zoom(window: &tauri::WebviewWindow) {
+    use webkit2gtk::WebViewExt;
+
+    let _ = window.with_webview(|webview| {
+        let wv = webview.inner();
+        wv.set_zoom_level(1.0);
+        wv.connect_zoom_level_notify(|wv| {
+            // La comparacion evita la recursion: volver a poner 1 dispara la
+            // señal de nuevo
+            if (wv.zoom_level() - 1.0).abs() > f64::EPSILON {
+                wv.set_zoom_level(1.0);
+            }
+        });
+    });
+}
+
+#[cfg(not(target_os = "linux"))]
+fn lock_webview_zoom(_window: &tauri::WebviewWindow) {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -65,6 +91,10 @@ pub fn run() {
 
             app.manage(shared.serial.clone());
             app.manage(shared.clone());
+
+            if let Some(main) = app.get_webview_window("main") {
+                lock_webview_zoom(&main);
+            }
 
             Ok(())
         })
