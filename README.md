@@ -98,6 +98,8 @@ src-tauri/src/
 
 Una sola fuente de verdad: Rust. Tipos TS se generan con `ts-rs`. Ver [`docs/rust-ts-type-safety.md`](docs/rust-ts-type-safety.md).
 
+Trampas del webview de escritorio —zoom por gesto, encuadre del lienzo al arrancar, claves de i18n faltantes— y como verificarlas en Wayland: [`docs/webview-gotchas.md`](docs/webview-gotchas.md).
+
 ```bash
 npm run types:gen   # cd src-tauri && cargo test --quiet export_bindings
 ```
