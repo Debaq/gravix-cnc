@@ -240,5 +240,23 @@
   "sheetAdd": "Add sheet",
   "sheetDelete": "Delete sheet",
   "sheetConfirmDelete": "Delete?",
-  "sheetRenameHint": "Double-click to rename"
+  "sheetRenameHint": "Double-click to rename",
+  "nesting": {
+    "title": "Nesting (auto-layout)",
+    "scope": "What to arrange",
+    "scopeSheet": "Whole sheet",
+    "scopeSelection": "Selection only",
+    "spacing": "Spacing (mm)",
+    "margin": "Area margin (mm)",
+    "rotate90": "Allow 90° rotation",
+    "alignMinRect": "Straighten each piece",
+    "alignMinRectHint": "Rotates it to line up with its smallest rectangle",
+    "areaInfo": "Work area: {{width}} x {{height}} mm",
+    "bboxNote": "Packs by bounding rectangle, not by true shape.",
+    "apply": "Arrange",
+    "cancel": "Cancel",
+    "done": "{{placed}} pieces arranged — {{usage}}% of the area used",
+    "unplaced": "{{count}} did not fit and stayed where they were",
+    "nothingPlaced": "Nothing fit: try a smaller spacing or margin"
+  }
 }

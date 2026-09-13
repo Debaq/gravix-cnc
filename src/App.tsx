@@ -29,6 +29,7 @@ import { ImageWizardModal } from '@/components/modals/ImageWizardModal'
 import { TextToPathModal } from '@/components/modals/TextToPathModal'
 import { BoxGeneratorModal } from '@/components/modals/BoxGeneratorModal'
 import { ArrayModal } from '@/components/modals/ArrayModal'
+import { NestingModal } from '@/components/modals/NestingModal'
 import { SetupWizardModal } from '@/components/modals/SetupWizardModal'
 import { NetworkServerModal } from '@/components/modals/NetworkServerModal'
 import { LicenseModal } from '@/components/modals/LicenseModal'
@@ -239,6 +240,7 @@ function App() {
         <TextToPathModal />
         <BoxGeneratorModal />
         <ArrayModal />
+        <NestingModal />
         <SetupWizardModal />
         <NetworkServerModal />
         <GrblSettingsModal />

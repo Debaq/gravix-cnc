@@ -62,6 +62,8 @@ Lo que faltaba para que el lienzo se sienta CAD y no editor vectorial.
 - **Seleccionar similares**: mismo tipo, misma capa o mismo color
 - **Hojas multiples**: pestañas tipo planilla; cada elemento guarda su `sheetId`
   y solo la hoja activa se ve, se edita y entra al G-code
+- **Nesting**: acomoda las piezas en el area de trabajo (MaxRects + rectangulo de
+  area minima + giro 90°). Empaca por rectangulo envolvente, no por contorno real
 
 Archivos: `snap-engine.ts` (nuevo), `DesignCanvas.tsx`, `useCanvasManager.ts`,
 `useCanvasStore.ts`, `useKeyboardShortcuts.ts`, `CanvasToolbar.tsx`,

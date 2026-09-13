@@ -18,6 +18,8 @@ import {
 } from 'fabric'
 import { useCanvasStore, DEFAULT_SHEET_ID } from '@/stores/useCanvasStore'
 import { invalidateSnapCache } from '@/lib/snap-engine'
+import { extractSegments } from '@/lib/trim-extend'
+import { planNesting, type NestingPiece } from '@/lib/nesting'
 import type { CanvasElement, GCodePath, GCodeJob, Point2D } from '@/lib/types'
 import { isTauri } from '@/lib/tauri'
 import { useAppStore } from '@/stores/useAppStore'
@@ -2390,6 +2392,96 @@ export function useCanvasManager() {
    * forma, misma capa o mismo color de trazo. Util para aplicar una config a un
    * grupo entero sin ir uno por uno.
    */
+  /**
+   * Acomoda piezas dentro del area de trabajo para desperdiciar menos material.
+   * Trabaja sobre la seleccion, o sobre toda la hoja activa si no hay nada
+   * seleccionado. Las piezas que no entran se quedan donde estaban.
+   */
+  const nestElements = useCallback((opts: {
+    spacing: number
+    margin: number
+    allowRotate90: boolean
+    alignToMinRect: boolean
+    scope: 'selection' | 'sheet'
+  }): { placed: number; unplaced: number; usage: number } => {
+    const canvas = getCanvas()
+    if (!canvas) return { placed: 0, unplaced: 0, usage: 0 }
+
+    const state = useCanvasStore.getState()
+    const wa = state.workArea
+
+    const active = canvas.getActiveObject()
+    let targets: FabricObject[]
+    if (opts.scope === 'selection' && active) {
+      targets = active instanceof ActiveSelection ? [...active.getObjects()] : [active]
+    } else {
+      targets = canvas.getObjects().filter(
+        (o) => getCustomProp(o, NON_INTERACTIVE_KEY) !== true && o.visible,
+      )
+    }
+    if (targets.length === 0) return { placed: 0, unplaced: 0, usage: 0 }
+
+    // Soltar la seleccion multiple: mover objetos dentro de un ActiveSelection
+    // pelea con las coordenadas relativas del grupo
+    canvas.discardActiveObject()
+
+    const byId = new Map<string, FabricObject>()
+    const pieces: NestingPiece[] = []
+
+    for (const obj of targets) {
+      const key = (getCustomProp(obj, ELEMENT_ID_KEY) as string | undefined) ?? `obj_${pieces.length}`
+      byId.set(key, obj)
+
+      // Contorno real si se puede; si no, las esquinas del bounding box
+      const segments = extractSegments(obj)
+      const canvasPts: Point2D[] = segments.length > 0
+        ? segments.map((sg) => sg.start)
+        : obj.getCoords().map((c) => ({ x: c.x, y: c.y }))
+
+      pieces.push({
+        id: key,
+        outline: canvasPts.map((p) => canvasToMm(p.x, p.y, wa)),
+        currentAngleDeg: obj.angle ?? 0,
+      })
+    }
+
+    const result = planNesting(pieces, {
+      binWidth: wa.width,
+      binHeight: wa.height,
+      spacing: opts.spacing,
+      margin: opts.margin,
+      allowRotate90: opts.allowRotate90,
+      alignToMinRect: opts.alignToMinRect,
+    })
+
+    for (const placement of result.placements) {
+      const obj = byId.get(placement.id)
+      if (!obj) continue
+
+      // Fabric gira en sentido horario con angulos positivos; el plan viene en
+      // convencion CAD (antihorario), asi que el delta se invierte
+      if (Math.abs(placement.rotateDeg) > 1e-6) {
+        obj.rotate((obj.angle ?? 0) - placement.rotateDeg)
+      }
+      obj.setCoords()
+
+      const target = mmToCanvas(placement.centerX, placement.centerY, wa)
+      obj.setPositionByOrigin(new Point(target.x, target.y), 'center', 'center')
+      obj.setCoords()
+    }
+
+    canvas.requestRenderAll()
+    updateSelectedObjectProps()
+    pushToHistory()
+    markGCodeStale()
+
+    return {
+      placed: result.placements.length,
+      unplaced: result.unplaced.length,
+      usage: result.usage,
+    }
+  }, [updateSelectedObjectProps])
+
   const selectSimilar = useCallback((criterion: 'type' | 'layer' | 'color') => {
     const canvas = getCanvas()
     if (!canvas) return
@@ -3667,6 +3759,7 @@ export function useCanvasManager() {
     duplicateSelected,
     selectAll,
     selectSimilar,
+    nestElements,
     deselectAll,
     nudge,
     commitNudge,

@@ -474,11 +474,22 @@ Feature set más ambicioso. Aspire se diferencia de VCarve Pro por su modelado 3
 - **Qué**: Agregados ELLIPSE, SPLINE (control + fit points), POLYLINE/VERTEX, POINT a dxf-parser.ts. Falta INSERT/BLOCK, TEXT, DIMENSION, HATCH para 100%
 - **Archivos**: `dxf-parser.ts`
 
-### 5.4 Nesting / Auto-Layout
+### ~~5.4 Nesting / Auto-Layout~~ ✅ COMPLETADO (2026-09-12)
 - **Referencia**: LightBurn, Aspire (true-shape nesting), software de corte industrial
 - **Qué**: Acomodar piezas automáticamente para minimizar desperdicio de material
-- **Archivos**: Nuevo módulo `nesting.ts`
-- **Esfuerzo**: XL
+- **2026-09-12**: `nesting.ts` con casco convexo, rectangulo de area minima (rotating
+  calipers) y empaque MaxRects best-short-side-fit. Antes de empacar cada pieza se
+  endereza contra su rectangulo minimo, asi una pieza diagonal deja de reservar el
+  cuadrado que la contiene; despues se prueba tambien girada 90°. La separacion entre
+  piezas y el margen del area se suman al tamaño, asi el empaque los respeta sin
+  conocerlos. `nestElements()` en useCanvasManager toma la seleccion o la hoja entera,
+  saca el contorno real con `extractSegments()` y aplica giro + posicion; lo que no
+  entra se queda donde estaba y se avisa
+- **Alcance**: empaca por **rectangulo envolvente**, no por contorno real. True-shape
+  con no-fit polygons queda pendiente: una pieza en U no anida otra adentro
+- **Archivos**: `nesting.ts` (nuevo), `NestingModal.tsx` (nuevo), `useCanvasManager.ts`,
+  `CanvasToolbar.tsx`, `App.tsx`, i18n
+- **Esfuerzo**: XL (entregado el empaque por bbox; true-shape sigue siendo XL)
 
 ### ~~5.5 Undo/Redo Robusto~~ ✅ COMPLETADO
 - **Qué**: Ya robusto: snapshot completo Fabric JSON + store elements, 50 entradas de historial, 38 llamadas a pushToHistory cubriendo todas las operaciones
@@ -649,8 +660,9 @@ canvas.
 | 5.6 | Gamepad / pendant | Gamepad API del browser contra el `jog()` que ya existe en `useSerial` | M |
 
 Lo grande que sigue pendiente y **no** es barato: Gerber import (7.1), isolation
-routing (7.3), surface auto-leveling (7.4), auto-vectorizacion (3.5), nesting
-(5.4) y toda la Fase 4C de modelado 3D.
+routing (7.3), surface auto-leveling (7.4), auto-vectorizacion (3.5), true-shape
+nesting con no-fit polygons (el empaque por bbox ya entro en 5.4) y toda la Fase 4C
+de modelado 3D.
 
 ---
 

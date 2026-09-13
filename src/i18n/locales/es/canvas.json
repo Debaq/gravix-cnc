@@ -240,5 +240,23 @@
   "sheetAdd": "Agregar hoja",
   "sheetDelete": "Borrar hoja",
   "sheetConfirmDelete": "¿Borrar?",
-  "sheetRenameHint": "Doble click para renombrar"
+  "sheetRenameHint": "Doble click para renombrar",
+  "nesting": {
+    "title": "Nesting (acomodar piezas)",
+    "scope": "Que acomodar",
+    "scopeSheet": "Toda la hoja",
+    "scopeSelection": "Solo la seleccion",
+    "spacing": "Separacion (mm)",
+    "margin": "Margen del area (mm)",
+    "rotate90": "Permitir girar 90°",
+    "alignMinRect": "Enderezar cada pieza",
+    "alignMinRectHint": "La gira para alinearla con su rectangulo mas chico",
+    "areaInfo": "Area de trabajo: {{width}} x {{height}} mm",
+    "bboxNote": "Empaca por rectangulo envolvente, no por contorno real.",
+    "apply": "Acomodar",
+    "cancel": "Cancelar",
+    "done": "{{placed}} piezas acomodadas — {{usage}}% del area usada",
+    "unplaced": "{{count}} no entraron y quedaron donde estaban",
+    "nothingPlaced": "No entro ninguna pieza: probá bajar la separacion o el margen"
+  }
 }

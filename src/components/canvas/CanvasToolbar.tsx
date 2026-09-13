@@ -57,6 +57,7 @@ import {
   Spline,
   Grid2x2,
   Focus,
+  Shapes,
 } from 'lucide-react'
 
 function ToolbarButton({
@@ -674,6 +675,14 @@ export function CanvasToolbar() {
           label={t('array.title') || 'Patron (Array)'}
           onClick={() => useAppStore.getState().openModal('array')}
           disabled={!hasSelection}
+          compact={compact}
+        />
+
+        {/* ── Nesting / auto-layout ── */}
+        <ToolbarButton
+          icon={Shapes}
+          label={t('nesting.title')}
+          onClick={() => useAppStore.getState().openModal('nesting')}
           compact={compact}
         />
 
