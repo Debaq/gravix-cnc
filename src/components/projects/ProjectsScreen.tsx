@@ -348,27 +348,43 @@ export function ProjectsScreen() {
     : ''
 
   return (
-    <div className="flex flex-col h-screen bg-background">
+    <div className="relative flex flex-col h-screen bg-background overflow-hidden">
+      {/* Fondo: grilla de plano + halo calido, mismo lenguaje que el splash */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-[420px]"
+        style={{
+          background:
+            'radial-gradient(70% 60% at 50% -10%, oklch(0.577 0.245 27 / 0.10), transparent 70%)',
+        }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-[320px] opacity-[0.5]"
+        style={{
+          backgroundImage:
+            'linear-gradient(to right, oklch(0.145 0.012 30 / 0.05) 1px, transparent 1px), linear-gradient(to bottom, oklch(0.145 0.012 30 / 0.05) 1px, transparent 1px)',
+          backgroundSize: '28px 28px',
+          maskImage: 'linear-gradient(to bottom, #000, transparent)',
+        }}
+      />
+
       {/* Title bar */}
       <div
-        className="flex items-center justify-between h-10 px-4 shrink-0 select-none"
+        className="relative flex items-center justify-between h-10 px-4 shrink-0 select-none"
         {...(isTauri() ? { 'data-tauri-drag-region': true } : {})}
       >
-        {/* Left — logo + workspace path */}
-        <button
-          className="flex items-center gap-1.5 px-1.5 py-1 rounded-[6px] hover:bg-card transition-colors"
-          onClick={() => pickWorkspace()}
-          title={t('changeWorkspace')}
+        {/* Left — logo + version */}
+        <div
+          className="flex items-center gap-2"
+          {...(isTauri() ? { 'data-tauri-drag-region': true } : {})}
         >
           <GravixMark size={20} />
           <GravixWordmark size={13} variant="light" />
-          {workspacePath && (
-            <>
-              <span className="text-[11px] font-mono text-muted-foreground truncate max-w-[200px] ml-1">{folderName}</span>
-              <ChevronDown className="h-3 w-3 text-muted-foreground" />
-            </>
-          )}
-        </button>
+          <span className="text-[10px] font-mono text-muted-foreground/70 tabular-nums">
+            v{__APP_VERSION__}
+          </span>
+        </div>
 
         {/* Right — controls */}
         <div className="flex items-center gap-1">
@@ -432,39 +448,82 @@ export function ProjectsScreen() {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 overflow-auto">
-        <div className="max-w-3xl mx-auto pt-8 pb-8 px-6">
-          {/* Actions */}
-          <div className="flex items-center gap-3 mb-8">
-            <Button onClick={openNewDialog} className="gap-2 h-10 px-5 text-[14px] font-medium">
-              <Plus className="h-4 w-4" />
-              {t('newProject')}
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-2 h-10 px-5 text-[14px] font-medium"
+      <div className="relative flex-1 overflow-auto">
+        <div className="max-w-4xl mx-auto pt-10 pb-12 px-6">
+          {/* Hero — titulo + carpeta de trabajo */}
+          <div className="mb-7">
+            <h1 className="text-[30px] font-semibold tracking-[-0.03em] leading-none">
+              {t('title')}
+            </h1>
+            <button
+              onClick={() => pickWorkspace()}
+              title={t('changeWorkspace')}
+              className="group mt-3 inline-flex items-center gap-2 h-7 pl-2 pr-2.5 rounded-full border border-border bg-card/60 hover:bg-card hover:border-foreground/15 transition-colors max-w-full"
+            >
+              <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span className="text-[11px] font-mono text-muted-foreground truncate max-w-[280px]">
+                {folderName || t('pickFolder')}
+              </span>
+              <ChevronDown className="h-3 w-3 text-muted-foreground/60 shrink-0 group-hover:text-foreground transition-colors" />
+            </button>
+          </div>
+
+          {/* Acciones principales */}
+          <div className="grid sm:grid-cols-2 gap-3 mb-10">
+            <button
+              onClick={openNewDialog}
+              className="group relative flex items-center gap-3.5 p-4 rounded-[14px] text-left text-primary-foreground bg-[linear-gradient(135deg,oklch(0.28_0.02_25),oklch(0.18_0.015_25))] hover:brightness-[1.15] transition-all shadow-[0_8px_20px_-12px_oklch(0.145_0.012_30_/_0.6)]"
+            >
+              <span className="flex items-center justify-center h-10 w-10 rounded-[10px] bg-accent text-accent-foreground shrink-0 shadow-[0_4px_12px_-4px_oklch(0.577_0.245_27_/_0.7)]">
+                <Plus className="h-5 w-5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[14px] font-medium">{t('newProject')}</span>
+                <span className="block text-[11.5px] text-primary-foreground/60 truncate">
+                  {t('newProjectDesc')}
+                </span>
+              </span>
+              <ChevronRight className="h-4 w-4 ml-auto shrink-0 text-primary-foreground/40 group-hover:translate-x-0.5 group-hover:text-primary-foreground/80 transition-all" />
+            </button>
+
+            <button
               onClick={() => {
                 setControlOnly(true)
                 setWorkspace('cnc')
                 setView('workspace')
               }}
+              className="group flex items-center gap-3.5 p-4 rounded-[14px] text-left border border-border bg-card hover:border-foreground/20 hover:shadow-[0_8px_20px_-16px_oklch(0.145_0.012_30_/_0.5)] transition-all"
             >
-              <Gamepad2 className="h-4 w-4" />
-              {t('controlMachine')}
-            </Button>
+              <span className="flex items-center justify-center h-10 w-10 rounded-[10px] bg-secondary text-foreground shrink-0">
+                <Gamepad2 className="h-5 w-5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[14px] font-medium">{t('controlMachine')}</span>
+                <span className="block text-[11.5px] text-muted-foreground truncate">
+                  {t('controlMachineDesc')}
+                </span>
+              </span>
+              <ChevronRight className="h-4 w-4 ml-auto shrink-0 text-muted-foreground/30 group-hover:translate-x-0.5 group-hover:text-muted-foreground transition-all" />
+            </button>
           </div>
 
           {/* Projects list */}
           <div>
-            <h2 className="text-[12px] font-medium text-muted-foreground mb-3">
-              {t('recentProjects')}
-            </h2>
+            <div className="flex items-baseline gap-2 mb-3">
+              <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                {t('recentProjects')}
+              </h2>
+              {projects.length > 0 && (
+                <span className="text-[11px] font-mono text-muted-foreground/60 tabular-nums">
+                  {projects.length}
+                </span>
+              )}
+            </div>
             {projects.length === 0 ? (
-              <div className="border border-dashed rounded-[10px] py-10 px-6 flex flex-col items-center text-center">
-                <FolderOpen
-                  className="h-8 w-8 text-muted-foreground/40 mb-3"
-                  strokeWidth={1.5}
-                />
+              <div className="rounded-[14px] border border-dashed border-border bg-card/40 py-10 px-6 flex flex-col items-center text-center">
+                <div className="flex items-center justify-center h-12 w-12 rounded-full bg-secondary mb-3">
+                  <FolderOpen className="h-5 w-5 text-muted-foreground" strokeWidth={1.75} />
+                </div>
                 <p className="text-[14px] font-medium">{t('noProjects')}</p>
                 <p className="text-[12px] text-muted-foreground mt-1 max-w-[340px]">
                   {t('noProjectsDesc')}
@@ -494,32 +553,39 @@ export function ProjectsScreen() {
                 </div>
               </div>
             ) : (
-              <div className="space-y-0.5">
+              <div className="grid sm:grid-cols-2 gap-2">
                 {projects.map((proj) => (
                   <div
                     key={proj.path}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-[10px] hover:bg-card cursor-pointer transition-colors group"
+                    className="group relative flex items-center gap-3 px-3 py-3 rounded-[12px] border border-transparent bg-card/60 hover:bg-card hover:border-border hover:shadow-[0_8px_20px_-16px_oklch(0.145_0.012_30_/_0.5)] cursor-pointer transition-all"
                     onClick={() => handleOpenProject(proj)}
+                    title={proj.path}
                   >
-                    <div className={`flex items-center justify-center h-8 w-8 rounded-[6px] border ${MACHINE_BADGE_STYLE[proj.mode] || MACHINE_BADGE_STYLE.cnc}`}>
+                    <div className={`flex items-center justify-center h-9 w-9 rounded-[8px] border shrink-0 ${MACHINE_BADGE_STYLE[proj.mode] || MACHINE_BADGE_STYLE.cnc}`}>
                       {MACHINE_ICON_SMALL[proj.mode] || MACHINE_ICON_SMALL.cnc}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[14px] font-medium truncate">{proj.name}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        <span className="font-mono">{proj.width ? `${proj.width}×${proj.height}mm` : ''}</span>
-                        {proj.modified_at > 0 && <span className="ml-2">{formatDate(proj.modified_at)}</span>}
+                      <p className="text-[13.5px] font-medium truncate">{proj.name}</p>
+                      <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                        {proj.width > 0 && (
+                          <span className="font-mono tabular-nums">{proj.width}×{proj.height}mm</span>
+                        )}
+                        {proj.width > 0 && proj.modified_at > 0 && (
+                          <span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
+                        )}
+                        {proj.modified_at > 0 && <span>{formatDate(proj.modified_at)}</span>}
                       </p>
                     </div>
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="opacity-0 group-hover:opacity-100 h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
+                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
                       onClick={(e) => handleDeleteProject(proj, e)}
+                      title={t('deleteProject')}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground/30 shrink-0" />
+                    <ChevronRight className="h-4 w-4 text-muted-foreground/25 shrink-0 group-hover:translate-x-0.5 group-hover:text-muted-foreground/60 transition-all" />
                   </div>
                 ))}
               </div>
@@ -528,76 +594,81 @@ export function ProjectsScreen() {
 
           {/* Configuration section */}
           <div className="mt-10">
-            <h2 className="text-[12px] font-medium text-muted-foreground mb-3">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-3">
               {t('configuration')}
             </h2>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid sm:grid-cols-2 gap-2">
               {isTauri() && (
                 <button
-                  className="flex items-center gap-3 px-4 py-3 rounded-[10px] border border-border hover:bg-card transition-colors text-left"
+                  className="group flex items-center gap-3 px-4 py-3 rounded-[12px] border border-border bg-card/50 hover:bg-card hover:border-foreground/15 transition-colors text-left"
                   onClick={() => openModal('networkServer')}
                 >
-                  <div className="flex items-center justify-center h-8 w-8 rounded-[6px] bg-blue-500/10 text-blue-600 shrink-0">
+                  <div className="flex items-center justify-center h-8 w-8 rounded-[8px] bg-blue-500/10 text-blue-600 shrink-0">
                     <Globe className="h-4 w-4" />
                   </div>
                   <div className="min-w-0">
                     <p className="text-[13px] font-medium">{t('networkServer')}</p>
                     <p className="text-[11px] text-muted-foreground truncate">{t('networkServerDesc')}</p>
                   </div>
+                  <ChevronRight className="h-4 w-4 ml-auto shrink-0 text-muted-foreground/25 group-hover:text-muted-foreground/60 transition-colors" />
                 </button>
               )}
               <button
-                className="flex items-center gap-3 px-4 py-3 rounded-[10px] border border-border hover:bg-card transition-colors text-left"
+                className="group flex items-center gap-3 px-4 py-3 rounded-[12px] border border-border bg-card/50 hover:bg-card hover:border-foreground/15 transition-colors text-left"
                 onClick={() => openModal('tools')}
               >
-                <div className="flex items-center justify-center h-8 w-8 rounded-[6px] bg-orange-500/10 text-orange-600 shrink-0">
+                <div className="flex items-center justify-center h-8 w-8 rounded-[8px] bg-orange-500/10 text-orange-600 shrink-0">
                   <Wrench className="h-4 w-4" />
                 </div>
                 <div className="min-w-0">
                   <p className="text-[13px] font-medium">{t('toolsLibrary')}</p>
                   <p className="text-[11px] text-muted-foreground truncate">{t('toolsLibraryDesc')}</p>
                 </div>
+                <ChevronRight className="h-4 w-4 ml-auto shrink-0 text-muted-foreground/25 group-hover:text-muted-foreground/60 transition-colors" />
               </button>
               <button
-                className="flex items-center gap-3 px-4 py-3 rounded-[10px] border border-border hover:bg-card transition-colors text-left"
+                className="group flex items-center gap-3 px-4 py-3 rounded-[12px] border border-border bg-card/50 hover:bg-card hover:border-foreground/15 transition-colors text-left"
                 onClick={() => openModal('materials')}
               >
-                <div className="flex items-center justify-center h-8 w-8 rounded-[6px] bg-green-500/10 text-green-600 shrink-0">
+                <div className="flex items-center justify-center h-8 w-8 rounded-[8px] bg-green-500/10 text-green-600 shrink-0">
                   <Layers className="h-4 w-4" />
                 </div>
                 <div className="min-w-0">
                   <p className="text-[13px] font-medium">{t('materialsLibrary')}</p>
                   <p className="text-[11px] text-muted-foreground truncate">{t('materialsLibraryDesc')}</p>
                 </div>
+                <ChevronRight className="h-4 w-4 ml-auto shrink-0 text-muted-foreground/25 group-hover:text-muted-foreground/60 transition-colors" />
               </button>
               <button
-                className="flex items-center gap-3 px-4 py-3 rounded-[10px] border border-border hover:bg-card transition-colors text-left"
+                className="group flex items-center gap-3 px-4 py-3 rounded-[12px] border border-border bg-card/50 hover:bg-card hover:border-foreground/15 transition-colors text-left"
                 onClick={() => openModal('setupWizard')}
               >
-                <div className="flex items-center justify-center h-8 w-8 rounded-[6px] bg-purple-500/10 text-purple-600 shrink-0">
+                <div className="flex items-center justify-center h-8 w-8 rounded-[8px] bg-purple-500/10 text-purple-600 shrink-0">
                   <Wand2 className="h-4 w-4" />
                 </div>
                 <div className="min-w-0">
                   <p className="text-[13px] font-medium">{t('setupWizard')}</p>
                   <p className="text-[11px] text-muted-foreground truncate">{t('setupWizardDesc')}</p>
                 </div>
+                <ChevronRight className="h-4 w-4 ml-auto shrink-0 text-muted-foreground/25 group-hover:text-muted-foreground/60 transition-colors" />
               </button>
               {isTauri() && (
                 <button
-                  className="flex items-center gap-3 px-4 py-3 rounded-[10px] border border-border hover:bg-card transition-colors text-left disabled:opacity-60"
+                  className="group flex items-center gap-3 px-4 py-3 rounded-[12px] border border-border bg-card/50 hover:bg-card hover:border-foreground/15 transition-colors text-left disabled:opacity-60"
                   onClick={() => {
                     openModal('updater')
                     void checkUpdate()
                   }}
                   disabled={updateStatus === 'checking' || updateStatus === 'downloading'}
                 >
-                  <div className="flex items-center justify-center h-8 w-8 rounded-[6px] bg-sky-500/10 text-sky-600 shrink-0">
+                  <div className="flex items-center justify-center h-8 w-8 rounded-[8px] bg-sky-500/10 text-sky-600 shrink-0">
                     <RefreshCw className={`h-4 w-4 ${updateStatus === 'checking' ? 'animate-spin' : ''}`} />
                   </div>
                   <div className="min-w-0">
                     <p className="text-[13px] font-medium">{tu('checkNow')}</p>
                     <p className="text-[11px] text-muted-foreground truncate">{tu('checkNowDesc')}</p>
                   </div>
+                  <ChevronRight className="h-4 w-4 ml-auto shrink-0 text-muted-foreground/25 group-hover:text-muted-foreground/60 transition-colors" />
                 </button>
               )}
             </div>

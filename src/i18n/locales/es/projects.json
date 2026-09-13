@@ -1,6 +1,7 @@
 {
   "title": "Mis Proyectos",
   "newProject": "Nuevo Proyecto",
+  "newProjectDesc": "Elegí máquina, área de trabajo y material",
   "recentProjects": "Proyectos Recientes",
   "noRecentProjects": "No hay proyectos recientes",
   "noRecentDescription": "Crea un nuevo proyecto para comenzar",
