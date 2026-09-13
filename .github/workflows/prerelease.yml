@@ -127,3 +127,24 @@ jobs:
           prerelease: true
           includeUpdaterJson: ${{ steps.updater.outputs.updater_json }}
           args: ${{ steps.updater.outputs.config }} ${{ matrix.args }}
+
+      # El binario suelto no es un bundle, asi que tauri-action no lo sube: se
+      # adjunta aparte. Sirve para correr la app sin instalar nada, siempre que
+      # el sistema ya tenga webkit2gtk y gtk3 (el AppImage los trae adentro).
+      - name: Adjuntar binario suelto de Linux
+        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          bin=$(find src-tauri/target/release -maxdepth 1 -type f -name '[Gg]ravix' -print -quit)
+          if [ -z "$bin" ]; then
+            echo '::error::No se encontro el binario en src-tauri/target/release'
+            exit 1
+          fi
+          out="Gravix_${VERSION}_linux_x86_64"
+          cp "$bin" "$out"
+          chmod +x "$out"
+          gh release upload "v${VERSION}" "$out" --clobber --repo "$GITHUB_REPOSITORY"

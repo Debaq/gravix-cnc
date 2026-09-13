@@ -82,3 +82,25 @@ jobs:
           # createUpdaterArtifacts vive en un config aparte: activarlo en la
           # config base obliga a tener la clave privada para cualquier build local.
           args: --config tauri.release.conf.json ${{ matrix.args }}
+
+      # El binario suelto no es un bundle, asi que tauri-action no lo sube: se
+      # adjunta aparte. Sirve para correr la app sin instalar nada, siempre que
+      # el sistema ya tenga webkit2gtk y gtk3 (el AppImage los trae adentro).
+      - name: Adjuntar binario suelto de Linux
+        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          bin=$(find src-tauri/target/release -maxdepth 1 -type f -name '[Gg]ravix' -print -quit)
+          if [ -z "$bin" ]; then
+            echo '::error::No se encontro el binario en src-tauri/target/release'
+            exit 1
+          fi
+          # El resto de los artefactos nombra la version sin la v del tag
+          out="Gravix_${TAG#v}_linux_x86_64"
+          cp "$bin" "$out"
+          chmod +x "$out"
+          gh release upload "$TAG" "$out" --clobber --repo "$GITHUB_REPOSITORY"

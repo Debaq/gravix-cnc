@@ -83,7 +83,7 @@ siempre lleva la versión estable.
 
 > ⚠️ Sin verificar: que el instalador NSIS de Windows acepte una versión con
 > parte de pre-release. El bundler debería descartarla para `VIProductVersion`,
-> que exige `X.Y.Z.W`. Linux (deb, rpm, AppImage) sí está comprobado. La
+> que exige `X.Y.Z.W`. Linux (AppImage) sí está comprobado. La
 > primera corrida del workflow lo confirma o lo desmiente.
 
 ### El updater no ve las pre-releases
@@ -162,9 +162,20 @@ No afecta a CI: `ubuntu-22.04` no tiene el problema.
 
 | SO | Formatos | En CI |
 |---|---|---|
-| Linux | `.deb`, `.rpm`, `.AppImage` | sí |
+| Linux | `.AppImage` + binario suelto | sí |
 | Windows | instalador NSIS `.exe` | sí |
 | macOS | `.app`, `.dmg` | no — ver abajo |
+
+`.deb` y `.rpm` salieron de `bundle.targets`: empaquetar para cada distro
+obliga a mantener listas de dependencias por familia, y el AppImage ya
+resuelve ese caso trayendo las suyas adentro.
+
+El **binario suelto** (`Gravix_<version>_linux_x86_64`) no es un bundle, asi
+que `tauri-action` no lo publica: lo adjunta un paso aparte del workflow,
+copiandolo de `src-tauri/target/release`. Corre sin instalar nada, pero
+**usa las librerias del sistema** — webkit2gtk y gtk3 tienen que estar. El
+AppImage es el camino para una maquina donde eso no se puede asegurar, y el
+updater no toca el binario suelto.
 
 ### macOS
 
@@ -196,8 +207,7 @@ Dos cosas a tener presentes:
   ([tauri#4359](https://github.com/tauri-apps/tauri/issues/4359)).
 
 El updater solo puede actualizar formatos que se auto-reemplazan: AppImage,
-NSIS y `.app`. Quien instaló por `.deb` o `.rpm` actualiza por el gestor de
-paquetes de su distro, no por la app.
+NSIS y `.app`. El binario suelto se reemplaza a mano.
 
 ## Probar el updater sin publicar
 
