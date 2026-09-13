@@ -37,6 +37,22 @@ if (cargoNext !== cargoRaw) {
   changed.push('Cargo.toml')
 }
 
+// splashscreen.html — el splash es estatico (fuera del bundle de Vite), asi que
+// la version se estampa aca en vez de usar __APP_VERSION__.
+const splashPath = join(root, 'public/splashscreen.html')
+const splashRaw = readFileSync(splashPath, 'utf8')
+const splashNext = splashRaw.replace(
+  /(<span class="version" data-version>)v?[^<]*(<\/span>)/,
+  `$1v${version}$2`,
+)
+if (splashNext !== splashRaw) {
+  writeFileSync(splashPath, splashNext)
+  changed.push('splashscreen.html')
+} else if (!splashRaw.includes(`data-version>v${version}<`)) {
+  console.error('[sync-version] no se encontro el marcador data-version en public/splashscreen.html')
+  process.exit(1)
+}
+
 console.log(
   changed.length
     ? `[sync-version] ${version} → ${changed.join(', ')}`
