@@ -8,7 +8,7 @@ mod shared_state;
 mod web_server;
 mod workspace;
 
-use commands::{files, image_processing, license_cmd, machines, materials, serial, tools, vector_import, vectorize, web_server_cmd, workspace_cmd};
+use commands::{files, image_processing, license_cmd, machines, materials, serial, silhouette, tools, vector_import, vectorize, web_server_cmd, workspace_cmd};
 use shared_state::AppState;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU16};
@@ -90,6 +90,7 @@ pub fn run() {
             });
 
             app.manage(shared.serial.clone());
+            app.manage(Arc::new(silhouette::SilhouetteJobState::new()));
             app.manage(shared.clone());
 
             if let Some(main) = app.get_webview_window("main") {
@@ -127,6 +128,12 @@ pub fn run() {
             serial::serial_cancel_send,
             serial::serial_realtime,
             serial::serial_check_bounds,
+            silhouette::silhouette_list_usb,
+            silhouette::silhouette_list_serial,
+            silhouette::silhouette_scan_ble,
+            silhouette::silhouette_status,
+            silhouette::silhouette_send,
+            silhouette::silhouette_cancel,
             image_processing::process_image_for_laser,
             image_processing::read_raster_pixels,
             vectorize::trace_image_to_svg,

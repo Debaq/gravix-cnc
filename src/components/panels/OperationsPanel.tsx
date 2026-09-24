@@ -57,6 +57,7 @@ import {
   Package,
   Route,
   FileText,
+  Scissors,
 } from 'lucide-react'
 
 const WORK_TYPE_ICONS: Record<string, typeof Box> = {
@@ -483,6 +484,8 @@ function GenerateActions() {
   // que sus errores no tienen por que bloquear la generacion.
   const blockingErrors = camOps.filter((o) => o.status === 'error' && opRunsInGCode(o, soloOpId))
   const hasErrors = blockingErrors.length > 0
+  // Las Silhouette no van por G-code: tienen su propio envio
+  const hasCutterOps = camOps.some((o) => o.config.operationType === 'plotter' || o.config.operationType === 'pencil')
 
   const handleGenerate = useCallback(async () => {
     // Block if CAM operations have errors
@@ -768,6 +771,18 @@ function GenerateActions() {
         <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={handleDryRun} disabled={!connected || sending} title={t('dryRun')}>
           <Scan className="h-3 w-3" />
         </Button>
+        {hasCutterOps && (
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={() => openModal('silhouette')}
+            disabled={hasErrors}
+            title="Enviar a Silhouette"
+          >
+            <Scissors className="h-3 w-3" />
+          </Button>
+        )}
       </div>
 
       {/* Send progress */}

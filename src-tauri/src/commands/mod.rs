@@ -11,3 +11,4 @@ pub mod vectorize;
 pub mod web_server_cmd;
 pub mod workspace_cmd;
 pub mod license_cmd;
+pub mod silhouette;
