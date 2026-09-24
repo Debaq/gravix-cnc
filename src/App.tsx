@@ -62,6 +62,51 @@ async function loadFromStatic(): Promise<{ tools: Tool[]; materials: Material[] 
   return { tools, materials }
 }
 
+// Ids de la libreria por defecto que ya se le ofrecieron al usuario. Sirve
+// para sumar las herramientas y materiales que traiga una version nueva sin
+// revivir los que el usuario borro a proposito.
+const SEEN_DEFAULTS_KEY = 'gravix_library_defaults_seen'
+
+function readSeenDefaults(): Set<string> | null {
+  try {
+    const raw = localStorage.getItem(SEEN_DEFAULTS_KEY)
+    return raw ? new Set(JSON.parse(raw) as string[]) : null
+  } catch {
+    return null
+  }
+}
+
+function writeSeenDefaults(defaults: { tools: Tool[]; materials: Material[] }) {
+  try {
+    const ids = [...defaults.tools.map((t) => `tool:${t.id}`), ...defaults.materials.map((m) => `mat:${m.id}`)]
+    localStorage.setItem(SEEN_DEFAULTS_KEY, JSON.stringify(ids))
+  } catch {
+    // Sin almacenamiento, la proxima vez se vuelven a ofrecer: no es grave
+  }
+}
+
+/** Suma a la libreria del usuario lo nuevo de la libreria por defecto. */
+async function mergeNewDefaults(tools: Tool[], materials: Material[]): Promise<{ tools: Tool[]; materials: Material[] }> {
+  let defaults: { tools: Tool[]; materials: Material[] }
+  try {
+    defaults = await loadFromStatic()
+  } catch {
+    return { tools, materials }
+  }
+  const seen = readSeenDefaults() ?? new Set<string>()
+  const newTools = defaults.tools.filter((t) => !seen.has(`tool:${t.id}`) && !tools.some((u) => u.id === t.id))
+  const newMaterials = defaults.materials.filter(
+    (m) => !seen.has(`mat:${m.id}`) && !materials.some((u) => u.id === m.id),
+  )
+  const saved = await Promise.allSettled([
+    ...newTools.map((tool) => tauriInvoke('save_tool', { tool })),
+    ...newMaterials.map((material) => tauriInvoke('save_material', { material })),
+  ])
+  // Si algo no se pudo guardar, se reintenta la proxima vez
+  if (saved.every((r) => r.status === 'fulfilled')) writeSeenDefaults(defaults)
+  return { tools: [...tools, ...newTools], materials: [...materials, ...newMaterials] }
+}
+
 async function loadInitialData(): Promise<{ tools: Tool[]; materials: Material[] }> {
   if (isTauri()) {
     try {
@@ -70,7 +115,7 @@ async function loadInitialData(): Promise<{ tools: Tool[]; materials: Material[]
         tauriInvoke<Material[]>('get_materials'),
       ])
       if (tools.length > 0 || materials.length > 0) {
-        return { tools, materials }
+        return await mergeNewDefaults(tools, materials)
       }
       const defaults = await loadFromStatic()
       const seeded = await Promise.allSettled([
@@ -78,6 +123,7 @@ async function loadInitialData(): Promise<{ tools: Tool[]; materials: Material[]
         ...defaults.materials.map((material) => tauriInvoke('save_material', { material })),
       ])
       const failed = seeded.find((r) => r.status === 'rejected')
+      if (!failed) writeSeenDefaults(defaults)
       if (failed) {
         toast.warning(i18n.t('toastDefaultsFailed'), {
           detail: i18n.t('toastDefaultsFailedDetail'),

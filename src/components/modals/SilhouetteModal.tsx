@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '@/stores/useAppStore'
 import { useCAMStore } from '@/stores/useCAMStore'
+import { useLibraryStore } from '@/stores/useLibraryStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useCanvasManager } from '@/hooks/useCanvasManager'
 import { applyCAMPlan } from '@/lib/cam-jobs'
@@ -245,11 +246,27 @@ export function SilhouetteModal() {
     }
   }, [isOpen, getJobsForGCode, workArea])
 
-  // Si todo el trabajo es de lapiz, arrancar con pluma
+  // Al abrir, la herramienta del trabajo propone los valores: si es una
+  // Silhouette de la libreria, sus valores ya estan en la escala de la maquina.
+  // Si todo el trabajo es de lapiz, se arranca con pluma.
   useEffect(() => {
     if (!isOpen) return
     const ops = useCAMStore.getState().operations.filter((o) => o.enabled)
-    if (ops.length > 0 && ops.every((o) => o.config.operationType === 'pencil') && settings.tool !== 'pen') {
+    const cut = ops.find((o) => o.config.operationType === 'plotter' || o.config.operationType === 'pencil')
+    const tool = cut ? useLibraryStore.getState().tools.find((x) => x.id === cut.config.tool) : undefined
+    if (tool?.type.startsWith('silhouette-')) {
+      const kind: SilhouetteTool =
+        tool.type === 'silhouette-pen' ? 'pen' : tool.type === 'silhouette-autoblade' ? 'autoblade' : 'blade'
+      const pressure = cut?.config.pressure && cut.config.pressure <= 40 ? cut.config.pressure : tool.pressure
+      update({
+        tool: kind,
+        ...(pressure ? { pressure } : {}),
+        ...(tool.speed ? { speed: tool.speed } : {}),
+        ...(cut?.config.passes ? { passes: cut.config.passes } : {}),
+        // Kraft y Rotary van en el portaherramientas 2 de la Cameo 4
+        toolholder: tool.id === 'silhouette_kraft' || tool.id === 'silhouette_rotary' ? 2 : 1,
+      })
+    } else if (ops.length > 0 && ops.every((o) => o.config.operationType === 'pencil') && settings.tool !== 'pen') {
       update({ tool: 'pen' })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

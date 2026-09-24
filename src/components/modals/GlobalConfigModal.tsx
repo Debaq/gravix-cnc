@@ -26,6 +26,7 @@ import {
   saveToolpathTemplates,
   type ToolpathTemplate,
 } from '@/lib/profiles'
+import { materialOptions, materialPreset, toolPreset } from '@/lib/library-presets'
 
 export function GlobalConfigModal() {
   const { t } = useTranslation('settings')
@@ -74,17 +75,8 @@ export function GlobalConfigModal() {
       setGlobalConfig({ tool: '' })
       return
     }
-    const tool = filteredTools.find((t) => t.id === toolId) as Record<string, unknown> | undefined
-    const updates: Partial<typeof globalConfig> = { tool: toolId }
-    if (tool) {
-      if (tool.diameter) updates.toolDiameter = tool.diameter as number
-      if (tool.feedRate) updates.feedRate = tool.feedRate as number
-      if (tool.plungeRate) updates.plungeRate = tool.plungeRate as number
-      if (tool.rpm) updates.spindleRPM = tool.rpm as number
-      if (tool.pressure) updates.pressure = tool.pressure as number
-      if (tool.speed) updates.speed = tool.speed as number
-    }
-    setGlobalConfig(updates)
+    const tool = filteredTools.find((t) => t.id === toolId)
+    setGlobalConfig(tool ? toolPreset(tool) : { tool: toolId })
   }
 
   const handleMaterialChange = (matId: string) => {
@@ -92,21 +84,8 @@ export function GlobalConfigModal() {
       setGlobalConfig({ material: '' })
       return
     }
-    const mat = materials.find((m) => m.id === matId) as Record<string, unknown> | undefined
-    const updates: Partial<typeof globalConfig> = { material: matId }
-    if (mat) {
-      const opType = globalConfig.operationType
-      const matConfig = (mat as Record<string, unknown>)[opType] as Record<string, unknown> | undefined
-      if (matConfig) {
-        if (matConfig.feedRate) updates.feedRate = matConfig.feedRate as number
-        if (matConfig.plungeRate) updates.plungeRate = matConfig.plungeRate as number
-        if (matConfig.rpm) updates.spindleRPM = matConfig.rpm as number
-        if (matConfig.depthPerPass) updates.depthStep = matConfig.depthPerPass as number
-        if (matConfig.cutPower) updates.laserPower = matConfig.cutPower as number
-        if (matConfig.cutSpeed) updates.feedRate = matConfig.cutSpeed as number
-      }
-    }
-    setGlobalConfig(updates)
+    const mat = materials.find((m) => m.id === matId)
+    setGlobalConfig(mat ? materialPreset(mat, globalConfig.operationType) : { material: matId })
   }
 
   return (
@@ -232,7 +211,7 @@ export function GlobalConfigModal() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">{t('globalConfig.noMaterial')}</SelectItem>
-                {materials.map((mat) => (
+                {materialOptions(materials, globalConfig.operationType, globalConfig.material).map((mat) => (
                   <SelectItem key={mat.id} value={mat.id}>
                     {mat.name} ({mat.thickness}mm)
                   </SelectItem>

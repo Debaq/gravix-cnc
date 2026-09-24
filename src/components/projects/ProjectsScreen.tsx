@@ -45,6 +45,7 @@ import { useUpdateStore } from '@/stores/useUpdateStore'
 import { getTrialDaysLeft, isTrialActive } from '@/lib/trial'
 import type { OperationType } from '@/lib/types'
 import { DEFAULT_PRINT_CUT } from '@/lib/print-cut'
+import { WORK_AREA_PRESETS, materialsForOperation, materialPreset, toolPreset } from '@/lib/library-presets'
 
 const MACHINE_TYPES: {
   id: OperationType
@@ -81,15 +82,6 @@ const MACHINE_TYPES: {
     idle: 'border-border text-muted-foreground hover:border-foreground/20 hover:text-foreground',
     active: 'border-[oklch(0.45_0.12_60)] bg-[oklch(0.96_0.05_80)] text-[oklch(0.45_0.12_60)]',
   },
-]
-
-const WORK_AREA_PRESETS = [
-  { label: '200×200', w: 200, h: 200 },
-  { label: '300×300', w: 300, h: 300 },
-  { label: '300×400', w: 300, h: 400 },
-  { label: '400×400', w: 400, h: 400 },
-  { label: '500×500', w: 500, h: 500 },
-  { label: '600×400', w: 600, h: 400 },
 ]
 
 const MACHINE_ICON_SMALL: Record<string, React.ReactNode> = {
@@ -179,7 +171,7 @@ export function ProjectsScreen() {
   }, [activeModal, closeModal])
 
   const filteredTools = tools.filter((t) => t.category === newType)
-  const filteredMaterials = materials
+  const filteredMaterials = materialsForOperation(materials, newType)
 
   const handleCreate = useCallback(async () => {
     const name = newName.trim() || t('projectNamePlaceholder')
@@ -200,9 +192,15 @@ export function ProjectsScreen() {
     setProjectOperationType(newType)
     setWorkArea({ width: newWidth, height: newHeight, origin: 'bottom-left' })
     useCanvasStore.setState({ printCut: DEFAULT_PRINT_CUT })
+    // La herramienta y el material elegidos traen sus valores (presion,
+    // velocidad, pasadas...); el material va despues porque manda
+    const tool = tools.find((x) => x.id === newTool)
+    const material = materials.find((x) => x.id === newMaterial)
     setGlobalConfig({
       ...globalConfig,
       operationType: newType,
+      ...(tool ? toolPreset(tool) : {}),
+      ...(material ? materialPreset(material, newType) : {}),
       tool: newTool || globalConfig.tool,
       material: newMaterial || globalConfig.material,
     })
@@ -239,7 +237,7 @@ export function ProjectsScreen() {
     useAppStore.getState().setActiveProjectPath(filePath, now)
     setShowNewDialog(false)
     setView('workspace')
-  }, [newName, newType, newWidth, newHeight, newTool, newMaterial, t, globalConfig, workspacePath, setProjectName, setProjectOperationType, setWorkArea, setGlobalConfig, clearGCode, refresh, setView])
+  }, [newName, newType, newWidth, newHeight, newTool, newMaterial, tools, materials, t, globalConfig, workspacePath, setProjectName, setProjectOperationType, setWorkArea, setGlobalConfig, clearGCode, refresh, setView])
 
   const handleOpenProject = useCallback(async (proj: ProjectMeta) => {
     let createdAt: number | null = null
@@ -720,6 +718,13 @@ export function ProjectsScreen() {
                         setNewType(mt.id)
                         setNewTool('')
                         setNewMaterial('')
+                        // Plotter y lapiz trabajan sobre tapetes u hojas: se
+                        // arranca con la primera medida tipica del tipo
+                        if (mt.id === 'plotter' || mt.id === 'pencil') {
+                          const first = WORK_AREA_PRESETS[mt.id][0]
+                          setNewWidth(first.w)
+                          setNewHeight(first.h)
+                        }
                       }}
                     >
                       {selected ? mt.selectedIcon : mt.icon}
@@ -734,16 +739,17 @@ export function ProjectsScreen() {
             <div className="space-y-2">
               <Label className="text-[12px] text-muted-foreground">{t('workArea')} (mm)</Label>
               <div className="flex items-center gap-2">
-                <Input type="number" value={newWidth} onChange={(e) => setNewWidth(Number(e.target.value) || 300)} min={50} max={2000} className="h-9 font-mono" />
+                <Input type="number" value={newWidth} onChange={(e) => setNewWidth(Number(e.target.value) || 300)} min={50} max={2000} step="any" className="h-9 font-mono" />
                 <span className="text-muted-foreground font-mono text-[12px]">×</span>
-                <Input type="number" value={newHeight} onChange={(e) => setNewHeight(Number(e.target.value) || 300)} min={50} max={2000} className="h-9 font-mono" />
+                <Input type="number" value={newHeight} onChange={(e) => setNewHeight(Number(e.target.value) || 300)} min={50} max={2000} step="any" className="h-9 font-mono" />
               </div>
               <div className="flex flex-wrap gap-1">
-                {WORK_AREA_PRESETS.map((p) => (
+                {WORK_AREA_PRESETS[newType].map((p) => (
                   <Badge
                     key={p.label}
                     variant={newWidth === p.w && newHeight === p.h ? 'default' : 'outline'}
                     className="cursor-pointer text-[11px] font-mono"
+                    title={`${Math.round(p.w * 10) / 10} × ${Math.round(p.h * 10) / 10} mm`}
                     onClick={() => { setNewWidth(p.w); setNewHeight(p.h) }}
                   >
                     {p.label}

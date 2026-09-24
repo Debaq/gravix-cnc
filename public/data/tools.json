@@ -935,5 +935,65 @@
         "pressure": 1.5,
         "color": "#E0E0FF",
         "notes": "Tinta UV visible solo con luz ultravioleta. Para marcado de seguridad"
+    },
+    {
+        "id": "silhouette_ratchet",
+        "category": "plotter",
+        "name": "Silhouette Cuchilla Ratchet",
+        "type": "silhouette-blade",
+        "pressure": 10,
+        "speed": 5,
+        "offset": 0,
+        "notes": "Cuchilla estandar de Cameo 4 / Portrait 3; la profundidad se ajusta girando la tapa (1-10). Vinilo, papel, cartulina. Valores en la escala de la Silhouette (fuerza 1-33, velocidad 1-30); el offset lo compensa la maquina."
+    },
+    {
+        "id": "silhouette_autoblade",
+        "category": "plotter",
+        "name": "Silhouette AutoBlade",
+        "type": "silhouette-autoblade",
+        "pressure": 10,
+        "speed": 5,
+        "offset": 0,
+        "notes": "La maquina fija la profundidad sola (0-10). Solo en el portaherramientas 1. Valores en la escala de la Silhouette (fuerza 1-33, velocidad 1-30); el offset lo compensa la maquina."
+    },
+    {
+        "id": "silhouette_deepcut",
+        "category": "plotter",
+        "name": "Silhouette Deep-Cut Blade",
+        "type": "silhouette-blade",
+        "pressure": 25,
+        "speed": 3,
+        "offset": 0,
+        "notes": "Para materiales de hasta ~2 mm: goma eva, cuero delgado, carton. Valores en la escala de la Silhouette (fuerza 1-33, velocidad 1-30); el offset lo compensa la maquina."
+    },
+    {
+        "id": "silhouette_kraft",
+        "category": "plotter",
+        "name": "Silhouette Kraft Blade",
+        "type": "silhouette-blade",
+        "pressure": 33,
+        "speed": 3,
+        "offset": 0,
+        "notes": "Cameo 4: cuchilla con profundidad de hasta 2 mm, va en el portaherramientas 2. Madera balsa, chipboard, cuero. Valores en la escala de la Silhouette (fuerza 1-33, velocidad 1-30); el offset lo compensa la maquina."
+    },
+    {
+        "id": "silhouette_rotary",
+        "category": "plotter",
+        "name": "Silhouette Rotary Blade",
+        "type": "silhouette-blade",
+        "pressure": 20,
+        "speed": 3,
+        "offset": 0,
+        "notes": "Cameo 4: cuchilla rotativa para telas y fieltro sin respaldo. Portaherramientas 2. Valores en la escala de la Silhouette (fuerza 1-33, velocidad 1-30); el offset lo compensa la maquina."
+    },
+    {
+        "id": "silhouette_sketchpen",
+        "category": "plotter",
+        "name": "Silhouette Sketch Pen",
+        "type": "silhouette-pen",
+        "pressure": 10,
+        "speed": 8,
+        "offset": 0,
+        "notes": "Rotulador para dibujar en lugar de cortar. Valores en la escala de la Silhouette (fuerza 1-33, velocidad 1-30); el offset lo compensa la maquina."
     }
 ]

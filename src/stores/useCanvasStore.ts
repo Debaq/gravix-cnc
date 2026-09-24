@@ -415,19 +415,14 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       let merged = { ...state.globalConfig, ...config }
       let newDefaults = state.operationDefaults
 
-      // Save current tool/material as default for the current operation type
-      if (config.tool !== undefined || config.material !== undefined) {
-        newDefaults = {
-          ...newDefaults,
-          [prevType]: {
-            tool: config.tool ?? state.globalConfig.tool,
-            material: config.material ?? state.globalConfig.material,
-          },
-        }
-      }
+      // Herramienta o material pedidos de verdad: muchos llamadores pasan la
+      // config entera ({...globalConfig, ...}), y ahi el valor es el mismo
+      // de antes, no una eleccion
+      const pickedTool = config.tool !== undefined && config.tool !== state.globalConfig.tool
+      const pickedMaterial = config.material !== undefined && config.material !== state.globalConfig.material
 
       // When switching operation type, load saved defaults for the new type
-      if (config.operationType && config.operationType !== prevType) {
+      if (newType !== prevType) {
         // Save current state for the old type
         newDefaults = {
           ...newDefaults,
@@ -436,10 +431,24 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             material: state.globalConfig.material,
           },
         }
-        // Apply saved defaults for the new type
-        const saved = newDefaults[config.operationType]
+        // Lo guardado para el tipo nuevo, salvo lo que se eligio en esta
+        // misma llamada (crear un proyecto elige tipo, herramienta y material
+        // de una vez)
+        const saved = newDefaults[newType]
         if (saved) {
-          merged = { ...merged, tool: saved.tool, material: saved.material }
+          merged = {
+            ...merged,
+            tool: pickedTool ? merged.tool : saved.tool,
+            material: pickedMaterial ? merged.material : saved.material,
+          }
+        }
+      }
+
+      // Save current tool/material as default for the (new) operation type
+      if (pickedTool || pickedMaterial) {
+        newDefaults = {
+          ...newDefaults,
+          [newType]: { tool: merged.tool, material: merged.material },
         }
       }
 

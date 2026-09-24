@@ -44,6 +44,7 @@ import type {
   MillDirection,
   CutterComp,
 } from '@/lib/types'
+import { materialOptions } from '@/lib/library-presets'
 
 // ============================================
 // Bloques reutilizables
@@ -555,7 +556,7 @@ export function OperationEditor() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Sin material</SelectItem>
-                    {materials.map((m) => (
+                    {materialOptions(materials, config.operationType, config.material).map((m) => (
                       <SelectItem key={m.id} value={m.id}>
                         {m.name} ({m.thickness}mm)
                       </SelectItem>
