@@ -21,7 +21,7 @@ import { invalidateSnapCache } from '@/lib/snap-engine'
 import { extractSegments } from '@/lib/trim-extend'
 import { planNesting, type NestingPiece } from '@/lib/nesting'
 import type { CanvasElement, GCodePath, GCodeJob, Point2D, VectorImportResult } from '@/lib/types'
-import { isCutElement } from '@/lib/print-cut'
+import { isCutElement, type BoundsMm } from '@/lib/print-cut'
 import { isTauri, tauriInvoke } from '@/lib/tauri'
 import { toast } from '@/lib/toast'
 import { useAppStore } from '@/stores/useAppStore'
@@ -952,6 +952,34 @@ export function useCanvasManager() {
     },
     [addElement, selectElement],
   )
+
+  // ------------------------------------------
+  // Limites de cada elemento en mm desde la esquina superior izquierda del
+  // area de trabajo (la hoja, en print & cut)
+  // ------------------------------------------
+  const getElementBoundsMm = useCallback((): BoundsMm[] => {
+    const canvas = getCanvas()
+    if (!canvas) return []
+    const state = useCanvasStore.getState()
+    const toMm = (px: number) => (px - WORK_AREA_PADDING) / PIXELS_PER_MM
+    const out: BoundsMm[] = []
+    for (const obj of canvas.getObjects()) {
+      if (getCustomProp(obj, NON_INTERACTIVE_KEY) === true || !obj.visible) continue
+      const elId = getCustomProp(obj, ELEMENT_ID_KEY) as string | undefined
+      const el = elId ? state.findElementById(elId) : undefined
+      if (!el || !el.visible) continue
+      const r = obj.getBoundingRect()
+      out.push({
+        id: el.id,
+        name: el.name,
+        minX: toMm(r.left),
+        minY: toMm(r.top),
+        maxX: toMm(r.left + r.width),
+        maxY: toMm(r.top + r.height),
+      })
+    }
+    return out
+  }, [])
 
   // ------------------------------------------
   // Imagen para imprimir (print & cut)
@@ -3973,6 +4001,7 @@ export function useCanvasManager() {
     loadVectorFile,
     traceImage,
     addPrintImage,
+    getElementBoundsMm,
     loadDXF,
     loadImage,
     addRasterToCanvas,

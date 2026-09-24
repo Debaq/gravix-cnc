@@ -5,6 +5,7 @@ import { useGCodeStore } from '@/stores/useGCodeStore'
 import type { CanvasElement, GlobalConfig, OperationType } from '@/lib/types'
 import type { Sheet } from '@/stores/useCanvasStore'
 import { useCAMStore, type CAMSnapshot } from '@/stores/useCAMStore'
+import type { PrintCutSetup } from './print-cut'
 
 /**
  * Formato del archivo `.gravix`.
@@ -41,9 +42,11 @@ export interface GravixFile {
    * apagado de operaciones). Antes se perdia entero al cerrar el proyecto.
    */
   cam?: CAMSnapshot
+  /** Desde 1.5: hoja de print & cut (papel y marcas de registro). */
+  printCut?: PrintCutSetup
 }
 
-export const GRAVIX_FILE_VERSION = '1.4.0'
+export const GRAVIX_FILE_VERSION = '1.5.0'
 
 /** Arma el contenido del `.gravix` con el estado actual de los stores. */
 export function serializeGravixProject(createdAt?: number): GravixFile {
@@ -80,6 +83,7 @@ export function serializeGravixProject(createdAt?: number): GravixFile {
     sheets,
     activeSheetId,
     cam: useCAMStore.getState().serialize(),
+    printCut: useCanvasStore.getState().printCut,
   }
 }
 
@@ -101,6 +105,7 @@ export function projectFingerprint(): string {
     // El setup de CAM tambien ensucia el proyecto: sin esto, mover un clamp o
     // cambiar el stock no disparaba el autosave.
     useCAMStore.getState().serialize(),
+    useCanvasStore.getState().printCut,
   ])
 }
 

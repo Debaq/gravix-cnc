@@ -65,6 +65,7 @@ import {
   type SnapKindFlags,
 } from '@/lib/snap-engine'
 import type { Point2D } from '@/lib/types'
+import { regmarkLayout, REGMARK } from '@/lib/print-cut'
 
 // ============================================
 // Node editing — module-level state
@@ -955,6 +956,7 @@ export function DesignCanvas() {
     showRulers,
     guides,
     showGuides,
+    printCut,
     activeSheetId,
     pendingCanvasJSON,
     selectElement, 
@@ -1426,6 +1428,41 @@ export function DesignCanvas() {
           ctx.moveTo(ox, y); ctx.lineTo(ox + workW, y)
         }
         ctx.stroke()
+      }
+
+      // ---- Print & cut: marcas de registro y zonas que no se pueden usar ----
+      // Se dibujan aca y no como objetos: no se guardan, no se seleccionan y
+      // no generan cortes. La hoja impresa las agrega por su cuenta.
+      if (wa.printCut.enabled) {
+        const lay = regmarkLayout(wa.printCut)
+        const px = (mm: number) => WORK_AREA_PADDING + mm * PIXELS_PER_MM
+
+        ctx.fillStyle = 'rgba(239,68,68,0.10)'
+        for (const k of lay.keepOut) {
+          ctx.fillRect(px(k.x), px(k.y), k.w * PIXELS_PER_MM, k.h * PIXELS_PER_MM)
+        }
+        ctx.strokeStyle = 'rgba(239,68,68,0.6)'
+        ctx.lineWidth = 1 / z
+        ctx.setLineDash([6 / z, 4 / z])
+        ctx.strokeRect(px(lay.origin.x), px(lay.origin.y), lay.width * PIXELS_PER_MM, lay.length * PIXELS_PER_MM)
+        ctx.setLineDash([])
+
+        ctx.fillStyle = '#000'
+        ctx.fillRect(px(lay.square.x), px(lay.square.y), lay.square.size * PIXELS_PER_MM, lay.square.size * PIXELS_PER_MM)
+        ctx.strokeStyle = '#000'
+        ctx.lineWidth = REGMARK.line * PIXELS_PER_MM
+        ctx.lineCap = 'butt'
+        const half = REGMARK.line / 2
+        for (const c of lay.corners) {
+          // El borde exterior del trazo va sobre la esquina, no el centro
+          const cx = c.x + c.dx * half
+          const cy = c.y + c.dy * half
+          ctx.beginPath()
+          ctx.moveTo(px(c.x + c.dx * REGMARK.arm), px(cy))
+          ctx.lineTo(px(cx), px(cy))
+          ctx.lineTo(px(cx), px(c.y + c.dy * REGMARK.arm))
+          ctx.stroke()
+        }
       }
 
       // ---- Guias de usuario ----
@@ -2673,11 +2710,11 @@ export function DesignCanvas() {
   }, [activeSheetId])
 
   // ------------------------------------------
-  // Repintar al cambiar grilla o reglas
+  // Repintar al cambiar grilla, reglas o marcas de print & cut
   // ------------------------------------------
   useEffect(() => {
     fabricRef.current?.requestRenderAll()
-  }, [gridSpacingMm, gridAdaptive, showRulers, showGrid, guides, showGuides])
+  }, [gridSpacingMm, gridAdaptive, showRulers, showGrid, guides, showGuides, printCut])
 
   // ------------------------------------------
   // Drawing mode: setup/teardown event handlers

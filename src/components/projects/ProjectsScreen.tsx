@@ -44,6 +44,7 @@ import { useLicense } from '@/hooks/useLicense'
 import { useUpdateStore } from '@/stores/useUpdateStore'
 import { getTrialDaysLeft, isTrialActive } from '@/lib/trial'
 import type { OperationType } from '@/lib/types'
+import { DEFAULT_PRINT_CUT } from '@/lib/print-cut'
 
 const MACHINE_TYPES: {
   id: OperationType
@@ -198,6 +199,7 @@ export function ProjectsScreen() {
     setProjectName(name)
     setProjectOperationType(newType)
     setWorkArea({ width: newWidth, height: newHeight, origin: 'bottom-left' })
+    useCanvasStore.setState({ printCut: DEFAULT_PRINT_CUT })
     setGlobalConfig({
       ...globalConfig,
       operationType: newType,
@@ -264,6 +266,8 @@ export function ProjectsScreen() {
         // Las hojas van antes que los elementos: cada elemento apunta a una
         const { setElements, setSheets, setPendingCanvasJSON } = useCanvasStore.getState()
         setSheets(data.sheets ?? [], data.activeSheetId)
+        useCanvasStore.setState({ printCut: DEFAULT_PRINT_CUT })
+        if (data.printCut) useCanvasStore.getState().setPrintCut(data.printCut)
 
         if (data.elements?.length) {
           setElements(data.elements)
@@ -302,6 +306,7 @@ export function ProjectsScreen() {
         setProjectName(proj.name)
         setProjectOperationType(proj.mode)
         setWorkArea({ width: proj.width || 300, height: proj.height || 300, origin: 'bottom-left' })
+        useCanvasStore.setState({ printCut: DEFAULT_PRINT_CUT })
         setGlobalConfig({ ...globalConfig, operationType: proj.mode })
       }
     }

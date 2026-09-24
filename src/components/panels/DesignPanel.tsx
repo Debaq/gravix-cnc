@@ -46,12 +46,12 @@ import {
   Egg,
   Printer,
 } from 'lucide-react'
-import { elementOutput, isPrintElement, OUTPUT_LABELS } from '@/lib/print-cut'
+import { elementOutput, isPrintElement, OUTPUT_LABELS, PAPERS } from '@/lib/print-cut'
 
 export function DesignPanel() {
   const { t } = useTranslation('canvas')
   const { t: ts } = useTranslation('settings')
-  const { elements, selectedElementId, selectElement, globalConfig, workArea, setDrawingMode, activeSheetId, sheets } = useCanvasStore()
+  const { elements, selectedElementId, selectElement, globalConfig, workArea, printCut, setDrawingMode, activeSheetId, sheets } = useCanvasStore()
   // El listado muestra solo lo que vive en la hoja activa
   const sheetElements = elements.filter(
     (el) => (el.sheetId ?? sheets[0]?.id) === activeSheetId,
@@ -169,6 +169,22 @@ return (
           <span>{workArea.width} x {workArea.height} mm</span>
           <span className="text-muted-foreground">
             {ts(`workArea.origin`)}: {workArea.origin}
+          </span>
+        </div>
+      </button>
+
+      {/* Print & Cut */}
+      <button
+        className="w-full text-left rounded-md border bg-muted/30 px-3 py-2 hover:bg-muted/60 transition-colors"
+        onClick={() => openModal('print-cut')}
+      >
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+            <Printer className="h-3 w-3" />
+            Print & Cut
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {printCut.enabled ? PAPERS[printCut.paper].label.split(' (')[0] : 'Apagado'}
           </span>
         </div>
       </button>

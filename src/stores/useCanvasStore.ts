@@ -4,6 +4,7 @@ import { DEFAULT_GLOBAL_CONFIG } from '@/lib/config-defaults'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import type { NodeConstraint } from '@/lib/constraints'
 import type { SnapKind } from '@/lib/snap-engine'
+import { DEFAULT_PRINT_CUT, PAPERS, type PrintCutSetup } from '@/lib/print-cut'
 
 /**
  * Tipos de snap que el usuario activa/desactiva en el popover.
@@ -71,6 +72,8 @@ interface CanvasState {
 
   // Work area
   workArea: WorkArea
+  /** Hoja de print & cut con marcas de registro. */
+  printCut: PrintCutSetup
 
   // Grid
   showGrid: boolean
@@ -175,6 +178,7 @@ interface CanvasState {
   setSelectedElements: (elements: CanvasElement[]) => void
   setIsGroupSelection: (is: boolean) => void
   setWorkArea: (wa: WorkArea) => void
+  setPrintCut: (patch: Partial<PrintCutSetup>) => void
   setSvgDimensions: (dims: { x?: number; y?: number; width?: number; height?: number }) => void
   setSelectedObjectProps: (props: SelectedObjectProps | null) => void
   setGlobalConfig: (config: Partial<GlobalConfig>) => void
@@ -237,6 +241,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   // Work area
   workArea: { width: 400, height: 400, origin: 'bottom-left' },
+  printCut: DEFAULT_PRINT_CUT,
 
   // Grid
   showGrid: true,
@@ -379,6 +384,15 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   setIsGroupSelection: (is) => set({ isGroupSelection: is }),
 
   setWorkArea: (wa) => set({ workArea: wa }),
+  // Con print & cut activo el area de trabajo es la hoja: lo que se ve en el
+  // lienzo es exactamente lo que sale de la impresora
+  setPrintCut: (patch) =>
+    set((state) => {
+      const printCut = { ...state.printCut, ...patch }
+      if (!printCut.enabled) return { printCut }
+      const paper = PAPERS[printCut.paper]
+      return { printCut, workArea: { ...state.workArea, width: paper.width, height: paper.height } }
+    }),
 
   setSvgDimensions: (dims) =>
     set((state) => ({
