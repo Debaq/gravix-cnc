@@ -4,6 +4,7 @@ import { useGCodeStore } from '@/stores/useGCodeStore'
 import { normalizeConfig } from '@/lib/config-defaults'
 import { pushHistory } from '@/lib/history-bridge'
 import type { GlobalConfig, Stock } from '@/lib/types'
+import { isCutElement } from '@/lib/print-cut'
 
 export interface CAMOperation {
   id: string
@@ -224,7 +225,7 @@ export const useCAMStore = create<CAMState>((set, get) => ({
     const layerOrder = new Map(sortedLayers.map((l, i) => [l.id, i]))
 
     const visibleElements = elements.filter((el) => {
-      if (!el.visible || el.type === 'cota') return false
+      if (!el.visible || el.type === 'cota' || !isCutElement(el)) return false
       if (el.layerId) {
         const layer = layers.find((l) => l.id === el.layerId)
         if (layer && !layer.visible) return false

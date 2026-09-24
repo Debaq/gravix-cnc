@@ -23,6 +23,7 @@
   "loadDXF": "Cargar DXF",
   "loadImage": "Imagen (laser raster)",
   "traceImage": "Vectorizar imagen",
+  "loadPrintImage": "Imagen para imprimir (print & cut)",
   "loadVector": "PDF / AI / EPS",
   "loadingImage": "Procesando imagen para grabado laser...",
   "rasterMode": "Modo raster laser",

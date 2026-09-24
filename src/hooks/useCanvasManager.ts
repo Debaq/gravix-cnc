@@ -21,6 +21,7 @@ import { invalidateSnapCache } from '@/lib/snap-engine'
 import { extractSegments } from '@/lib/trim-extend'
 import { planNesting, type NestingPiece } from '@/lib/nesting'
 import type { CanvasElement, GCodePath, GCodeJob, Point2D, VectorImportResult } from '@/lib/types'
+import { isCutElement } from '@/lib/print-cut'
 import { isTauri, tauriInvoke } from '@/lib/tauri'
 import { toast } from '@/lib/toast'
 import { useAppStore } from '@/stores/useAppStore'
@@ -948,6 +949,66 @@ export function useCanvasManager() {
       addElement(element)
       selectElement(elementId)
       markGCodeStale()
+    },
+    [addElement, selectElement],
+  )
+
+  // ------------------------------------------
+  // Imagen para imprimir (print & cut)
+  // ------------------------------------------
+  // A diferencia de la imagen para laser, esta se guarda tal cual: a color y
+  // a resolucion completa, porque es lo que va a salir por la impresora. No
+  // genera cortes; el contorno se dibuja o se vectoriza aparte.
+  const addPrintImage = useCallback(
+    async (file: File) => {
+      const canvas = getCanvas()
+      if (!canvas) return
+
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result))
+        reader.onerror = () => reject(reader.error)
+        reader.readAsDataURL(file)
+      })
+      const img = await FabricImage.fromURL(dataUrl)
+
+      // Tamaño inicial a 300 ppp, que es la resolucion habitual de impresion;
+      // si no cabe en el area de trabajo se achica hasta el 90%
+      const { workArea } = useCanvasStore.getState()
+      const imgW = img.width || 100
+      const imgH = img.height || 100
+      const pxPerMmAt300 = 300 / 25.4
+      let scale = PIXELS_PER_MM / pxPerMmAt300
+      const fit = Math.min(
+        (workArea.width * 0.9 * PIXELS_PER_MM) / imgW,
+        (workArea.height * 0.9 * PIXELS_PER_MM) / imgH,
+      )
+      if (scale > fit) scale = fit
+
+      const pos = findNextFreePosition(canvas, imgW * scale, imgH * scale)
+      img.set({ left: pos.left, top: pos.top, scaleX: scale, scaleY: scale })
+
+      const elementId = generateId()
+      setCustomProp(img, ELEMENT_ID_KEY, elementId)
+      canvas.add(img)
+      canvas.setActiveObject(img)
+      canvas.requestRenderAll()
+
+      addElement({
+        id: elementId,
+        type: 'image',
+        name: file.name.replace(/\.[^.]+$/, '') || 'Imagen',
+        visible: true,
+        locked: false,
+        config: null,
+        output: 'print',
+        children: [],
+        fabricObject: img,
+      })
+      selectElement(elementId)
+      useAppStore.getState().addConsoleLine(
+        `Imagen para imprimir: ${file.name} (${imgW}x${imgH} px, ${((imgW * scale) / PIXELS_PER_MM).toFixed(1)} x ${((imgH * scale) / PIXELS_PER_MM).toFixed(1)} mm)`,
+      )
     },
     [addElement, selectElement],
   )
@@ -2375,7 +2436,9 @@ export function useCanvasManager() {
         // Find the CanvasElement for this Fabric object
         const elId = getCustomProp(obj, ELEMENT_ID_KEY) as string | undefined
         const element = elId ? state.findElementById(elId) : undefined
-        
+        // Lo que solo se imprime no genera trayectorias
+        if (!isCutElement(element)) continue
+
         // Config priority: element > layer > global
         const config = element?.config 
           ? state.getElementConfig(element) 
@@ -3909,6 +3972,7 @@ export function useCanvasManager() {
     loadSVGString,
     loadVectorFile,
     traceImage,
+    addPrintImage,
     loadDXF,
     loadImage,
     addRasterToCanvas,

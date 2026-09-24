@@ -360,8 +360,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const elements = state.elements.map((e) =>
         e.id === id ? { ...e, ...updates } : e
       )
-      // Mark gcode stale when config or operations change
-      if ('config' in updates || 'operations' in updates) {
+      // Mark gcode stale when config, operations or output change
+      if ('config' in updates || 'operations' in updates || 'output' in updates) {
         const gcState = useGCodeStore.getState()
         if (gcState.gcodeGenerated) {
           gcState.setGCodeNeedsRegeneration(true)

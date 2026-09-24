@@ -44,7 +44,9 @@ import {
   BoxSelect,
   Table2,
   Egg,
+  Printer,
 } from 'lucide-react'
+import { elementOutput, isPrintElement, OUTPUT_LABELS } from '@/lib/print-cut'
 
 export function DesignPanel() {
   const { t } = useTranslation('canvas')
@@ -62,6 +64,7 @@ export function DesignPanel() {
   const canvasManager = useCanvasManager()
   const svgInputRef = useRef<HTMLInputElement>(null)
   const dxfInputRef = useRef<HTMLInputElement>(null)
+  const printImageInputRef = useRef<HTMLInputElement>(null)
 
   // Resolve display names
   const toolName = tools.find((t) => t.id === globalConfig.tool)?.name
@@ -93,6 +96,13 @@ export function DesignPanel() {
 
   const handleLoadImage = () => {
     canvasManager.loadImage()
+  }
+
+  const handlePrintImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    canvasManager.addPrintImage(file).catch((err) => addConsoleLine(`Error cargando imagen: ${err}`))
+    e.target.value = ''
   }
 
   const handleTraceImage = () => {
@@ -135,6 +145,13 @@ return (
       accept=".dxf"
       className="hidden"
       onChange={handleDXFChange}
+    />
+    <input
+      ref={printImageInputRef}
+      type="file"
+      accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
+      className="hidden"
+      onChange={handlePrintImageChange}
     />
 
     {/* Work Area Summary */}
@@ -220,6 +237,9 @@ return (
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={handleTraceImage}>
                 {t('traceImage')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => printImageInputRef.current?.click()}>
+                {t('loadPrintImage')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -334,6 +354,11 @@ return (
             onClick={() => selectElement(el.id)}
           >
             <span className="flex-1 truncate text-xs">{el.name}</span>
+            {isPrintElement(el) && (
+              <span title={OUTPUT_LABELS[elementOutput(el)]}>
+                <Printer className="h-3 w-3 shrink-0 text-muted-foreground" />
+              </span>
+            )}
 
             {el.config !== null && (
               <Settings2 className="h-3 w-3 text-orange-400 shrink-0" />

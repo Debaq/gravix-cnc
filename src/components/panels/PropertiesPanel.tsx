@@ -9,8 +9,10 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Settings2, Plus, Trash2, Hexagon, Lock, Unlock } from 'lucide-react'
+import { Settings2, Plus, Trash2, Hexagon, Lock, Unlock, Printer } from 'lucide-react'
 import type { GlobalConfig, OperationType, WorkType, LaserMode } from '@/lib/types'
+import { elementOutput, OUTPUT_LABELS } from '@/lib/print-cut'
+import type { ElementOutput } from '@/lib/types'
 
 // Maker shapes own their dimensions via params (not Fabric scale).
 // This avoids uniform scaling that distorts sub-parts (e.g. bolt holes).
@@ -84,6 +86,8 @@ export function PropertiesPanel() {
   const hasCustomConfig = element.config !== null
   const config = getElementConfig(element)
   const tools = getFilteredTools(config.operationType)
+  const output = elementOutput(element)
+  const cuts = output !== 'print'
 
   const toggleCustomConfig = (enabled: boolean) => {
     updateElement(element.id, { config: enabled ? { ...globalConfig } : null })
@@ -221,6 +225,34 @@ export function PropertiesPanel() {
             </>
           )}
 
+          <Separator />
+
+          {/* ========== SALIDA (print & cut) ========== */}
+          <section className="space-y-2">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+              <Printer className="h-3.5 w-3.5" />
+              Salida
+            </Label>
+            {element.type === 'image' ? (
+              <p className="text-xs text-muted-foreground">
+                Imagen: solo se imprime. Dibuja o vectoriza su contorno para cortarla.
+              </p>
+            ) : (
+              <Select
+                value={output}
+                onValueChange={(v) => updateElement(element.id, { output: v as ElementOutput })}
+              >
+                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(OUTPUT_LABELS) as ElementOutput[]).map((o) => (
+                    <SelectItem key={o} value={o}>{OUTPUT_LABELS[o]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </section>
+
+          {cuts && (<>
           <Separator />
 
           {/* ========== TOOLPATH CONFIG ========== */}
@@ -705,6 +737,7 @@ export function PropertiesPanel() {
               </section>
             </>
           )}
+          </>)}
         </div>
       </div>
     </div>

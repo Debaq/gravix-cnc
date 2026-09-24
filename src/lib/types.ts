@@ -213,9 +213,16 @@ export interface MachinePosition {
 }
 
 // Elemento del canvas
+/**
+ * Que se hace con un elemento en print & cut: se corta (lo de siempre), solo
+ * se imprime (fotos, fondos, marcas) o ambas cosas (un dibujo vectorial que
+ * se imprime y ademas se recorta por su borde).
+ */
+export type ElementOutput = 'cut' | 'print' | 'both'
+
 export interface CanvasElement {
   id: string
-  type: 'svg' | 'rect' | 'circle' | 'line' | 'maker' | 'group' | 'cota'
+  type: 'svg' | 'rect' | 'circle' | 'line' | 'maker' | 'group' | 'cota' | 'image'
   name: string
   visible: boolean
   locked: boolean
@@ -225,6 +232,8 @@ export interface CanvasElement {
   showConfig?: boolean
   config: GlobalConfig | null
   operations?: GlobalConfig[]  // Múltiples operaciones (cajeado + corte, etc.)
+  /** Sin valor es 'cut': los proyectos viejos no lo traen. */
+  output?: ElementOutput
   children: CanvasElement[]
   parent?: string
   // Datos de maker.js
