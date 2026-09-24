@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useGCodeStore, type ViewerColorMode } from '@/stores/useGCodeStore'
 import { useCAMStore, type CAMMarker, type ParkPosition } from '@/stores/useCAMStore'
 import { useAppStore } from '@/stores/useAppStore'
+import { useFlatCAM } from '@/hooks/useFlatCAM'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
@@ -242,6 +243,7 @@ function MarkerEditor({ marker }: { marker: CAMMarker }) {
 export function PreviewToolbar() {
   const { t } = useTranslation('gcode')
   const currentWorkspace = useAppStore((s) => s.currentWorkspace)
+  const flat = useFlatCAM()
 
   const {
     gcodeGenerated,
@@ -277,6 +279,11 @@ export function PreviewToolbar() {
 
   const selectedMarker = selectedMarkerId ? markers.find((m) => m.id === selectedMarkerId) : null
   const isCAM = currentWorkspace === 'cam'
+
+  // Sin profundidad en 2D, pintar por profundidad dejaria todo del mismo color
+  useEffect(() => {
+    if (flat && viewerColorMode === 'depth') setViewerColorMode('default')
+  }, [flat, viewerColorMode, setViewerColorMode])
 
   if (!gcodeGenerated) return null
 
@@ -435,7 +442,7 @@ export function PreviewToolbar() {
                   <SelectContent>
                     <SelectItem value="default">Operacion</SelectItem>
                     <SelectItem value="feed">Avance</SelectItem>
-                    <SelectItem value="depth">Profundidad</SelectItem>
+                    {!flat && <SelectItem value="depth">Profundidad</SelectItem>}
                   </SelectContent>
                 </Select>
               </div>
@@ -443,42 +450,46 @@ export function PreviewToolbar() {
             <TooltipContent>Con que se pinta el recorrido</TooltipContent>
           </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={stockEnabled ? 'secondary' : 'ghost'}
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => updateSetup({ stock: { ...stock, enabled: !stock.enabled } })}
-              >
-                <Box className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {stockEnabled ? 'Ocultar bloque de material' : 'Mostrar bloque de material'}
-            </TooltipContent>
-          </Tooltip>
+          {!flat && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={stockEnabled ? 'secondary' : 'ghost'}
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => updateSetup({ stock: { ...stock, enabled: !stock.enabled } })}
+                  >
+                    <Box className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {stockEnabled ? 'Ocultar bloque de material' : 'Mostrar bloque de material'}
+                </TooltipContent>
+              </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={simEnabled ? 'secondary' : 'ghost'}
-                size="icon"
-                className="h-7 w-7"
-                onClick={toggleSim}
-                disabled={!stockEnabled}
-              >
-                {simEnabled && simRunning
-                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  : <Layers className="h-3.5 w-3.5" />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {stockEnabled
-                ? 'Simular material removido — sigue la linea de tiempo'
-                : 'Define el bloque de material para simular'}
-            </TooltipContent>
-          </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={simEnabled ? 'secondary' : 'ghost'}
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={toggleSim}
+                    disabled={!stockEnabled}
+                  >
+                    {simEnabled && simRunning
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <Layers className="h-3.5 w-3.5" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {stockEnabled
+                    ? 'Simular material removido — sigue la linea de tiempo'
+                    : 'Define el bloque de material para simular'}
+                </TooltipContent>
+              </Tooltip>
+            </>
+          )}
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -505,7 +516,7 @@ export function PreviewToolbar() {
                 <Move3d className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Ejes y origen</TooltipContent>
+            <TooltipContent>{flat ? 'Origen' : 'Ejes y origen'}</TooltipContent>
           </Tooltip>
         </div>
 

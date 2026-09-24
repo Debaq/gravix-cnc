@@ -10,6 +10,7 @@ import { useWorkflowStore } from '@/stores/useWorkflowStore'
 import { useSerialStore } from '@/stores/useSerialStore'
 import { useSerial } from '@/hooks/useSerial'
 import { useProject } from '@/hooks/useProject'
+import { useFlatCAM } from '@/hooks/useFlatCAM'
 import { GCodeGenerator } from '@/lib/gcode-generator'
 import { applyCAMPlan, jobsBBox, resolveStock, checkStockCoverage } from '@/lib/cam-jobs'
 import { findCollisions, summarizeCollisions, toolProfileFrom } from '@/lib/collision'
@@ -404,6 +405,7 @@ function OperationsList() {
 
 function OperationsSummary() {
   const { operations, setup, soloOperationId } = useCAMStore()
+  const flat = useFlatCAM()
   const warnCount = operations.filter((o) => o.status === 'warning').length
   const errCount = operations.filter((o) => o.status === 'error').length
   const offCount = operations.filter((o) => !o.enabled).length
@@ -428,7 +430,7 @@ function OperationsSummary() {
           <span className="text-primary">solo</span>
         </>
       )}
-      {setup.stock.enabled && (
+      {setup.stock.enabled && !flat && (
         <>
           <span>&middot;</span>
           <span>stock {setup.stock.thickness}mm</span>
@@ -486,6 +488,9 @@ function GenerateActions() {
   const hasErrors = blockingErrors.length > 0
   // Las Silhouette no van por G-code: tienen su propio envio
   const hasCutterOps = camOps.some((o) => o.config.operationType === 'plotter' || o.config.operationType === 'pencil')
+  // En plotter y lapiz no hay material ni mordazas: su setup esta oculto y
+  // lo que haya quedado guardado no tiene que avisar ni bloquear
+  const flat = useFlatCAM()
 
   const handleGenerate = useCallback(async () => {
     // Block if CAM operations have errors
@@ -533,7 +538,7 @@ function GenerateActions() {
 
     // Avisos de stock (la profundidad por operacion ya la valida el arbol)
     const stock = camState.setup.stock
-    if (stock.enabled) {
+    if (stock.enabled && !flat) {
       const resolved = resolveStock(stock, jobsBBox(jobs))
       for (const warn of checkStockCoverage(resolved, jobsBBox(jobs))) {
         addConsoleLine(`WARN: ${warn}`)
@@ -567,7 +572,7 @@ function GenerateActions() {
 
     // Check clamp collisions with cut paths
     const { setup } = useCAMStore.getState()
-    const clamps = setup.clamps
+    const clamps = flat ? [] : setup.clamps
     if (clamps.length > 0) {
       for (const job of jobs) {
         for (const path of job.paths) {
@@ -662,7 +667,7 @@ function GenerateActions() {
         }
       }
     }
-  }, [getJobsForGCode, globalConfig, rasterData, addConsoleLine, setGCode, setEstimates])
+  }, [getJobsForGCode, globalConfig, rasterData, addConsoleLine, setGCode, setEstimates, flat])
 
   const handleDownload = () => {
     if (!gcodeGenerated) return
@@ -798,7 +803,7 @@ function GenerateActions() {
 
       {/* Stats */}
       {gcodeGenerated && (
-        <div className="grid grid-cols-4 gap-1.5">
+        <div className={`grid gap-1.5 ${flat ? 'grid-cols-3' : 'grid-cols-4'}`}>
           <div className="bg-muted/60 rounded px-2 py-1.5">
             <p className="text-[10px] text-muted-foreground">{t('time')}</p>
             <p className="text-xs font-medium">{estimatedTime || estimates.time}</p>
@@ -807,10 +812,12 @@ function GenerateActions() {
             <p className="text-[10px] text-muted-foreground">{t('distance')}</p>
             <p className="text-xs font-medium">{totalDistance || estimates.distance}</p>
           </div>
-          <div className="bg-muted/60 rounded px-2 py-1.5">
-            <p className="text-[10px] text-muted-foreground">{t('depth')}</p>
-            <p className="text-xs font-medium">{maxDepth || '-'}</p>
-          </div>
+          {!flat && (
+            <div className="bg-muted/60 rounded px-2 py-1.5">
+              <p className="text-[10px] text-muted-foreground">{t('depth')}</p>
+              <p className="text-xs font-medium">{maxDepth || '-'}</p>
+            </div>
+          )}
           <div className="bg-muted/60 rounded px-2 py-1.5">
             <p className="text-[10px] text-muted-foreground">{t('lines')}</p>
             <p className="text-xs font-medium">{gcodeLines}</p>
@@ -911,6 +918,8 @@ function StockSettings() {
 function CAMSetupSection() {
   const [expanded, setExpanded] = useState(false)
   const { setup, updateSetup, addClamp, updateClamp, removeClamp } = useCAMStore()
+  // Plotter y lapiz: sin bloque de material, cambio de herramienta ni mordazas
+  const flat = useFlatCAM()
 
   return (
     <div className="space-y-1.5">
@@ -927,7 +936,7 @@ function CAMSetupSection() {
 
       {expanded && (
         <div className="space-y-2 px-1 pb-1">
-          <StockSettings />
+          {!flat && <StockSettings />}
 
           {/* Orden de operaciones */}
           <div className="flex items-center justify-between gap-2 rounded border px-1.5 py-1">
@@ -960,114 +969,118 @@ function CAMSetupSection() {
             <span className="text-[10px] text-muted-foreground">mm</span>
           </div>
 
-          {/* Tool change position/area */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <label className="text-[10px] text-muted-foreground font-medium">Cambio herramienta</label>
-              <button
-                className="text-[9px] text-primary hover:underline"
-                onClick={() => {
-                  const isArea = setup.toolChangeSize.width > 0
-                  updateSetup({
-                    toolChangeSize: isArea ? { width: 0, height: 0 } : { width: 40, height: 30 },
-                  })
-                }}
-              >
-                {setup.toolChangeSize.width > 0 ? 'Punto' : 'Area'}
-              </button>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-[9px] text-muted-foreground/60 w-3">X</span>
-              <Input
-                type="number"
-                className="h-6 text-[10px] flex-1"
-                value={setup.toolChangePosition.x}
-                onChange={(e) => updateSetup({ toolChangePosition: { ...setup.toolChangePosition, x: parseFloat(e.target.value) || 0 } })}
-              />
-              <span className="text-[9px] text-muted-foreground/60 w-3">Y</span>
-              <Input
-                type="number"
-                className="h-6 text-[10px] flex-1"
-                value={setup.toolChangePosition.y}
-                onChange={(e) => updateSetup({ toolChangePosition: { ...setup.toolChangePosition, y: parseFloat(e.target.value) || 0 } })}
-              />
-              <span className="text-[9px] text-muted-foreground/60 w-3">Z</span>
-              <Input
-                type="number"
-                className="h-6 text-[10px] flex-1"
-                value={setup.toolChangePosition.z}
-                onChange={(e) => updateSetup({ toolChangePosition: { ...setup.toolChangePosition, z: parseFloat(e.target.value) || 0 } })}
-              />
-            </div>
-            {setup.toolChangeSize.width > 0 && (
+          {!flat && (
+            <>
+            {/* Tool change position/area */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] text-muted-foreground font-medium">Cambio herramienta</label>
+                <button
+                  className="text-[9px] text-primary hover:underline"
+                  onClick={() => {
+                    const isArea = setup.toolChangeSize.width > 0
+                    updateSetup({
+                      toolChangeSize: isArea ? { width: 0, height: 0 } : { width: 40, height: 30 },
+                    })
+                  }}
+                >
+                  {setup.toolChangeSize.width > 0 ? 'Punto' : 'Area'}
+                </button>
+              </div>
               <div className="flex items-center gap-1">
-                <span className="text-[9px] text-muted-foreground/60 w-7">Ancho</span>
+                <span className="text-[9px] text-muted-foreground/60 w-3">X</span>
                 <Input
                   type="number"
                   className="h-6 text-[10px] flex-1"
-                  value={setup.toolChangeSize.width}
-                  onChange={(e) => updateSetup({ toolChangeSize: { ...setup.toolChangeSize, width: parseFloat(e.target.value) || 10 } })}
+                  value={setup.toolChangePosition.x}
+                  onChange={(e) => updateSetup({ toolChangePosition: { ...setup.toolChangePosition, x: parseFloat(e.target.value) || 0 } })}
                 />
-                <span className="text-[9px] text-muted-foreground/60 w-7">Alto</span>
+                <span className="text-[9px] text-muted-foreground/60 w-3">Y</span>
                 <Input
                   type="number"
                   className="h-6 text-[10px] flex-1"
-                  value={setup.toolChangeSize.height}
-                  onChange={(e) => updateSetup({ toolChangeSize: { ...setup.toolChangeSize, height: parseFloat(e.target.value) || 10 } })}
+                  value={setup.toolChangePosition.y}
+                  onChange={(e) => updateSetup({ toolChangePosition: { ...setup.toolChangePosition, y: parseFloat(e.target.value) || 0 } })}
+                />
+                <span className="text-[9px] text-muted-foreground/60 w-3">Z</span>
+                <Input
+                  type="number"
+                  className="h-6 text-[10px] flex-1"
+                  value={setup.toolChangePosition.z}
+                  onChange={(e) => updateSetup({ toolChangePosition: { ...setup.toolChangePosition, z: parseFloat(e.target.value) || 0 } })}
                 />
               </div>
-            )}
-            <p className="text-[9px] text-muted-foreground/50 italic">Arrastra en 3D para mover</p>
-          </div>
-
-          {/* Clamps */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <label className="text-[10px] text-muted-foreground font-medium">Clamps</label>
-              <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1.5 gap-0.5" onClick={addClamp}>
-                <Plus className="h-2.5 w-2.5" />
-                Agregar
-              </Button>
-            </div>
-            {setup.clamps.map((clamp) => (
-              <div key={clamp.id} className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded px-1.5 py-1 space-y-1">
+              {setup.toolChangeSize.width > 0 && (
                 <div className="flex items-center gap-1">
-                  <input
-                    className="text-[10px] bg-transparent border-none outline-none flex-1 min-w-0 font-medium"
-                    value={clamp.label}
-                    onChange={(e) => updateClamp(clamp.id, { label: e.target.value })}
+                  <span className="text-[9px] text-muted-foreground/60 w-7">Ancho</span>
+                  <Input
+                    type="number"
+                    className="h-6 text-[10px] flex-1"
+                    value={setup.toolChangeSize.width}
+                    onChange={(e) => updateSetup({ toolChangeSize: { ...setup.toolChangeSize, width: parseFloat(e.target.value) || 10 } })}
                   />
-                  <span className="text-[9px] text-muted-foreground/50">
-                    {clamp.zHeight === 0 ? 'Z∞' : `Z${clamp.zHeight}`}
-                  </span>
-                  <Button variant="ghost" size="icon" className="h-4 w-4 shrink-0" onClick={() => removeClamp(clamp.id)}>
-                    <Trash2 className="h-2.5 w-2.5 text-red-500" />
-                  </Button>
+                  <span className="text-[9px] text-muted-foreground/60 w-7">Alto</span>
+                  <Input
+                    type="number"
+                    className="h-6 text-[10px] flex-1"
+                    value={setup.toolChangeSize.height}
+                    onChange={(e) => updateSetup({ toolChangeSize: { ...setup.toolChangeSize, height: parseFloat(e.target.value) || 10 } })}
+                  />
                 </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-[8px] text-muted-foreground/50 w-3">X</span>
-                  <Input type="number" className="h-5 text-[9px] flex-1 px-0.5" value={clamp.x}
-                    onChange={(e) => updateClamp(clamp.id, { x: parseFloat(e.target.value) || 0 })} />
-                  <span className="text-[8px] text-muted-foreground/50 w-3">Y</span>
-                  <Input type="number" className="h-5 text-[9px] flex-1 px-0.5" value={clamp.y}
-                    onChange={(e) => updateClamp(clamp.id, { y: parseFloat(e.target.value) || 0 })} />
-                  <span className="text-[8px] text-muted-foreground/50 w-3">W</span>
-                  <Input type="number" className="h-5 text-[9px] flex-1 px-0.5" value={clamp.width}
-                    onChange={(e) => updateClamp(clamp.id, { width: parseFloat(e.target.value) || 10 })} />
-                  <span className="text-[8px] text-muted-foreground/50 w-3">D</span>
-                  <Input type="number" className="h-5 text-[9px] flex-1 px-0.5" value={clamp.height}
-                    onChange={(e) => updateClamp(clamp.id, { height: parseFloat(e.target.value) || 10 })} />
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-[8px] text-muted-foreground/50">Altura Z</span>
-                  <Input type="number" className="h-5 text-[9px] w-14 px-0.5" value={clamp.zHeight}
-                    onChange={(e) => updateClamp(clamp.id, { zHeight: Math.max(0, parseFloat(e.target.value) || 0) })}
-                    step={1} min={0} />
-                  <span className="text-[8px] text-muted-foreground/40">{clamp.zHeight === 0 ? '(infinita)' : 'mm'}</span>
-                </div>
+              )}
+              <p className="text-[9px] text-muted-foreground/50 italic">Arrastra en 3D para mover</p>
+            </div>
+
+            {/* Clamps */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] text-muted-foreground font-medium">Clamps</label>
+                <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1.5 gap-0.5" onClick={addClamp}>
+                  <Plus className="h-2.5 w-2.5" />
+                  Agregar
+                </Button>
               </div>
-            ))}
-          </div>
+              {setup.clamps.map((clamp) => (
+                <div key={clamp.id} className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded px-1.5 py-1 space-y-1">
+                  <div className="flex items-center gap-1">
+                    <input
+                      className="text-[10px] bg-transparent border-none outline-none flex-1 min-w-0 font-medium"
+                      value={clamp.label}
+                      onChange={(e) => updateClamp(clamp.id, { label: e.target.value })}
+                    />
+                    <span className="text-[9px] text-muted-foreground/50">
+                      {clamp.zHeight === 0 ? 'Z∞' : `Z${clamp.zHeight}`}
+                    </span>
+                    <Button variant="ghost" size="icon" className="h-4 w-4 shrink-0" onClick={() => removeClamp(clamp.id)}>
+                      <Trash2 className="h-2.5 w-2.5 text-red-500" />
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[8px] text-muted-foreground/50 w-3">X</span>
+                    <Input type="number" className="h-5 text-[9px] flex-1 px-0.5" value={clamp.x}
+                      onChange={(e) => updateClamp(clamp.id, { x: parseFloat(e.target.value) || 0 })} />
+                    <span className="text-[8px] text-muted-foreground/50 w-3">Y</span>
+                    <Input type="number" className="h-5 text-[9px] flex-1 px-0.5" value={clamp.y}
+                      onChange={(e) => updateClamp(clamp.id, { y: parseFloat(e.target.value) || 0 })} />
+                    <span className="text-[8px] text-muted-foreground/50 w-3">W</span>
+                    <Input type="number" className="h-5 text-[9px] flex-1 px-0.5" value={clamp.width}
+                      onChange={(e) => updateClamp(clamp.id, { width: parseFloat(e.target.value) || 10 })} />
+                    <span className="text-[8px] text-muted-foreground/50 w-3">D</span>
+                    <Input type="number" className="h-5 text-[9px] flex-1 px-0.5" value={clamp.height}
+                      onChange={(e) => updateClamp(clamp.id, { height: parseFloat(e.target.value) || 10 })} />
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[8px] text-muted-foreground/50">Altura Z</span>
+                    <Input type="number" className="h-5 text-[9px] w-14 px-0.5" value={clamp.zHeight}
+                      onChange={(e) => updateClamp(clamp.id, { zHeight: Math.max(0, parseFloat(e.target.value) || 0) })}
+                      step={1} min={0} />
+                    <span className="text-[8px] text-muted-foreground/40">{clamp.zHeight === 0 ? '(infinita)' : 'mm'}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            </>
+          )}
         </div>
       )}
     </div>

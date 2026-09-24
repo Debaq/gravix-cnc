@@ -11,6 +11,7 @@ import { Box, AlertTriangle } from 'lucide-react'
 import { parseGCode, formatTime } from '@/lib/gcode-parser'
 import { buildHeightmapMesh, type HeightmapResult } from '@/lib/heightmap'
 import { useMaterialSim, type MaterialSimState } from '@/hooks/useMaterialSim'
+import { useFlatCAM } from '@/hooks/useFlatCAM'
 import type { GCodeSegment } from '@/lib/gcode-parser'
 import * as THREE from 'three'
 
@@ -100,10 +101,11 @@ function useDragOnPlane(
   return startDrag
 }
 
-function WorkArea({ bounds, width, height }: {
+function WorkArea({ bounds, width, height, flat }: {
   bounds: { minX: number; minY: number; maxX: number; maxY: number }
   width: number
   height: number
+  flat: boolean
 }) {
   const { show3DGrid, show3DAxes } = useGCodeStore()
 
@@ -137,7 +139,9 @@ function WorkArea({ bounds, width, height }: {
           sectionThickness={1}
           sectionColor="#5B4B9F"
           fadeDistance={Math.max(width, height) * 1.5}
-          fadeStrength={1}
+          // En 2D la camara no se acerca ni se aleja: sin desvanecido la
+          // grilla se ve entera a cualquier zoom
+          fadeStrength={flat ? 0 : 1}
           followCamera={false}
           position={[centerX, 0, centerZ]}
         />
@@ -158,11 +162,13 @@ function WorkArea({ bounds, width, height }: {
             lineWidth={3}
           />
           {/* Z axis (G-code) - azul - Three.js Y */}
-          <Line
-            points={[[0, 0, 0], [0, axisLen, 0]]}
-            color="#0066FF"
-            lineWidth={3}
-          />
+          {!flat && (
+            <Line
+              points={[[0, 0, 0], [0, axisLen, 0]]}
+              color="#0066FF"
+              lineWidth={3}
+            />
+          )}
           {/* Punto de origen */}
           <mesh position={[0, 0.3, 0]}>
             <sphereGeometry args={[2, 12, 12]} />
@@ -1077,7 +1083,12 @@ function DraggableClamp({ clampId }: { clampId: string }) {
 /**
  * OrbitControls that auto-disables during 3D object dragging.
  */
-function OrbitControlsWithDrag({ centerX, centerZ, maxDist }: { centerX: number; centerZ: number; maxDist: number }) {
+function OrbitControlsWithDrag({ centerX, centerZ, maxDist, flat }: {
+  centerX: number
+  centerZ: number
+  maxDist: number
+  flat: boolean
+}) {
   const controlsRef = useRef<any>(null)
 
   useFrame(() => {
@@ -1085,6 +1096,23 @@ function OrbitControlsWithDrag({ centerX, centerZ, maxDist }: { centerX: number;
       controlsRef.current.enabled = !dragState.active
     }
   })
+
+  // En 2D solo se desplaza y se hace zoom, como en el lienzo del CAD
+  if (flat) {
+    return (
+      <OrbitControls
+        ref={controlsRef}
+        makeDefault
+        enableRotate={false}
+        screenSpacePanning
+        target={[centerX, 0, centerZ]}
+        mouseButtons={{ LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN }}
+        touches={{ ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN }}
+        minZoom={0.05}
+        maxZoom={200}
+      />
+    )
+  }
 
   return (
     <OrbitControls
@@ -1103,30 +1131,49 @@ function OrbitControlsWithDrag({ centerX, centerZ, maxDist }: { centerX: number;
 /**
  * Ajusta la camara para encuadrar el area de trabajo al montar la escena.
  */
-function CameraSetup({ bounds }: {
+function CameraSetup({ bounds, flat }: {
   bounds: { minX: number; minY: number; maxX: number; maxY: number }
+  flat: boolean
 }) {
-  const { camera } = useThree()
+  const { camera, size } = useThree()
   const hasSetup = useRef(false)
 
   useEffect(() => {
     if (hasSetup.current) return
-    hasSetup.current = true
 
     const centerX = (bounds.minX + bounds.maxX) / 2
     const centerZ = -(bounds.minY + bounds.maxY) / 2
-    const extent = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY)
+    const width = bounds.maxX - bounds.minX
+    const height = bounds.maxY - bounds.minY
+
+    if (flat) {
+      // La vista ortografica encuadra por zoom (pixeles por mm), asi que
+      // necesita el tamaño real del lienzo antes de calcularlo
+      if (size.width === 0 || size.height === 0) return
+      hasSetup.current = true
+      camera.position.set(centerX, FLAT_CAMERA_HEIGHT, centerZ)
+      camera.lookAt(centerX, 0, centerZ)
+      camera.zoom = Math.min(size.width / width, size.height / height) * 0.9
+      camera.updateProjectionMatrix()
+      return
+    }
+
+    hasSetup.current = true
+    const extent = Math.max(width, height)
     const dist = extent / (2 * Math.tan((50 / 2) * Math.PI / 180)) * 1.1
 
     camera.position.set(centerX, dist, centerZ)
     camera.lookAt(centerX, 0, centerZ)
     camera.updateProjectionMatrix()
-  }, [bounds, camera])
+  }, [bounds, camera, flat, size.width, size.height])
 
   return null
 }
 
-function Scene({ sim }: { sim: MaterialSimState }) {
+/** Altura de la camara 2D: por encima de cualquier Z de un plotter. */
+const FLAT_CAMERA_HEIGHT = 500
+
+function Scene({ sim, flat }: { sim: MaterialSimState; flat: boolean }) {
   const { gcode, setViewerStats, setAnimationProgress, setCurrentGCodeLine, viewer3DPlaying, animationSpeed } = useGCodeStore()
   const { workArea } = useCanvasStore()
 
@@ -1191,13 +1238,14 @@ function Scene({ sim }: { sim: MaterialSimState }) {
     <>
       <ambientLight intensity={0.6} />
       <directionalLight position={[centerX, 400, centerZ]} intensity={0.8} />
-      <CameraSetup bounds={bounds} />
-      <WorkArea bounds={bounds} width={workArea.width} height={workArea.height} />
-      {sim.enabled && sim.result ? (
+      <CameraSetup bounds={bounds} flat={flat} />
+      <WorkArea bounds={bounds} width={workArea.width} height={workArea.height} flat={flat} />
+      {/* Plotter y lapiz no tienen bloque de material ni nada que remover */}
+      {!flat && (sim.enabled && sim.result ? (
         <SimulatedStock result={sim.result} />
       ) : (
         <StockBox segments={segments} />
-      )}
+      ))}
       {segments.length > 0 && (
         <>
           <Toolpath segments={segments} />
@@ -1207,17 +1255,24 @@ function Scene({ sim }: { sim: MaterialSimState }) {
         </>
       )}
       <ParkingPositions />
-      <CAMSetupVisuals />
-      <OrbitControlsWithDrag centerX={centerX} centerZ={centerZ} maxDist={Math.max(workArea.width, workArea.height) * 5} />
-      <GizmoHelper alignment="top-left" margin={[80, 80]}>
-        <GizmoViewcube
-          color="#5B4B9F"
-          textColor="#ffffff"
-          strokeColor="#3d2e7c"
-          hoverColor="#7c6bc4"
-          opacity={1}
-        />
-      </GizmoHelper>
+      {!flat && <CAMSetupVisuals />}
+      <OrbitControlsWithDrag
+        centerX={centerX}
+        centerZ={centerZ}
+        maxDist={Math.max(workArea.width, workArea.height) * 5}
+        flat={flat}
+      />
+      {!flat && (
+        <GizmoHelper alignment="top-left" margin={[80, 80]}>
+          <GizmoViewcube
+            color="#5B4B9F"
+            textColor="#ffffff"
+            strokeColor="#3d2e7c"
+            hoverColor="#7c6bc4"
+            opacity={1}
+          />
+        </GizmoHelper>
+      )}
     </>
   )
 }
@@ -1226,8 +1281,10 @@ export function GCodeViewer3D() {
   const { t } = useTranslation('gcode')
   const containerRef = useRef<HTMLDivElement>(null)
   const { gcodeGenerated, gcodeNeedsRegeneration } = useGCodeStore()
-  const stockEnabled = useCAMStore((s) => s.setup.stock.enabled)
+  const flat = useFlatCAM()
+  const stockEnabled = useCAMStore((s) => s.setup.stock.enabled) && !flat
   const sim = useMaterialSim()
+  const showSim = sim.enabled && !flat
   const selectedOp = useCAMStore((s) =>
     s.selectedOperationId ? s.operations.find((o) => o.id === s.selectedOperationId) : null,
   )
@@ -1256,7 +1313,7 @@ export function GCodeViewer3D() {
           Click en el recorrido para poner un tab · click en un tab para sacarlo
         </div>
       )}
-      {sim.enabled && sim.result && (
+      {showSim && sim.result && (
         <div className="absolute bottom-20 right-3 z-30 rounded-md bg-background/90 border px-2.5 py-1.5 shadow text-[11px] backdrop-blur-sm">
           <div className="font-medium">Material removido</div>
           <div className="text-muted-foreground font-mono">
@@ -1267,7 +1324,7 @@ export function GCodeViewer3D() {
           </div>
         </div>
       )}
-      {sim.enabled && sim.error && (
+      {showSim && sim.error && (
         <div className="absolute bottom-20 right-3 z-30 rounded-md bg-red-600 text-white px-2.5 py-1.5 shadow text-[11px]">
           Simulacion: {sim.error}
         </div>
@@ -1278,16 +1335,30 @@ export function GCodeViewer3D() {
           <span className="text-sm font-medium">{t('designChanged')}</span>
         </div>
       )}
-      <Canvas
-        camera={{
-          fov: 50,
-          near: 0.1,
-          far: 10000,
-        }}
-        gl={{ antialias: true }}
-      >
-        <Scene sim={sim} />
-      </Canvas>
+      {flat ? (
+        // Vista cenital fija: la pantalla hacia arriba es +Y del G-code
+        // (-Z en Three), igual que en el lienzo del CAD
+        <Canvas
+          key="flat"
+          orthographic
+          camera={{ up: [0, 0, -1], near: 0.1, far: 10000 }}
+          gl={{ antialias: true }}
+        >
+          <Scene sim={sim} flat />
+        </Canvas>
+      ) : (
+        <Canvas
+          key="3d"
+          camera={{
+            fov: 50,
+            near: 0.1,
+            far: 10000,
+          }}
+          gl={{ antialias: true }}
+        >
+          <Scene sim={sim} flat={false} />
+        </Canvas>
+      )}
     </div>
   )
 }
