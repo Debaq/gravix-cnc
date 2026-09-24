@@ -1105,7 +1105,6 @@ function OrbitControlsWithDrag({ centerX, centerZ, maxDist, flat }: {
         makeDefault
         enableRotate={false}
         screenSpacePanning
-        target={[centerX, 0, centerZ]}
         mouseButtons={{ LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN }}
         touches={{ ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN }}
         minZoom={0.05}
@@ -1136,6 +1135,7 @@ function CameraSetup({ bounds, flat }: {
   flat: boolean
 }) {
   const { camera, size } = useThree()
+  const controls = useThree((s) => s.controls) as { target: THREE.Vector3; update: () => void } | null
   const hasSetup = useRef(false)
 
   useEffect(() => {
@@ -1149,12 +1149,18 @@ function CameraSetup({ bounds, flat }: {
     if (flat) {
       // La vista ortografica encuadra por zoom (pixeles por mm), asi que
       // necesita el tamaño real del lienzo antes de calcularlo
-      if (size.width === 0 || size.height === 0) return
+      if (size.width === 0 || size.height === 0 || !controls) return
       hasSetup.current = true
-      camera.position.set(centerX, FLAT_CAMERA_HEIGHT, centerZ)
-      camera.lookAt(centerX, 0, centerZ)
-      camera.zoom = Math.min(size.width / width, size.height / height) * 0.9
+      // La barra de reproduccion tapa el borde de abajo: se encuadra en lo
+      // que queda visible y se corre el centro hacia arriba lo mismo
+      const visibleHeight = Math.max(1, size.height - FLAT_BOTTOM_BAR_PX)
+      const zoom = Math.min(size.width / width, visibleHeight / height) * 0.9
+      const viewZ = centerZ + FLAT_BOTTOM_BAR_PX / 2 / zoom
+      camera.position.set(centerX, FLAT_CAMERA_HEIGHT, viewZ)
+      camera.zoom = zoom
       camera.updateProjectionMatrix()
+      controls.target.set(centerX, 0, viewZ)
+      controls.update()
       return
     }
 
@@ -1165,13 +1171,16 @@ function CameraSetup({ bounds, flat }: {
     camera.position.set(centerX, dist, centerZ)
     camera.lookAt(centerX, 0, centerZ)
     camera.updateProjectionMatrix()
-  }, [bounds, camera, flat, size.width, size.height])
+  }, [bounds, camera, controls, flat, size.width, size.height])
 
   return null
 }
 
 /** Altura de la camara 2D: por encima de cualquier Z de un plotter. */
 const FLAT_CAMERA_HEIGHT = 500
+
+/** Alto de la barra de reproduccion que se superpone al visor. */
+const FLAT_BOTTOM_BAR_PX = 80
 
 function Scene({ sim, flat }: { sim: MaterialSimState; flat: boolean }) {
   const { gcode, setViewerStats, setAnimationProgress, setCurrentGCodeLine, viewer3DPlaying, animationSpeed } = useGCodeStore()
