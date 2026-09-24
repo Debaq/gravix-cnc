@@ -9,7 +9,8 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Settings2, Plus, Trash2, Hexagon, Lock, Unlock, Printer } from 'lucide-react'
+import { Settings2, Plus, Trash2, Hexagon, Lock, Unlock, Printer, Scissors } from 'lucide-react'
+import { toast } from '@/lib/toast'
 import type { GlobalConfig, OperationType, WorkType, LaserMode } from '@/lib/types'
 import { elementOutput, OUTPUT_LABELS } from '@/lib/print-cut'
 import type { ElementOutput } from '@/lib/types'
@@ -73,8 +74,10 @@ export function PropertiesPanel() {
     showRulers,
   } = useCanvasStore()
   const { getFilteredTools } = useLibraryStore()
-  const { applyObjectProps, resizeSelected, updateMakerParams } = useCanvasManager()
+  const { applyObjectProps, resizeSelected, updateMakerParams, addCutOutline } = useCanvasManager()
   const [lockAspect, setLockAspect] = useState(true)
+  const [outlineMargin, setOutlineMargin] = useState(1.5)
+  const [outlineBusy, setOutlineBusy] = useState(false)
 
   if (!selectedElementId) return null
 
@@ -234,9 +237,47 @@ export function PropertiesPanel() {
               Salida
             </Label>
             {element.type === 'image' ? (
-              <p className="text-xs text-muted-foreground">
-                Imagen: solo se imprime. Dibuja o vectoriza su contorno para cortarla.
-              </p>
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Imagen: solo se imprime. Para recortarla, crea su contorno de corte.
+                </p>
+                <div className="flex items-end gap-2">
+                  <div className="w-24">
+                    <label className="text-[11px] text-muted-foreground">Margen (mm)</label>
+                    <Input
+                      type="number"
+                      className="h-8"
+                      min={0}
+                      max={10}
+                      step={0.5}
+                      value={outlineMargin}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value)
+                        if (Number.isFinite(v)) setOutlineMargin(Math.min(10, Math.max(0, v)))
+                      }}
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 h-8 gap-1"
+                    disabled={outlineBusy}
+                    onClick={async () => {
+                      setOutlineBusy(true)
+                      try {
+                        await addCutOutline(element.id, outlineMargin)
+                      } catch (e) {
+                        toast.error('No se pudo crear el contorno', { detail: e instanceof Error ? e.message : String(e) })
+                      } finally {
+                        setOutlineBusy(false)
+                      }
+                    }}
+                  >
+                    <Scissors className="h-3.5 w-3.5" />
+                    {outlineBusy ? 'Calculando...' : 'Crear contorno de corte'}
+                  </Button>
+                </div>
+              </div>
             ) : (
               <Select
                 value={output}

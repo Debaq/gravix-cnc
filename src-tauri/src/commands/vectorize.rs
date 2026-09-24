@@ -669,6 +669,215 @@ fn build_svg(paths: &[String], w_mm: f64, h_mm: f64) -> String {
     svg
 }
 
+// ============================================
+// Contorno de corte para print & cut
+// ============================================
+//
+// El borde de un sticker: la silueta de lo que no es fondo, agrandada unos
+// milimetros para que quede un margen blanco y el corte no muerda el dibujo.
+// La imagen llega en memoria (data URL del lienzo), no como archivo.
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutlineOptions {
+    /// Margen alrededor del dibujo (mm).
+    pub offset_mm: f64,
+    /// Sin transparencia, cuenta como fondo lo que tenga luminancia mayor.
+    pub threshold: u8,
+    /// Manchas mas chicas que esto (mm²) se ignoran.
+    pub min_area_mm2: f64,
+    /// Tolerancia de simplificacion (mm).
+    pub simplify_mm: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutlineResult {
+    /// SVG en mm, del tamaño de la imagen mas el margen por lado.
+    pub svg: String,
+    pub path_count: usize,
+    /// El SVG empieza `offset_mm` antes de la imagen en cada eje.
+    pub offset_mm: f64,
+    /// Caja de los contornos dentro del SVG: [min_x, min_y, max_x, max_y] (mm).
+    pub bbox: [f64; 4],
+    pub used_alpha: bool,
+}
+
+/// Distancia euclidiana al cuadrado (en pixeles) a la tinta mas cercana, por
+/// el metodo de Felzenszwalb: dos pasadas de envolvente de parabolas.
+fn squared_distance(mask: &[bool], w: usize, h: usize) -> Vec<f64> {
+    const INF: f64 = 1e20;
+    let mut grid: Vec<f64> = mask.iter().map(|&ink| if ink { 0.0 } else { INF }).collect();
+
+    fn pass(f: &[f64], out: &mut [f64], v: &mut [usize], z: &mut [f64]) {
+        let n = f.len();
+        let mut k = 0;
+        v[0] = 0;
+        z[0] = -INF;
+        z[1] = INF;
+        for q in 1..n {
+            loop {
+                let p = v[k];
+                let s = ((f[q] + (q * q) as f64) - (f[p] + (p * p) as f64)) / (2.0 * (q as f64 - p as f64));
+                if s <= z[k] && k > 0 {
+                    k -= 1;
+                    continue;
+                }
+                if s <= z[k] {
+                    // k == 0: la nueva parabola reemplaza a la primera
+                    v[0] = q;
+                    z[0] = -INF;
+                    z[1] = INF;
+                    break;
+                }
+                k += 1;
+                v[k] = q;
+                z[k] = s;
+                z[k + 1] = INF;
+                break;
+            }
+        }
+        k = 0;
+        for q in 0..n {
+            while z[k + 1] < q as f64 {
+                k += 1;
+            }
+            let p = v[k];
+            let d = q as f64 - p as f64;
+            out[q] = d * d + f[p];
+        }
+    }
+
+    let n = w.max(h);
+    let (mut v, mut z) = (vec![0usize; n], vec![0f64; n + 1]);
+    let (mut f, mut out) = (vec![0f64; n], vec![0f64; n]);
+    for x in 0..w {
+        for y in 0..h {
+            f[y] = grid[y * w + x];
+        }
+        pass(&f[..h], &mut out[..h], &mut v, &mut z);
+        for y in 0..h {
+            grid[y * w + x] = out[y];
+        }
+    }
+    for y in 0..h {
+        f[..w].copy_from_slice(&grid[y * w..(y + 1) * w]);
+        pass(&f[..w], &mut out[..w], &mut v, &mut z);
+        grid[y * w..(y + 1) * w].copy_from_slice(&out[..w]);
+    }
+    grid
+}
+
+pub fn trace_outline(
+    img: DynamicImage,
+    width_mm: f64,
+    options: OutlineOptions,
+) -> Result<OutlineResult, String> {
+    // Resolucion de trabajo: suficiente para un borde limpio sin volverse lento
+    const MAX_SIDE: u32 = 1000;
+    let rgba = img.to_rgba8();
+    let (w0, h0) = rgba.dimensions();
+    if w0 < 2 || h0 < 2 || width_mm <= 0.0 {
+        return Err("La imagen es demasiado chica".into());
+    }
+    let factor = (MAX_SIDE as f64 / w0.max(h0) as f64).min(1.0);
+    let (w, h) = (
+        ((w0 as f64 * factor).round() as u32).max(2),
+        ((h0 as f64 * factor).round() as u32).max(2),
+    );
+    let rgba = if factor < 1.0 {
+        image::imageops::resize(&rgba, w, h, FilterType::Triangle)
+    } else {
+        rgba
+    };
+
+    // Con transparencia manda el alfa; si no, todo lo que no sea casi blanco
+    let used_alpha = rgba.pixels().any(|p| p.0[3] < 250);
+    let px_per_mm = w as f64 / width_mm;
+    let r_px = (options.offset_mm.max(0.0) * px_per_mm).ceil() as usize;
+    let pad = r_px + 2;
+    let (pw, ph) = (w as usize + 2 * pad, h as usize + 2 * pad);
+    let mut mask = vec![false; pw * ph];
+    for (x, y, p) in rgba.enumerate_pixels() {
+        let [r, g, b, a] = p.0;
+        let ink = if used_alpha {
+            a >= 128
+        } else {
+            let lum = 0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64;
+            lum <= options.threshold as f64
+        };
+        mask[(y as usize + pad) * pw + x as usize + pad] = ink;
+    }
+    if !mask.iter().any(|&m| m) {
+        return Err("No se encontro dibujo: la imagen parece vacia o todo fondo".into());
+    }
+
+    // Margen: todo lo que este a menos de r de la tinta pasa a ser tinta
+    if r_px > 0 {
+        let r = options.offset_mm * px_per_mm;
+        let dist = squared_distance(&mask, pw, ph);
+        for (m, d) in mask.iter_mut().zip(dist.iter()) {
+            *m = *d <= r * r;
+        }
+    }
+
+    let loops = march_squares(&mask, pw, ph);
+    let min_area_px = options.min_area_mm2 * px_per_mm * px_per_mm;
+    let (outers, _) = classify_loops(loops, min_area_px);
+    if outers.is_empty() {
+        return Err("No quedo ningun contorno; baja el area minima".into());
+    }
+
+    let scale = 1.0 / px_per_mm;
+    let tol_px = (options.simplify_mm * px_per_mm).max(0.3);
+    let mut d_paths = Vec::with_capacity(outers.len());
+    let mut bbox = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+    for outer in &outers {
+        let simplified = simplify_closed(outer, tol_px);
+        if simplified.len() < 3 {
+            continue;
+        }
+        let scaled: Vec<[f64; 2]> = simplified.iter().map(|p| [p[0] * scale, p[1] * scale]).collect();
+        for p in &scaled {
+            bbox = [bbox[0].min(p[0]), bbox[1].min(p[1]), bbox[2].max(p[0]), bbox[3].max(p[1])];
+        }
+        d_paths.push(path_to_d(&scaled, 0.0, true));
+    }
+    if d_paths.is_empty() {
+        return Err("Los contornos quedaron vacios tras simplificar".into());
+    }
+
+    // El SVG cubre la imagen mas el relleno: pad px por lado
+    let pad_mm = pad as f64 * scale;
+    let svg = build_svg(&d_paths, pw as f64 * scale, ph as f64 * scale);
+    Ok(OutlineResult {
+        svg,
+        path_count: d_paths.len(),
+        offset_mm: pad_mm,
+        bbox,
+        used_alpha,
+    })
+}
+
+/// Contorno de corte de una imagen del lienzo (data URL o base64).
+#[tauri::command]
+pub async fn trace_image_outline(
+    data: String,
+    width_mm: f64,
+    options: OutlineOptions,
+) -> Result<OutlineResult, String> {
+    tokio::task::spawn_blocking(move || {
+        let b64 = data.split_once(',').map(|(_, b)| b).unwrap_or(&data);
+        let bytes = STANDARD
+            .decode(b64.trim())
+            .map_err(|e| format!("Imagen mal codificada: {e}"))?;
+        let img = image::load_from_memory(&bytes).map_err(|e| format!("Error al leer la imagen: {e}"))?;
+        trace_outline(img, width_mm, options)
+    })
+    .await
+    .map_err(|e| format!("Error en thread: {e}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1069,5 +1278,51 @@ mod tests {
             image::Luma([if mask[y as usize * w + x as usize] { 0 } else { 255 }])
         });
         DynamicImage::ImageLuma8(img)
+    }
+
+    #[test]
+    fn distance_transform_is_euclidean() {
+        let (w, h) = (21, 21);
+        let mut m = vec![false; w * h];
+        m[10 * w + 10] = true;
+        let d = squared_distance(&m, w, h);
+        assert_eq!(d[10 * w + 10], 0.0);
+        assert_eq!(d[10 * w + 13], 9.0);
+        assert_eq!(d[13 * w + 14], 25.0);
+    }
+
+    #[test]
+    fn outline_grows_by_the_offset() {
+        // Circulo opaco de 200 px de diametro sobre fondo transparente, en
+        // una imagen de 400 px que representa 40 mm: 10 px/mm
+        let mut img = image::RgbaImage::new(400, 400);
+        for (x, y, p) in img.enumerate_pixels_mut() {
+            let (dx, dy) = (x as f64 - 200.0, y as f64 - 200.0);
+            *p = if dx * dx + dy * dy <= 100.0 * 100.0 {
+                image::Rgba([200, 0, 100, 255])
+            } else {
+                image::Rgba([255, 255, 255, 0])
+            };
+        }
+        let opts = OutlineOptions { offset_mm: 2.0, threshold: 245, min_area_mm2: 1.0, simplify_mm: 0.05 };
+        let res = trace_outline(DynamicImage::ImageRgba8(img), 40.0, opts).unwrap();
+        assert!(res.used_alpha);
+        assert_eq!(res.path_count, 1);
+        // Radio 10 mm + 2 mm de margen = 12 mm; el contorno cabe en un
+        // cuadrado de ~24 mm alrededor del centro
+        let d = res.svg.split("d=\"").nth(1).unwrap().split('"').next().unwrap();
+        let nums: Vec<f64> = d
+            .split(|c: char| !(c.is_ascii_digit() || c == '.'))
+            .filter_map(|t| t.parse().ok())
+            .collect();
+        let center = 20.0 + res.offset_mm;
+        let radii: Vec<f64> = nums
+            .chunks_exact(2)
+            .map(|c| ((c[0] - center).powi(2) + (c[1] - center).powi(2)).sqrt())
+            .collect();
+        let max_r = radii.iter().cloned().fold(0.0f64, f64::max);
+        let min_r = radii.iter().cloned().fold(f64::MAX, f64::min);
+        assert!((max_r - 12.0).abs() < 0.3, "radio maximo {max_r}");
+        assert!((min_r - 12.0).abs() < 0.3, "radio minimo {min_r}");
     }
 }

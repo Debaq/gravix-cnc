@@ -137,6 +137,7 @@ pub fn run() {
             image_processing::process_image_for_laser,
             image_processing::read_raster_pixels,
             vectorize::trace_image_to_svg,
+            vectorize::trace_image_outline,
             vector_import::import_vector_file,
             web_server_cmd::get_server_status,
             web_server_cmd::start_web_server,

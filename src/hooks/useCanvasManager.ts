@@ -20,7 +20,7 @@ import { useCanvasStore, DEFAULT_SHEET_ID } from '@/stores/useCanvasStore'
 import { invalidateSnapCache } from '@/lib/snap-engine'
 import { extractSegments } from '@/lib/trim-extend'
 import { planNesting, type NestingPiece } from '@/lib/nesting'
-import type { CanvasElement, GCodePath, GCodeJob, Point2D, VectorImportResult } from '@/lib/types'
+import type { CanvasElement, ElementOutput, GCodePath, GCodeJob, Point2D, VectorImportResult } from '@/lib/types'
 import { isCutElement, isPrintElement, type BoundsMm } from '@/lib/print-cut'
 import { isTauri, tauriInvoke } from '@/lib/tauri'
 import { toast } from '@/lib/toast'
@@ -657,7 +657,15 @@ export function useCanvasManager() {
   // Load SVG from File
   // ------------------------------------------
   const loadSVGString = useCallback(
-    async (text: string, name: string) => {
+    async (
+      text: string,
+      name: string,
+      opts?: {
+        /** Borde de la geometria (sin trazo), en px del lienzo. Sin esto se busca lugar libre. */
+        at?: { left: number; top: number }
+        output?: ElementOutput
+      },
+    ) => {
       const canvas = getCanvas()
       if (!canvas) return
 
@@ -674,11 +682,17 @@ export function useCanvasManager() {
       // Place the SVG near origin, avoiding existing objects
       const svgW = (group.width ?? 100) * (group.scaleX ?? 1)
       const svgH = (group.height ?? 100) * (group.scaleY ?? 1)
-      const svgPos = findNextFreePosition(canvas, svgW, svgH)
-      group.set({
-        left: svgPos.left,
-        top: svgPos.top,
-      })
+      if (opts?.at) {
+        // La caja del grupo incluye medio trazo por lado; la geometria no
+        const half = ((validObjects[0]?.strokeWidth ?? 0) * (group.scaleX ?? 1)) / 2
+        group.set({ left: opts.at.left - half, top: opts.at.top - half })
+      } else {
+        const svgPos = findNextFreePosition(canvas, svgW, svgH)
+        group.set({
+          left: svgPos.left,
+          top: svgPos.top,
+        })
+      }
 
       const elementId = generateId()
       setCustomProp(group, ELEMENT_ID_KEY, elementId)
@@ -717,6 +731,7 @@ export function useCanvasManager() {
         children,
         svgData: text,
         fabricObject: group,
+        ...(opts?.output ? { output: opts.output } : {}),
       }
 
       addElement(element)
@@ -1002,6 +1017,54 @@ export function useCanvasManager() {
     const svg = `<g transform="scale(${k}) translate(${-WORK_AREA_PADDING} ${-WORK_AREA_PADDING})">${parts.join('')}</g>`
     return { svg, count: parts.length }
   }, [])
+
+  // ------------------------------------------
+  // Contorno de corte de una imagen para imprimir: la silueta del dibujo con
+  // un margen alrededor, ya ubicada encima de la imagen
+  // ------------------------------------------
+  const addCutOutline = useCallback(
+    async (elementId: string, offsetMm: number) => {
+      const canvas = getCanvas()
+      if (!canvas) return
+      const el = useCanvasStore.getState().findElementById(elementId)
+      const img = canvas
+        .getObjects()
+        .find((o) => getCustomProp(o, ELEMENT_ID_KEY) === elementId)
+      if (!el || !(img instanceof FabricImage)) {
+        throw new Error('El elemento no es una imagen')
+      }
+      if ((img.angle ?? 0) % 360 !== 0 || img.flipX || img.flipY) {
+        throw new Error('Quita la rotacion o el espejo de la imagen antes de sacar el contorno')
+      }
+
+      const widthMm = img.getScaledWidth() / PIXELS_PER_MM
+      const res = await tauriInvoke<{
+        svg: string
+        pathCount: number
+        offsetMm: number
+        bbox: [number, number, number, number]
+        usedAlpha: boolean
+      }>('trace_image_outline', {
+        data: img.getSrc(),
+        widthMm,
+        options: { offsetMm, threshold: 245, minAreaMm2: 1, simplifyMm: 0.1 },
+      })
+
+      // El SVG empieza `offsetMm` (relleno) antes de la imagen; la geometria,
+      // en bbox[0..1] dentro del SVG
+      const r = img.getBoundingRect()
+      const at = {
+        left: r.left + (res.bbox[0] - res.offsetMm) * PIXELS_PER_MM,
+        top: r.top + (res.bbox[1] - res.offsetMm) * PIXELS_PER_MM,
+      }
+      await loadSVGString(res.svg, `${el.name} (contorno)`, { at, output: 'cut' })
+      useAppStore.getState().addConsoleLine(
+        `Contorno de corte: ${res.pathCount} ${res.pathCount === 1 ? 'figura' : 'figuras'}, margen ${offsetMm} mm` +
+          (res.usedAlpha ? ' (segun la transparencia)' : ' (fondo blanco)'),
+      )
+    },
+    [loadSVGString],
+  )
 
   // ------------------------------------------
   // Imagen para imprimir (print & cut)
@@ -4025,6 +4088,7 @@ export function useCanvasManager() {
     addPrintImage,
     getElementBoundsMm,
     getPrintSVG,
+    addCutOutline,
     loadDXF,
     loadImage,
     addRasterToCanvas,
