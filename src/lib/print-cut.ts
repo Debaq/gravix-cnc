@@ -141,3 +141,38 @@ export function checkSafeArea(layout: RegmarkLayout, items: BoundsMm[]): { id: s
   }
   return issues
 }
+
+/** Marcas de registro como SVG, en mm. */
+export function regmarksSvg(layout: RegmarkLayout): string {
+  const { square: sq } = layout
+  const half = REGMARK.line / 2
+  const parts = [`<rect x="${sq.x}" y="${sq.y}" width="${sq.size}" height="${sq.size}" fill="#000"/>`]
+  for (const c of layout.corners) {
+    // Como en el lienzo: el borde exterior del trazo cae sobre la esquina
+    const cx = c.x + c.dx * half
+    const cy = c.y + c.dy * half
+    parts.push(
+      `<path d="M${c.x + c.dx * REGMARK.arm} ${cy} L${cx} ${cy} L${cx} ${c.y + c.dy * REGMARK.arm}" ` +
+        `fill="none" stroke="#000" stroke-width="${REGMARK.line}" stroke-linecap="butt" stroke-linejoin="miter"/>`,
+    )
+  }
+  return parts.join('')
+}
+
+/**
+ * Documento imprimible: una pagina del tamaño exacto del papel, sin margenes
+ * y sin escalar. `content` es el SVG de lo que se imprime, ya en mm.
+ */
+export function printSheetHTML(layout: RegmarkLayout, content: string): string {
+  const { width: w, height: h } = layout.paper
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+@page { size: ${w}mm ${h}mm; margin: 0; }
+html, body { margin: 0; padding: 0; background: #fff; }
+svg { display: block; width: ${w}mm; height: ${h}mm; }
+@media screen { html, body { height: 100%; } body { background: #888; padding: 12px; box-sizing: border-box; } svg { background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.4); margin: 0 auto; width: auto; height: 100%; } }
+</style></head><body>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}mm" height="${h}mm" viewBox="0 0 ${w} ${h}">
+${content}
+${regmarksSvg(layout)}
+</svg></body></html>`
+}

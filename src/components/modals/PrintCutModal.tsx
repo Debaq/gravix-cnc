@@ -25,7 +25,7 @@ import {
 import { AlertTriangle, CheckCircle2, Printer } from 'lucide-react'
 
 export function PrintCutModal() {
-  const { activeModal, closeModal } = useAppStore()
+  const { activeModal, closeModal, openModal } = useAppStore()
   const printCut = useCanvasStore((s) => s.printCut)
   const setPrintCut = useCanvasStore((s) => s.setPrintCut)
   const elements = useCanvasStore((s) => s.elements)
@@ -137,8 +137,14 @@ export function PrintCutModal() {
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="gap-2">
           <Button variant="outline" onClick={closeModal}>Cerrar</Button>
+          {printCut.enabled && (
+            <Button className="gap-1.5" onClick={() => openModal('print-sheet')}>
+              <Printer className="h-4 w-4" />
+              Imprimir hoja
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

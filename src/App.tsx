@@ -43,6 +43,7 @@ import { TilingModal } from '@/components/modals/TilingModal'
 import { JobSheetModal } from '@/components/modals/JobSheetModal'
 import { SilhouetteModal } from '@/components/modals/SilhouetteModal'
 import { PrintCutModal } from '@/components/modals/PrintCutModal'
+import { PrintSheetModal } from '@/components/modals/PrintSheetModal'
 import { VariableTextModal } from '@/components/modals/VariableTextModal'
 import { useLicense } from '@/hooks/useLicense'
 import { usePreventAppZoom } from '@/hooks/usePreventAppZoom'
@@ -263,6 +264,7 @@ function App() {
         <JobSheetModal />
         <SilhouetteModal />
         <PrintCutModal />
+        <PrintSheetModal />
         <VariableTextModal />
         <Toaster />
       </div>

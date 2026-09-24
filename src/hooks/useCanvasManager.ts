@@ -21,7 +21,7 @@ import { invalidateSnapCache } from '@/lib/snap-engine'
 import { extractSegments } from '@/lib/trim-extend'
 import { planNesting, type NestingPiece } from '@/lib/nesting'
 import type { CanvasElement, GCodePath, GCodeJob, Point2D, VectorImportResult } from '@/lib/types'
-import { isCutElement, type BoundsMm } from '@/lib/print-cut'
+import { isCutElement, isPrintElement, type BoundsMm } from '@/lib/print-cut'
 import { isTauri, tauriInvoke } from '@/lib/tauri'
 import { toast } from '@/lib/toast'
 import { useAppStore } from '@/stores/useAppStore'
@@ -979,6 +979,28 @@ export function useCanvasManager() {
       })
     }
     return out
+  }, [])
+
+  // ------------------------------------------
+  // SVG de lo que se imprime, en mm desde la esquina superior izquierda de la
+  // hoja. Cada objeto trae su propia transformacion en pixeles del lienzo; un
+  // grupo exterior la pasa a mm.
+  // ------------------------------------------
+  const getPrintSVG = useCallback((): { svg: string; count: number } => {
+    const canvas = getCanvas()
+    if (!canvas) return { svg: '', count: 0 }
+    const state = useCanvasStore.getState()
+    const parts: string[] = []
+    for (const obj of canvas.getObjects()) {
+      if (getCustomProp(obj, NON_INTERACTIVE_KEY) === true || !obj.visible) continue
+      const elId = getCustomProp(obj, ELEMENT_ID_KEY) as string | undefined
+      const el = elId ? state.findElementById(elId) : undefined
+      if (!el || !el.visible || !isPrintElement(el)) continue
+      parts.push(obj.toSVG())
+    }
+    const k = 1 / PIXELS_PER_MM
+    const svg = `<g transform="scale(${k}) translate(${-WORK_AREA_PADDING} ${-WORK_AREA_PADDING})">${parts.join('')}</g>`
+    return { svg, count: parts.length }
   }, [])
 
   // ------------------------------------------
@@ -4002,6 +4024,7 @@ export function useCanvasManager() {
     traceImage,
     addPrintImage,
     getElementBoundsMm,
+    getPrintSVG,
     loadDXF,
     loadImage,
     addRasterToCanvas,
