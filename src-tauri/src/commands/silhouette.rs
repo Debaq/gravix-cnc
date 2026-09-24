@@ -129,6 +129,26 @@ pub struct SilhouetteStatus {
     pub device: SilhouetteDevice,
 }
 
+/// Un tramo del programa. La mayoria se manda de corrido; algunos comandos
+/// (la busqueda de marcas de registro) devuelven una respuesta que decide si
+/// se sigue.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../src/lib/generated/")]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum SilhouetteStep {
+    /// Comandos sin el ETX final, que se agrega al mandar.
+    Send { commands: Vec<String> },
+    /// Manda `command` y exige `expect` como respuesta (sin espacios ni ETX).
+    #[serde(rename_all = "camelCase")]
+    Expect {
+        command: String,
+        expect: String,
+        timeout_ms: u32,
+        /// Mensaje para el usuario si la respuesta no es la esperada.
+        error: String,
+    },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../src/lib/generated/")]
 #[serde(rename_all = "camelCase")]
@@ -144,7 +164,7 @@ pub struct SilhouetteProgress {
     pub sent_bytes: u32,
     pub total_bytes: u32,
     pub percent: f64,
-    /// "connecting", "waiting-media", "sending", "finishing"
+    /// "connecting", "waiting-media", "sending", "registering", "finishing"
     pub phase: String,
 }
 
@@ -894,20 +914,27 @@ pub async fn silhouette_status(
     .map_err(|e| e.to_string())?
 }
 
-/// Manda un programa GPGL. Cada elemento de `commands` es un comando sin el
-/// ETX, que se agrega aca. Vuelve apenas arranca: el avance llega por
+/// Manda un programa GPGL. Vuelve apenas arranca: el avance llega por
 /// `silhouette:progress` y el final por `silhouette:complete`.
 #[tauri::command]
 pub async fn silhouette_send(
     app: AppHandle,
     target: SilhouetteTarget,
-    commands: Vec<String>,
+    steps: Vec<SilhouetteStep>,
     state: State<'_, Arc<SilhouetteJobState>>,
 ) -> Result<(), String> {
-    if commands.is_empty() {
+    let has_commands = steps.iter().any(|s| match s {
+        SilhouetteStep::Send { commands } => !commands.is_empty(),
+        SilhouetteStep::Expect { .. } => true,
+    });
+    if !has_commands {
         return Err("No hay nada que cortar".to_string());
     }
-    if commands.iter().any(|c| c.as_bytes().contains(&ETX)) {
+    let has_etx = steps.iter().any(|s| match s {
+        SilhouetteStep::Send { commands } => commands.iter().any(|c| c.as_bytes().contains(&ETX)),
+        SilhouetteStep::Expect { command, .. } => command.as_bytes().contains(&ETX),
+    });
+    if has_etx {
         return Err("Comando GPGL invalido (contiene ETX)".to_string());
     }
     if state.busy.swap(true, Ordering::SeqCst) {
@@ -919,7 +946,7 @@ pub async fn silhouette_send(
     let rt = Handle::current();
     tokio::task::spawn_blocking(move || {
         let cancel = job_state.cancel.clone();
-        let result = run_job(&app, &rt, &target, &commands, &cancel);
+        let result = run_job(&app, &rt, &target, &steps, &cancel);
         job_state.busy.store(false, Ordering::SeqCst);
         let payload = match result {
             Ok(()) => SilhouetteResult {
@@ -961,19 +988,29 @@ fn emit_progress(app: &AppHandle, sent: usize, total: usize, phase: &str) {
     );
 }
 
+fn encode(commands: &[String]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(commands.iter().map(|c| c.len() + 1).sum());
+    for c in commands {
+        out.extend_from_slice(c.as_bytes());
+        out.push(ETX);
+    }
+    out
+}
+
 fn run_job(
     app: &AppHandle,
     rt: &Handle,
     target: &SilhouetteTarget,
-    commands: &[String],
+    steps: &[SilhouetteStep],
     cancel: &AtomicBool,
 ) -> Result<(), String> {
-    let mut program = Vec::with_capacity(commands.iter().map(|c| c.len() + 1).sum());
-    for c in commands {
-        program.extend_from_slice(c.as_bytes());
-        program.push(ETX);
-    }
-    let total = program.len();
+    let total: usize = steps
+        .iter()
+        .map(|s| match s {
+            SilhouetteStep::Send { commands } => commands.iter().map(|c| c.len() + 1).sum(),
+            SilhouetteStep::Expect { command, .. } => command.len() + 1,
+        })
+        .sum();
 
     emit_progress(app, 0, total, "connecting");
     let (mut link, _, _) = connect(rt, target)?;
@@ -986,19 +1023,51 @@ fn run_job(
     })?;
 
     let mut sent = 0;
-    for chunk in split_chunks(&program) {
+    for step in steps {
         if cancel.load(Ordering::SeqCst) {
             abort(&mut link);
             return Err("cancelado".to_string());
         }
-        link.write(chunk)?;
-        sent += chunk.len();
-        emit_progress(app, sent, total, "sending");
-        if let Err(e) = link.wait_ready(CHUNK_READY_TIMEOUT, Duration::from_millis(50), cancel, |_| {}) {
-            if cancel.load(Ordering::SeqCst) {
-                abort(&mut link);
+        match step {
+            SilhouetteStep::Send { commands } => {
+                let program = encode(commands);
+                for chunk in split_chunks(&program) {
+                    if cancel.load(Ordering::SeqCst) {
+                        abort(&mut link);
+                        return Err("cancelado".to_string());
+                    }
+                    link.write(chunk)?;
+                    sent += chunk.len();
+                    emit_progress(app, sent, total, "sending");
+                    if let Err(e) =
+                        link.wait_ready(CHUNK_READY_TIMEOUT, Duration::from_millis(50), cancel, |_| {})
+                    {
+                        if cancel.load(Ordering::SeqCst) {
+                            abort(&mut link);
+                        }
+                        return Err(e);
+                    }
+                }
             }
-            return Err(e);
+            SilhouetteStep::Expect { command, expect, timeout_ms, error } => {
+                emit_progress(app, sent, total, "registering");
+                let mut data = command.as_bytes().to_vec();
+                data.push(ETX);
+                let resp = link.query(&data, Duration::from_millis(u64::from(*timeout_ms)))?;
+                sent += data.len();
+                match resp {
+                    Some(r) if r == expect.trim() => {}
+                    Some(r) => {
+                        abort(&mut link);
+                        return Err(format!("{error} (respuesta: \"{r}\")"));
+                    }
+                    None => {
+                        abort(&mut link);
+                        return Err(format!("{error} (sin respuesta)"));
+                    }
+                }
+                link.wait_ready(CHUNK_READY_TIMEOUT, Duration::from_millis(100), cancel, |_| {})?;
+            }
         }
     }
 

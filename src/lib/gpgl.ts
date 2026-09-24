@@ -11,6 +11,8 @@
 
 import type { GCodePath, Point2D, WorkArea } from './types'
 import type { SilhouetteDevice } from './generated/SilhouetteDevice'
+import type { SilhouetteStep } from './generated/SilhouetteStep'
+import { REGMARK, type RegmarkLayout } from './print-cut'
 
 export type SilhouetteTool = 'blade' | 'autoblade' | 'pen'
 
@@ -94,6 +96,9 @@ export function toMediaCoords(paths: GCodePath[], workArea: WorkArea): GCodePath
 }
 
 export interface GpglProgram {
+  /** Lo que se manda, en tramos (la busqueda de marcas espera respuesta). */
+  steps: SilhouetteStep[]
+  /** Todos los comandos seguidos, para mostrar o guardar. */
   commands: string[]
   warnings: string[]
   /** Errores que impiden mandar el trabajo (fuera del area del equipo). */
@@ -175,20 +180,45 @@ function toolSetup(device: SilhouetteDevice, s: SilhouetteCutSettings): string[]
 }
 
 /**
+ * Configuracion de las marcas (tipo Cameo/Portrait, medidas de `REGMARK`) y
+ * busqueda automatica. La cortadora recorre la zona de cada marca con el
+ * sensor; responde "0" si las encontro. `top`/`left` dicen donde empezar a
+ * buscar: un poco antes de la marca, para que la encuentre aunque el papel
+ * este algo corrido.
+ */
+function registrationSteps(layout: RegmarkLayout): SilhouetteStep[] {
+  const { origin, width, length } = layout
+  return [
+    {
+      kind: 'send',
+      commands: ['TB50,0', 'TB99', 'TB52,2', `TB51,${su(REGMARK.arm)}`, `TB53,${su(REGMARK.line)}`, 'TB55,1'],
+    },
+    {
+      kind: 'expect',
+      command: `TB123,${su(length)},${su(width)},${su(Math.max(origin.y - 10, 0))},${su(Math.max(origin.x - 10, 0))}`,
+      expect: '0',
+      timeoutMs: 40000,
+      error: 'La cortadora no encontro las marcas de registro. Revisa que la hoja este bien cargada, que la impresion sea a escala 100% y que las marcas se vean nitidas',
+    },
+  ]
+}
+
+/**
  * Arma el programa completo. `paths` ya en coordenadas del material
- * (ver `toMediaCoords`).
+ * (ver `toMediaCoords`). Con `registration` las coordenadas se miden desde
+ * la marca superior izquierda y la cortadora busca las marcas antes de
+ * cortar.
  */
 export function buildGpgl(
   paths: GCodePath[],
   device: SilhouetteDevice,
   settings: SilhouetteCutSettings,
   media: { width: number; height: number },
+  registration?: RegmarkLayout,
 ): GpglProgram {
   const warnings: string[] = []
   const errors: string[] = []
   const area = cuttingArea(device, settings, media)
-  const ml = device.marginLeftMm
-  const mt = device.marginTopMm
 
   // Limites y bbox en mm del material
   let bbox: GpglProgram['bbox'] = null
@@ -204,7 +234,7 @@ export function buildGpgl(
     }
   }
   if (!bbox) {
-    return { commands: [], warnings, errors: ['No hay trazos para cortar'], cutLengthMm: 0, bbox }
+    return { steps: [], commands: [], warnings, errors: ['No hay trazos para cortar'], cutLengthMm: 0, bbox }
   }
   const tol = 0.05
   if (bbox.minX < -tol || bbox.minY < -tol) {
@@ -215,6 +245,15 @@ export function buildGpgl(
   }
   if (bbox.maxY > area.height + tol) {
     errors.push(`El diseño llega a ${bbox.maxY.toFixed(1)} mm de largo y el area de corte es de ${area.height.toFixed(1)} mm`)
+  }
+  if (registration) {
+    const { origin, width, length } = registration
+    if (bbox.minX < origin.x || bbox.minY < origin.y || bbox.maxX > origin.x + width || bbox.maxY > origin.y + length) {
+      errors.push('Con marcas de registro todo el corte tiene que quedar dentro del area entre marcas')
+    }
+    if (width + origin.x > area.width + tol || length + origin.y > area.height + tol) {
+      errors.push('La hoja con marcas no cabe en el area de corte del tapete elegido')
+    }
   }
   if (!device.known) {
     warnings.push('Modelo no reconocido: se usan los comandos basicos, que entienden todas las Silhouette')
@@ -241,6 +280,19 @@ export function buildGpgl(
 
   cmds.push(...toolSetup(device, settings))
 
+  const steps: SilhouetteStep[] = [{ kind: 'send', commands: cmds }]
+  const body: string[] = []
+
+  // Con marcas el cero es la esquina de la marca superior izquierda: la
+  // cortadora mide desde ahi despues de encontrarla
+  let offX = device.marginLeftMm
+  let offY = device.marginTopMm
+  if (registration) {
+    steps.push(...registrationSteps(registration))
+    offX = -registration.origin.x
+    offY = -registration.origin.y
+  }
+
   // Cuerpo
   let cutLength = 0
   const passes = Math.max(1, Math.round(settings.passes))
@@ -258,11 +310,11 @@ export function buildGpgl(
 
       let prev = ''
       pts.forEach((pt, i) => {
-        const y = su(pt.y + mt)
-        const x = su(pt.x + ml)
+        const y = su(pt.y + offY)
+        const x = su(pt.x + offX)
         const key = `${y},${x}`
         if (key === prev) return
-        cmds.push(`${i === 0 ? 'M' : 'D'}${key}`)
+        body.push(`${i === 0 ? 'M' : 'D'}${key}`)
         prev = key
         if (i > 0) cutLength += Math.hypot(pt.x - pts[i - 1].x, pt.y - pts[i - 1].y)
       })
@@ -271,14 +323,16 @@ export function buildGpgl(
 
   // Cierre: levantar la herramienta y dejar el material donde se pidio
   if (settings.endPosition === 'below') {
-    cmds.push(`M${su(bbox.maxY + mt)},0`, 'SO0', 'FN0')
+    body.push(`M${su(bbox.maxY + offY)},0`, 'SO0', 'FN0')
   } else if (device.family === 'legacy') {
-    cmds.push('H')
+    body.push('H')
   } else {
-    cmds.push('L0', '\\0,0', 'M0,0')
-    if (device.twoTools) cmds.push('J0')
-    cmds.push('FN0', 'TB50,0')
+    body.push('L0', '\\0,0', 'M0,0')
+    if (device.twoTools) body.push('J0')
+    body.push('FN0', 'TB50,0')
   }
+  steps.push({ kind: 'send', commands: body })
 
-  return { commands: cmds, warnings, errors, cutLengthMm: cutLength, bbox }
+  const commands = steps.flatMap((st) => (st.kind === 'send' ? st.commands : [st.command]))
+  return { steps, commands, warnings, errors, cutLengthMm: cutLength, bbox }
 }

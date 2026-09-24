@@ -24,6 +24,7 @@ import type { SilhouetteBleCutter } from '@/lib/generated/SilhouetteBleCutter'
 import type { SilhouetteProgress } from '@/lib/generated/SilhouetteProgress'
 import type { SilhouetteResult } from '@/lib/generated/SilhouetteResult'
 import type { GCodePath } from '@/lib/types'
+import { regmarkLayout } from '@/lib/print-cut'
 import {
   Dialog,
   DialogContent,
@@ -73,6 +74,7 @@ const PHASES: Record<string, string> = {
   connecting: 'Conectando',
   'waiting-media': 'Carga el material en la cortadora',
   sending: 'Cortando',
+  registering: 'Buscando las marcas de registro',
   finishing: 'Terminando',
 }
 
@@ -90,6 +92,7 @@ function sameTarget(a: SilhouetteTarget | null, b: SilhouetteTarget | null): boo
 export function SilhouetteModal() {
   const { activeModal, closeModal, addConsoleLine, projectName } = useAppStore()
   const workArea = useCanvasStore((s) => s.workArea)
+  const printCut = useCanvasStore((s) => s.printCut)
   const { getJobsForGCode } = useCanvasManager()
   const isOpen = activeModal === 'silhouette'
 
@@ -253,10 +256,12 @@ export function SilhouetteModal() {
   }, [isOpen])
 
   const media = { width: workArea.width, height: workArea.height }
+  // Con print & cut la cortadora busca las marcas y mide desde ellas
+  const registration = printCut.enabled ? regmarkLayout(printCut) : undefined
   const program = useMemo(
-    () => (device ? buildGpgl(paths, device, settings, media) : null),
+    () => (device ? buildGpgl(paths, device, settings, media, registration) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [device, paths, settings, workArea.width, workArea.height],
+    [device, paths, settings, workArea.width, workArea.height, printCut],
   )
   const area = device ? cuttingArea(device, settings, media) : null
 
@@ -266,7 +271,7 @@ export function SilhouetteModal() {
     if (!canSend || !program || !target) return
     try {
       setSending(true)
-      await tauriInvoke('silhouette_send', { target, commands: program.commands })
+      await tauriInvoke('silhouette_send', { target, steps: program.steps })
       addConsoleLine(`Silhouette: enviando ${program.commands.length} comandos (${(program.cutLengthMm / 1000).toFixed(2)} m de corte)`)
     } catch (e) {
       setSending(false)
@@ -482,6 +487,13 @@ export function SilhouetteModal() {
             <Label className="text-xs">Mejorar traccion (el rodillo marca la huella antes de cortar)</Label>
             <Switch checked={settings.trackEnhancing} onCheckedChange={(v) => update({ trackEnhancing: v })} />
           </div>
+
+          {registration && (
+            <div className="text-[11px] rounded-md border border-sky-200 dark:border-sky-900 bg-sky-50 dark:bg-sky-950/30 px-2 py-1.5">
+              Print & cut: antes de cortar, la cortadora busca las marcas de registro de la hoja impresa. Carga la hoja
+              en la esquina superior izquierda del tapete, con las marcas arriba.
+            </div>
+          )}
 
           {/* Resumen del trabajo */}
           {program && (

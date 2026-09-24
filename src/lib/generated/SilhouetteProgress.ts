@@ -2,6 +2,6 @@
 
 export type SilhouetteProgress = { sentBytes: number, totalBytes: number, percent: number, 
 /**
- * "connecting", "waiting-media", "sending", "finishing"
+ * "connecting", "waiting-media", "sending", "registering", "finishing"
  */
 phase: string, };
