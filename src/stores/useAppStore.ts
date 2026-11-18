@@ -18,6 +18,9 @@ interface AppState {
 
   // Sidebar
   leftPanelCollapsed: boolean
+  /** Popover de conexion de la barra superior (unico lugar para conectar). */
+  connectPopoverOpen: boolean
+  setConnectPopoverOpen: (open: boolean) => void
   toggleLeftPanel: () => void
 
   // Project
@@ -66,6 +69,8 @@ export const useAppStore = create<AppState>((set) => ({
 
   // Sidebar
   leftPanelCollapsed: false,
+  connectPopoverOpen: false,
+  setConnectPopoverOpen: (connectPopoverOpen) => set({ connectPopoverOpen }),
   toggleLeftPanel: () => set((state) => ({ leftPanelCollapsed: !state.leftPanelCollapsed })),
 
   // Project

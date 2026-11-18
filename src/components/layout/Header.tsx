@@ -41,7 +41,6 @@ import {
   Globe,
   KeyRound,
   ShieldCheck,
-  Play,
   Wand2,
   Cpu,
 } from 'lucide-react'
@@ -129,7 +128,8 @@ export function Header() {
 
   const [ports, setPorts] = useState<PortInfo[]>([])
   const [selectedPort, setSelectedPort] = useState('')
-  const [popoverOpen, setPopoverOpen] = useState(false)
+  const popoverOpen = useAppStore((st) => st.connectPopoverOpen)
+  const setPopoverOpen = useAppStore((st) => st.setConnectPopoverOpen)
   const [loadingPorts, setLoadingPorts] = useState(false)
   const [appWindow, setAppWindow] = useState<{ minimize: () => void; toggleMaximize: () => void; close: () => void } | null>(null)
   const role = getClientRole()

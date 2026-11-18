@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSerialStore } from '@/stores/useSerialStore'
 import { useWorkflowStore } from '@/stores/useWorkflowStore'
@@ -12,7 +12,6 @@ import { buildResumeProgram, normalizeGCode, suggestResumeLine } from '@/lib/res
 import { cancelReconnect, RECONNECT_MAX_ATTEMPTS } from '@/lib/serial-reconnect'
 import { useKeyboardJog } from '@/hooks/useKeyboardJog'
 import { useCanvasStore } from '@/stores/useCanvasStore'
-import { getSharedCanvas } from '@/hooks/useCanvasManager'
 import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -39,7 +38,6 @@ import {
   Send,
   Wifi,
   WifiOff,
-  RefreshCw,
   Frame,
   Settings2,
   Loader2,
@@ -162,7 +160,6 @@ export function ControlPanel() {
     togglePosMode,
     setJogDistance,
     setJogSpeed,
-    setBaudRate,
     activeWorkspace,
     setActiveWorkspace,
     laserPower,
@@ -171,6 +168,7 @@ export function ControlPanel() {
     lastError,
     clearLastError,
     sending,
+    port,
   } = useSerialStore()
 
   const { consoleLines, addConsoleLine, language } = useAppStore()
@@ -178,39 +176,12 @@ export function ControlPanel() {
   const operationType = useCanvasStore((s) => s.globalConfig.operationType)
   const isLaser = operationType === 'laser'
 
-  const [ports, setPorts] = useState<{ name: string; port_type: string }[]>([])
-  const [selectedPort, setSelectedPort] = useState('')
   const [commandInput, setCommandInput] = useState('')
-  const [loadingPorts, setLoadingPorts] = useState(false)
   const [commandHistory, setCommandHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const consoleEndRef = useCallback((node: HTMLDivElement | null) => {
     node?.scrollIntoView({ behavior: 'smooth' })
   }, [consoleLines.length])
-
-  const refreshPorts = useCallback(async () => {
-    setLoadingPorts(true)
-    const result = await serial.listPorts()
-    setPorts(result)
-    if (result.length > 0 && !selectedPort) {
-      setSelectedPort(result[0].name)
-    }
-    setLoadingPorts(false)
-  }, [serial, selectedPort])
-
-  useEffect(() => {
-    refreshPorts()
-  }, [])
-
-  const handleConnect = async () => {
-    if (connected) {
-      await serial.disconnect()
-    } else if (selectedPort) {
-      await serial.connect(selectedPort, baudRate)
-    } else {
-      addConsoleLine('Selecciona un puerto primero')
-    }
-  }
 
   const handleSendCommand = () => {
     if (!commandInput.trim()) return
@@ -320,8 +291,8 @@ export function ControlPanel() {
               {connected ? (
                 <div className="bg-background border rounded-lg px-2 py-1.5 flex items-center gap-1.5">
                   <Wifi className="h-3 w-3 text-green-500 shrink-0" />
-                  <span className="text-[11px] font-mono truncate flex-1" title={selectedPort}>
-                    {selectedPort.replace(/^\/dev\//, '')} @ {baudRate}
+                  <span className="text-[11px] font-mono truncate flex-1" title={port}>
+                    {port.replace(/^\/dev\//, '')} @ {baudRate}
                   </span>
                   <Button
                     variant="outline"
@@ -336,7 +307,7 @@ export function ControlPanel() {
                     variant="destructive"
                     size="sm"
                     className="h-6 px-2 text-[10px] shrink-0"
-                    onClick={handleConnect}
+                    onClick={() => serial.disconnect()}
                   >
                     {t('disconnect')}
                   </Button>
@@ -363,52 +334,15 @@ export function ControlPanel() {
                   </Button>
                 </div>
               ) : (
-                <div className="bg-background border rounded-lg p-2 space-y-1.5">
-                  <div className="flex items-end gap-1.5">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0"
-                      onClick={refreshPorts}
-                      disabled={loadingPorts}
-                      title={t('refresh') || 'Refrescar puertos'}
-                    >
-                      <RefreshCw className={`h-3 w-3 ${loadingPorts ? 'animate-spin' : ''}`} />
-                    </Button>
-                    <div className="flex-1 min-w-0">
-                      <label className="text-[10px] text-muted-foreground">{t('port')}</label>
-                      <Select value={selectedPort} onValueChange={setSelectedPort}>
-                        <SelectTrigger className="h-7 text-xs">
-                          <SelectValue placeholder={t('selectPort')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ports.map((p) => (
-                            <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>
-                          ))}
-                          {ports.length === 0 && (
-                            <SelectItem value="_none" disabled>{t('selectPort')}</SelectItem>
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="w-20 shrink-0">
-                      <label className="text-[10px] text-muted-foreground">{t('baudRate')}</label>
-                      <Select value={baudRate.toString()} onValueChange={(v) => setBaudRate(parseInt(v))}>
-                        <SelectTrigger className="h-7 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {[9600, 19200, 38400, 57600, 115200].map((b) => (
-                            <SelectItem key={b} value={b.toString()}>{b}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
+                // La conexion se hace en un solo lugar: la barra superior,
+                // visible desde cualquier pestana.
+                <div className="bg-background border rounded-lg px-2 py-1.5 flex items-center gap-1.5">
+                  <WifiOff className="h-3 w-3 text-muted-foreground shrink-0" />
+                  <span className="text-[11px] text-muted-foreground flex-1">{t('disconnected') || 'Sin conexion'}</span>
                   <Button
-                    className="w-full h-7"
                     size="sm"
-                    onClick={handleConnect}
+                    className="h-6 px-2 text-[10px] shrink-0"
+                    onClick={() => useAppStore.getState().setConnectPopoverOpen(true)}
                   >
                     {t('connect')}
                   </Button>

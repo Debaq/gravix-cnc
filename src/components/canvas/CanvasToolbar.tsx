@@ -5,7 +5,6 @@ import { useCanvasStore, GEOMETRIC_SNAP_KINDS } from '@/stores/useCanvasStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import { useAppStore } from '@/stores/useAppStore'
 import { GCodeGenerator } from '@/lib/gcode-generator'
-import { buildProgram } from '@/lib/build-program'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -27,7 +26,7 @@ import {
   Copy,
   ChevronUp,
   ChevronDown,
-  Cog,
+  ArrowRight,
   Loader2,
   AlignStartVertical,
   AlignCenterVertical,
@@ -196,9 +195,9 @@ export function CanvasToolbar() {
   const hasSelection = !!selectedElementId
   const hasMultipleSelection = isGroupSelection || selectedElements.length > 1
 
-  const handleGenerate = async () => {
-    if (await buildProgram(cm.getJobsForGCode())) setWorkspace('cam')
-  }
+  // Generar vive solo en CAM, donde se revisan las operaciones antes. Desde
+  // el lienzo este boton lleva ahi; antes generaba saltandose esa revision.
+  const goToCAM = () => setWorkspace('cam')
 
   const cols = toolbarColumns
   const compact = cols === 1
@@ -652,19 +651,13 @@ export function CanvasToolbar() {
               variant="default"
               size="icon"
               className={compact ? 'h-7 w-7' : 'h-8 w-8'}
-              onClick={handleGenerate}
-              disabled={generating}
-              aria-busy={generating}
+              onClick={goToCAM}
             >
-              {generating ? (
-                <Loader2 className={`animate-spin ${compact ? 'h-3.5 w-3.5' : 'h-4 w-4'}`} />
-              ) : (
-                <Cog className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
-              )}
+              <ArrowRight className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="right">
-            {generating ? tg('generating') : tg('generate')}
+            Preparar el corte (CAM)
           </TooltipContent>
         </Tooltip>,
       ],
