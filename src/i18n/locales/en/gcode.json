@@ -71,5 +71,11 @@
     "overlapTooBig": "Overlap must be smaller than the tile size",
     "export": "Export",
     "exporting": "Exporting..."
-  }
+  },
+  "cutNow": "Cut now",
+  "cutNowSilhouette": "Cut on Silhouette",
+  "cutNowNeedsConnection": "Connect the machine to cut",
+  "addToQueue": "Add to workflow (multi-step)",
+  "cutStarted": "Job sent to the machine",
+  "regenerateFirst": "The design changed: generate again before cutting"
 }

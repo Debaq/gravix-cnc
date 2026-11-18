@@ -71,5 +71,11 @@
     "overlapTooBig": "El solape debe ser menor que el tamaño del tile",
     "export": "Exportar",
     "exporting": "Exportando..."
-  }
+  },
+  "cutNow": "Cortar ahora",
+  "cutNowSilhouette": "Cortar en Silhouette",
+  "cutNowNeedsConnection": "Conecta la maquina para cortar",
+  "addToQueue": "Agregar al flujo de trabajo (varios pasos)",
+  "cutStarted": "Trabajo enviado a la maquina",
+  "regenerateFirst": "El diseno cambio: genera de nuevo antes de cortar"
 }

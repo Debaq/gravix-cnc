@@ -390,13 +390,18 @@ export function MacrosWorkflowPanel() {
     }
   }, [workflowRunning, currentStepIndex, connected, steps, setStepStatus, advanceStep, addConsoleLine, setActiveGCode, clearActiveGCode, serial])
 
-  // Detener envio si se para el workflow
+  // Detener el envio cuando SE PARA el workflow (transicion de corriendo a
+  // parado). Antes cancelaba cualquier envio mientras no hubiera workflow
+  // activo, asi que el Test, el perimetro o un corte directo se abortaban
+  // solos apenas arrancaban con esta pestana abierta.
+  const wasRunningRef = useRef(false)
   useEffect(() => {
     if (!workflowRunning) {
       stepInitiatedRef.current = -1
-      if (sending) serial.cancelSend()
+      if (wasRunningRef.current && useSerialStore.getState().sending) serial.cancelSend()
     }
-  }, [workflowRunning, sending, serial])
+    wasRunningRef.current = workflowRunning
+  }, [workflowRunning, serial])
 
   // Detener workflow si se pierde conexion
   useEffect(() => {

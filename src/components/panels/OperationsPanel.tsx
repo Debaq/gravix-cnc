@@ -37,7 +37,7 @@ import {
   Download,
   Square,
   ListPlus,
-  Scan,
+  Play,
   GripVertical,
   Box,
   ChevronDown,
@@ -521,6 +521,25 @@ function GenerateActions() {
     setWorkspace('cnc')
   }
 
+  // Camino directo: un trabajo, una maquina. Envia el programa y pasa a
+  // Control para seguirlo. El workflow queda para trabajos de varios pasos.
+  const cutOnSilhouette = hasCutterOps && !connected
+  const handleCutNow = () => {
+    if (cutOnSilhouette) {
+      openModal('silhouette')
+      return
+    }
+    if (!gcodeGenerated || !connected) return
+    if (gcodeNeedsRegeneration) {
+      toast.warning(t('regenerateFirst'))
+      return
+    }
+    useWorkflowStore.getState().setActiveGCode(`G-Code (${gcodeLines} ${t('lines')})`, gcode)
+    serial.sendGCode(gcode)
+    addConsoleLine(t('cutStarted'))
+    setWorkspace('cnc')
+  }
+
   return (
     <div className="space-y-2">
       {/* Error banner */}
@@ -584,19 +603,37 @@ function GenerateActions() {
             <span className="truncate">{t('stop')}</span>
           </Button>
         ) : (
-          <Button variant="outline" size="sm" className="flex-1 min-w-0 gap-1 truncate" onClick={handleSendToWorkflow} disabled={!gcodeGenerated}>
-            <ListPlus className="h-3 w-3 shrink-0" />
-            <span className="truncate">{t('sendToWorkflow')}</span>
+          <Button
+            size="sm"
+            className="flex-1 min-w-0 gap-1 truncate"
+            onClick={handleCutNow}
+            disabled={cutOnSilhouette ? hasErrors : !gcodeGenerated || !connected}
+            title={cutOnSilhouette
+              ? t('cutNowSilhouette')
+              : !connected ? t('cutNowNeedsConnection') : gcodeNeedsRegeneration ? t('regenerateFirst') : t('cutNow')}
+          >
+            {cutOnSilhouette ? <Scissors className="h-3 w-3 shrink-0" /> : <Play className="h-3 w-3 shrink-0" />}
+            <span className="truncate">{cutOnSilhouette ? t('cutNowSilhouette') : t('cutNow')}</span>
           </Button>
         )}
-        {hasCutterOps && (
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          onClick={handleSendToWorkflow}
+          disabled={!gcodeGenerated || sending}
+          title={t('addToQueue')}
+        >
+          <ListPlus className="h-3 w-3" />
+        </Button>
+        {hasCutterOps && !cutOnSilhouette && (
           <Button
             variant="outline"
             size="icon"
             className="h-8 w-8 shrink-0"
             onClick={() => openModal('silhouette')}
             disabled={hasErrors}
-            title="Enviar a Silhouette"
+            title={t('cutNowSilhouette')}
           >
             <Scissors className="h-3 w-3" />
           </Button>
