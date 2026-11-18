@@ -21,6 +21,7 @@ import { parseStatusReport, parseParserState } from '@/lib/grbl-diagnostics'
 import type { GrblData } from '@/lib/generated/GrblData'
 import type { SendProgress } from '@/lib/generated/SendProgress'
 import type { RealtimeCmd } from '@/lib/generated/RealtimeCmd'
+import { normalizeGCode } from '@/lib/resume-job'
 
 // Estados en los que la máquina no puede aceptar un programa nuevo.
 // Arrancar un job en Alarm o Hold es la vía rápida a un choque o a un job que
@@ -93,6 +94,7 @@ function setupSerialListeners(): Promise<() => void> {
       const { setSendProgress, setSending } = useSerialStore.getState()
       setSending(true)
       setSendProgress(payload.percent)
+      useSerialStore.getState().setLastJobLine(payload.current, payload.total)
       const wf = useWorkflowStore.getState()
       if (wf.activeGCode) {
         wf.setActiveGCodeLine(payload.current)
@@ -108,6 +110,8 @@ function setupSerialListeners(): Promise<() => void> {
       setLastSendResult(result ?? 'error')
       setSending(false)
       if (result === 'done') {
+        // Terminado: no queda nada que reanudar
+        useSerialStore.getState().setLastJob(null)
         setSendProgress(100)
         addConsoleLine('Envio de G-code completado')
       } else {
@@ -270,6 +274,10 @@ export function useSerial() {
     }
     try {
       useSerialStore.getState().setLastSendResult(null)
+      // Solo los programas largos se ofrecen para reanudar: un pulso de
+      // prueba o un "ir a posicion" no tienen nada que retomar.
+      const total = normalizeGCode(gcode).length
+      useSerialStore.getState().setLastJob(total >= 30 ? { gcode, line: 0, total } : null)
       store.setSending(true)
       store.setSendProgress(0)
       // El backend valida la envolvente antes del primer byte y rechaza el job
@@ -359,6 +367,42 @@ export function useSerial() {
     }
   }, [sendRealtime, isLocal, store, addConsoleLine])
 
+  // Pausa de verdad: feed hold y, una vez en Hold, se apaga el husillo con el
+  // "spindle stop override" de GRBL. Al reanudar (~) el propio GRBL lo vuelve
+  // a encender y espera antes de seguir. Solo `!` dejaba la fresa girando
+  // clavada en el material. (En modo laser GRBL apaga el haz solo.)
+  const pause = useCallback(async () => {
+    await sendRealtime('feed-hold')
+    if (activeDialect() === 'marlin') return
+    setTimeout(async () => {
+      if (useSerialStore.getState().machineState !== 'Hold') return
+      try {
+        await tauriInvoke('serial_send', { command: String.fromCharCode(0x9e) })
+      } catch { /* sin override de husillo: queda el hold */ }
+    }, 700)
+    addConsoleLine('Pausa: feed hold + husillo detenido')
+  }, [sendRealtime, addConsoleLine])
+
+  // Overrides en tiempo real de GRBL 1.1 (no pasan por la cola)
+  const override = useCallback(async (
+    kind: 'feed' | 'rapid' | 'spindle',
+    action: 'reset' | 'up' | 'down' | 'half' | 'quarter',
+  ) => {
+    if (!isLocal || !store.connected || activeDialect() === 'marlin') return
+    const table: Record<string, Partial<Record<typeof action, number>>> = {
+      feed: { reset: 0x90, up: 0x91, down: 0x92 },
+      rapid: { reset: 0x95, half: 0x96, quarter: 0x97 },
+      spindle: { reset: 0x99, up: 0x9a, down: 0x9b },
+    }
+    const byte = table[kind][action]
+    if (byte === undefined) return
+    try {
+      await tauriInvoke('serial_send', { command: String.fromCharCode(byte) })
+    } catch (err) {
+      addConsoleLine(`Error override: ${err}`)
+    }
+  }, [isLocal, store.connected, addConsoleLine])
+
   const requestStatus = useCallback(() => sendRealtime('status-report'), [sendRealtime])
 
   // Con un job corriendo, un M5 por la cola espera detras de todo lo que el
@@ -399,6 +443,8 @@ export function useSerial() {
   }, [sendCommand])
 
   return {
+    pause,
+    override,
     connected: store.connected,
     port: store.port,
     baudRate: store.baudRate,

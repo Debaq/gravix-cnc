@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSerialStore } from '@/stores/useSerialStore'
 import { useWorkflowStore } from '@/stores/useWorkflowStore'
 import { useAppStore } from '@/stores/useAppStore'
 import { useSerial } from '@/hooks/useSerial'
+import { useCAMStore } from '@/stores/useCAMStore'
+import { buildResumeProgram, normalizeGCode, suggestResumeLine } from '@/lib/resume-job'
 import { cancelReconnect, RECONNECT_MAX_ATTEMPTS } from '@/lib/serial-reconnect'
 import { useKeyboardJog } from '@/hooks/useKeyboardJog'
 import { useCanvasStore } from '@/stores/useCanvasStore'
@@ -30,6 +32,7 @@ import {
   ChevronDown,
   Target,
   Play,
+  Pause,
   Send,
   Wifi,
   WifiOff,
@@ -77,6 +80,65 @@ const STATE_COLORS: Record<string, string> = {
   Jog: 'bg-indigo-500',
 }
 
+
+/**
+ * Ofrece retomar un trabajo que se corto (error, alarma, parada, cable).
+ * Propone una linea de reinicio algo antes de la ultima acusada, sobre un
+ * movimiento rapido, y deja corregirla a mano.
+ */
+function ResumeJobBar() {
+  const serial = useSerial()
+  const lastJob = useSerialStore((s) => s.lastJob)
+  const result = useSerialStore((s) => s.lastSendResult)
+  const sending = useSerialStore((s) => s.sending)
+  const connected = useSerialStore((s) => s.connected)
+  const [line, setLine] = useState<number | null>(null)
+
+  const lines = useMemo(() => (lastJob ? normalizeGCode(lastJob.gcode) : []), [lastJob])
+  const suggested = useMemo(
+    () => (lastJob ? suggestResumeLine(lines, lastJob.line) : 0),
+    [lastJob, lines],
+  )
+
+  if (!lastJob || sending || result === null || result === 'done' || lastJob.line <= 0) return null
+  const from = line ?? suggested
+
+  const handleResume = () => {
+    const { program, position } = buildResumeProgram(lastJob.gcode, from, useCAMStore.getState().setup.safeZ)
+    const pos = `X${position.x ?? '?'} Y${position.y ?? '?'} Z${position.z ?? '?'}`
+    useAppStore.getState().addConsoleLine(`Reanudando desde la linea ${from + 1}: vuelve a ${pos}`)
+    setLine(null)
+    serial.sendGCode(program)
+  }
+
+  return (
+    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 space-y-1.5">
+      <p className="text-[11px] text-amber-200">
+        Trabajo interrumpido en la linea {lastJob.line} de {lastJob.total} ({result}).
+        Verifica que el origen de pieza no se haya perdido antes de retomar.
+      </p>
+      <div className="flex items-center gap-1">
+        <span className="text-[10px] text-muted-foreground">Desde linea</span>
+        <Input
+          type="number"
+          min={1}
+          max={lastJob.total}
+          value={from + 1}
+          onChange={(e) => setLine(Math.max(0, Math.min(lastJob.total - 1, (parseInt(e.target.value) || 1) - 1)))}
+          className="h-6 w-20 text-xs"
+        />
+        <Button size="sm" className="h-6 text-xs flex-1" onClick={handleResume} disabled={!connected}>
+          Reanudar trabajo
+        </Button>
+        <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => useSerialStore.getState().setLastJob(null)}>
+          Descartar
+        </Button>
+      </div>
+      <p className="truncate font-mono text-[10px] text-muted-foreground">{lines[from]}</p>
+    </div>
+  )
+}
+
 export function ControlPanel() {
   const { t } = useTranslation('serial')
   const serial = useSerial()
@@ -105,6 +167,7 @@ export function ControlPanel() {
     laserTestDuration,
     lastError,
     clearLastError,
+    sending,
   } = useSerialStore()
 
   const { consoleLines, addConsoleLine, language } = useAppStore()
@@ -498,12 +561,26 @@ export function ControlPanel() {
                     <span className={`text-sm font-semibold font-mono ${simulating ? 'text-cyan-300' : ''}`}>
                       {simulating ? `${simulatedFeed}` : `${diagnostics.feedOverride}%`}
                     </span>
+                    {connected && !simulating && (
+                      <div className="mt-1 flex justify-center gap-1">
+                        <Button variant="outline" size="sm" className="h-5 px-1.5 text-[10px]" title="Avance -10%" onClick={() => serial.override('feed', 'down')}>-10</Button>
+                        <Button variant="outline" size="sm" className="h-5 px-1.5 text-[10px]" title="Avance al 100%" onClick={() => serial.override('feed', 'reset')}>100</Button>
+                        <Button variant="outline" size="sm" className="h-5 px-1.5 text-[10px]" title="Avance +10%" onClick={() => serial.override('feed', 'up')}>+10</Button>
+                      </div>
+                    )}
                   </div>
                   <div className={`rounded-md px-2 py-1.5 text-center ${simulating ? 'bg-cyan-500/10 border border-cyan-500/20' : 'bg-muted'}`}>
                     <span className="text-[10px] text-muted-foreground block">Spindle</span>
                     <span className={`text-sm font-semibold font-mono ${simulating ? 'text-cyan-300' : ''}`}>
                       {simulating ? `${simulatedSpindle}` : `${diagnostics.spindleOverride}%`}
                     </span>
+                    {connected && !simulating && (
+                      <div className="mt-1 flex justify-center gap-1">
+                        <Button variant="outline" size="sm" className="h-5 px-1.5 text-[10px]" title="Husillo/laser -10%" onClick={() => serial.override('spindle', 'down')}>-10</Button>
+                        <Button variant="outline" size="sm" className="h-5 px-1.5 text-[10px]" title="Husillo/laser al 100%" onClick={() => serial.override('spindle', 'reset')}>100</Button>
+                        <Button variant="outline" size="sm" className="h-5 px-1.5 text-[10px]" title="Husillo/laser +10%" onClick={() => serial.override('spindle', 'up')}>+10</Button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -553,9 +630,19 @@ export function ControlPanel() {
                       </div>
                       <div className="rounded bg-muted px-1 py-1">
                         <span className="block text-[9px] text-muted-foreground">Rapid</span>
-                        <span className="font-mono text-[11px] tabular-nums">
+                        <button
+                          type="button"
+                          className="font-mono text-[11px] tabular-nums underline decoration-dotted"
+                          title="Rapidos: clic para alternar 100% / 50% / 25%"
+                          onClick={() =>
+                            serial.override(
+                              'rapid',
+                              diagnostics.rapidOverride >= 100 ? 'half' : diagnostics.rapidOverride >= 50 ? 'quarter' : 'reset',
+                            )
+                          }
+                        >
                           {diagnostics.rapidOverride}%
-                        </span>
+                        </button>
                       </div>
                     </div>
                     {parserState && (
@@ -585,12 +672,18 @@ export function ControlPanel() {
                     <OctagonX className="h-3 w-3 shrink-0" /> <span className="truncate">{t('stop')}</span>
                   </Button>
                 </div>
-                <div className="grid grid-cols-4 gap-1">
+                <div className="grid grid-cols-2 gap-1">
+                  <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={serial.pause} disabled={!connected || !sending} title="Pausa: detiene el avance y apaga el husillo. Reanudar lo vuelve a encender.">
+                    <Pause className="h-3 w-3 shrink-0" /> <span className="truncate">Pausa</span>
+                  </Button>
+                  <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={serial.resume} disabled={!connected} title="Reanuda tras una pausa (enciende el husillo y espera antes de seguir)">
+                    <Play className="h-3 w-3 shrink-0" /> <span className="truncate">{t('resume')}</span>
+                  </Button>
+                </div>
+                <ResumeJobBar />
+                <div className="grid grid-cols-3 gap-1">
                   <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={() => serial.setZero()} disabled={!connected} title={t('setZero') || 'Fijar origen actual (G10 L20 P1 X0 Y0 Z0)'}>
                     <Target className="h-3 w-3 shrink-0" /> <span className="truncate">{t('setZero') || 'Set Zero'}</span>
-                  </Button>
-                  <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={serial.resume} disabled={!connected}>
-                    <Play className="h-3 w-3 shrink-0" /> <span className="truncate">{t('resume')}</span>
                   </Button>
                   <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={handleLaserFrame} disabled={!connected} title="Laser Frame - Recorrer perímetro del diseño">
                     <Frame className="h-3 w-3 shrink-0" /> <span className="truncate">Frame</span>

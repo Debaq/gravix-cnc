@@ -65,6 +65,10 @@ interface SerialState {
   /** Como termino el ultimo envio: done | cancelled | error | alarm | reset | timeout. */
   lastSendResult: string | null
   setLastSendResult: (result: string | null) => void
+  /** Ultimo programa largo enviado y hasta donde llego (para reanudarlo). */
+  lastJob: { gcode: string; line: number; total: number } | null
+  setLastJob: (job: { gcode: string; line: number; total: number } | null) => void
+  setLastJobLine: (line: number, total: number) => void
   setSendProgress: (progress: number) => void
 }
 
@@ -146,5 +150,9 @@ export const useSerialStore = create<SerialState>((set) => ({
   setSending: (sending) => set({ sending }),
   lastSendResult: null,
   setLastSendResult: (lastSendResult) => set({ lastSendResult }),
+  lastJob: null,
+  setLastJob: (lastJob) => set({ lastJob }),
+  setLastJobLine: (line, total) =>
+    set((s) => (s.lastJob ? { lastJob: { ...s.lastJob, line, total } } : {})),
   setSendProgress: (progress) => set({ sendProgress: progress }),
 }))
