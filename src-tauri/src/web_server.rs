@@ -22,7 +22,6 @@ use axum::{
 use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 
 // --- Request types ---
@@ -197,7 +196,13 @@ async fn process_image_handler(
 async fn read_pixels_handler(
     axum::extract::Query(q): axum::extract::Query<PixelsQuery>,
 ) -> Result<Vec<u8>, (StatusCode, String)> {
-    std::fs::read(&q.path).map_err(|e| app_err(format!("Error leyendo pixeles: {}", e)))
+    // Solo el archivo que escribe `process_image`: con la ruta libre este
+    // endpoint leia cualquier archivo del equipo desde la red.
+    let allowed = std::env::temp_dir().join("grbl_raster_pixels.bin");
+    if std::path::Path::new(&q.path) != allowed.as_path() {
+        return Err((StatusCode::FORBIDDEN, "Ruta no permitida".to_string()));
+    }
+    std::fs::read(&allowed).map_err(|e| app_err(format!("Error leyendo pixeles: {}", e)))
 }
 
 // --- Serial handlers ---
@@ -333,11 +338,21 @@ async fn require_local(
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    if addr.ip().is_loopback() {
-        Ok(next.run(request).await)
-    } else {
-        Err(StatusCode::FORBIDDEN)
+    if !addr.ip().is_loopback() {
+        return Err(StatusCode::FORBIDDEN);
     }
+    // Loopback no alcanza: una pagina web cualquiera abierta en este equipo
+    // tambien llega desde 127.0.0.1. Si el navegador declara un Origin, tiene
+    // que ser el del propio servidor.
+    let headers = request.headers();
+    if let Some(origin) = headers.get("origin").and_then(|v| v.to_str().ok()) {
+        let host = headers.get("host").and_then(|v| v.to_str().ok()).unwrap_or("");
+        let origin_host = origin.split("://").nth(1).unwrap_or("");
+        if origin_host != host {
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+    Ok(next.run(request).await)
 }
 
 // --- Endpoint de rol ---
@@ -372,14 +387,25 @@ fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/materials/{id}", delete(delete_material_handler))
         .route("/auth", post(auth_handler))
-        .route("/projects/save", post(save_project_handler))
-        .route("/projects/load", post(load_project_handler))
+        // Guardar y abrir por ruta de disco es solo para el propio equipo: desde
+        // la red era lectura y escritura arbitraria de archivos.
+        .route(
+            "/projects/save",
+            post(save_project_handler).layer(middleware::from_fn(require_local)),
+        )
+        .route(
+            "/projects/load",
+            post(load_project_handler).layer(middleware::from_fn(require_local)),
+        )
         .route("/image/process", post(process_image_handler))
         .route("/image/pixels", get(read_pixels_handler))
         .route("/serial/status", get(serial_status_handler))
         .nest("/serial", serial_local)
         .route("/jobs", get(list_jobs_handler).post(create_job_handler))
-        .route("/jobs/{id}", delete(delete_job_handler))
+        .route(
+            "/jobs/{id}",
+            delete(delete_job_handler).layer(middleware::from_fn(require_local)),
+        )
         .route(
             "/jobs/{id}/approve",
             post(approve_job_handler).layer(middleware::from_fn(require_local)),
@@ -397,7 +423,6 @@ fn build_router(state: Arc<AppState>) -> Router {
             ServeDir::new(&dist_dir)
                 .not_found_service(ServeFile::new(dist_dir.join("index.html"))),
         )
-        .layer(CorsLayer::permissive())
         .with_state(state)
 }
 
