@@ -137,6 +137,43 @@ export class GCodeGenerator {
     this.zShift = Number.isFinite(dz) ? dz : 0
   }
 
+  /** Donde cae la imagen (raster / photo v-carve) en coordenadas de maquina. */
+  private rasterPlacement = { x0: 0, yBase: 0, flipY: false }
+
+  /**
+   * La imagen se genera con su esquina inferior izquierda en (0,0) y Y hacia
+   * arriba, que solo coincide con la maquina cuando el origen es
+   * abajo-izquierda. Con origen al centro, arriba o a la derecha hay que
+   * correrla (y con Y hacia abajo, espejarla) o el grabado sale fuera del
+   * area de trabajo.
+   */
+  setRasterPlacement(workArea: { width: number; height: number; origin: string }) {
+    const { width, height, origin } = workArea
+    const fx = origin.endsWith('right') ? 1 : origin === 'center' || origin.endsWith('center') ? 0.5 : 0
+    const bottom = origin.startsWith('bottom')
+    this.rasterPlacement = {
+      x0: -fx * width,
+      // Con origen arriba o al centro la Y de maquina crece hacia abajo
+      flipY: !bottom,
+      yBase: bottom ? 0 : origin.startsWith('top') ? height : height / 2,
+    }
+  }
+
+  private applyRasterPlacement(lines: string[]): string[] {
+    const { x0, yBase, flipY } = this.rasterPlacement
+    if (x0 === 0 && !flipY) return lines
+    return lines.map((line) => {
+      const semi = line.indexOf(';')
+      const code = semi >= 0 ? line.slice(0, semi) : line
+      const comment = semi >= 0 ? line.slice(semi) : ''
+      if (!code.trim() || /return to origin/i.test(comment)) return line
+      return code
+        .replace(/\bX(-?\d*\.?\d+)/gi, (_, n) => `X${(parseFloat(n) + x0).toFixed(3)}`)
+        .replace(/\bY(-?\d*\.?\d+)/gi, (_, n) => `Y${(flipY ? yBase - parseFloat(n) : parseFloat(n)).toFixed(3)}`)
+        + comment
+    })
+  }
+
   private applyZShift(lines: string[]): string[] {
     if (this.zShift === 0) return lines
     const dz = this.zShift
@@ -277,14 +314,14 @@ export class GCodeGenerator {
     const rasterJob = jobs.find(j => j.config.operationType === 'laser' && j.config.laserMode === 'raster')
     if (rasterJob && rasterData) {
       lines.push(...await this.generateLaserRaster(rasterData, rasterJob.config))
-      return lines.join('\n')
+      return this.applyRasterPlacement(lines).join('\n')
     }
 
     // Photo V-Carve: tampoco sale de la geometria del lienzo, sale de la imagen
     const photoJob = jobs.find(j => j.config.operationType === 'cnc' && j.config.workType === 'photoVcarve')
     if (photoJob && rasterData) {
       lines.push(...await this.generatePhotoVCarveJob(rasterData, photoJob.config))
-      return this.applyZShift(lines).join('\n')
+      return this.applyZShift(this.applyRasterPlacement(lines)).join('\n')
     }
 
     // Filter out jobs with no paths

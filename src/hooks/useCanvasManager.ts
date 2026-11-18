@@ -2657,6 +2657,19 @@ export function useCanvasManager() {
     // pelea con las coordenadas relativas del grupo
     canvas.discardActiveObject()
 
+    // El nesting trabaja en un marco propio: esquina inferior izquierda de la
+    // hoja en (0,0) y Y hacia arriba, sea cual sea el origen de maquina. Con
+    // las coordenadas de maquina, un origen al centro o a la derecha dejaba
+    // las piezas fuera de la hoja y uno arriba invertia el sentido de giro.
+    const toBin = (px: number, py: number): Point2D => ({
+      x: (px - WORK_AREA_PADDING) / PIXELS_PER_MM,
+      y: wa.height - (py - WORK_AREA_PADDING) / PIXELS_PER_MM,
+    })
+    const fromBin = (x: number, y: number): Point2D => ({
+      x: WORK_AREA_PADDING + x * PIXELS_PER_MM,
+      y: WORK_AREA_PADDING + (wa.height - y) * PIXELS_PER_MM,
+    })
+
     const byId = new Map<string, FabricObject>()
     const pieces: NestingPiece[] = []
 
@@ -2672,7 +2685,7 @@ export function useCanvasManager() {
 
       pieces.push({
         id: key,
-        outline: canvasPts.map((p) => canvasToMm(p.x, p.y, wa)),
+        outline: canvasPts.map((p) => toBin(p.x, p.y)),
         currentAngleDeg: obj.angle ?? 0,
       })
     }
@@ -2699,7 +2712,7 @@ export function useCanvasManager() {
       }
       obj.setCoords()
 
-      const target = mmToCanvas(placement.centerX, placement.centerY, wa)
+      const target = fromBin(placement.centerX, placement.centerY)
       obj.setPositionByOrigin(new Point(target.x, target.y), 'center', 'center')
       obj.setCoords()
     }

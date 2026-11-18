@@ -299,6 +299,7 @@ export function createGenerator(prep: Pick<PreparedProgram, 'safeZ' | 'zShift'>)
   const generator = new GCodeGenerator()
   generator.setSafeZ(prep.safeZ)
   generator.setZShift(prep.zShift)
+  generator.setRasterPlacement(useCanvasStore.getState().workArea)
   return generator
 }
 
