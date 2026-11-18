@@ -1,3 +1,4 @@
+import { useMachineStore } from '@/stores/useMachineStore'
 import { useState, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/stores/useAppStore'
@@ -149,6 +150,17 @@ export function ProjectsScreen() {
   const [newType, setNewType] = useState<OperationType>('cnc')
   const [newWidth, setNewWidth] = useState(300)
   const [newHeight, setNewHeight] = useState(300)
+
+  // Un proyecto nuevo arranca con la hoja y el origen de la maquina activa:
+  // antes siempre proponia 300x300 con origen abajo-izquierda, fuera cual
+  // fuera la maquina.
+  useEffect(() => {
+    if (!showNewDialog) return
+    const machine = useMachineStore.getState().getActive()
+    if (!machine) return
+    setNewWidth(machine.workArea.width)
+    setNewHeight(machine.workArea.height)
+  }, [showNewDialog])
   const [newTool, setNewTool] = useState('')
   const [newMaterial, setNewMaterial] = useState('')
 
@@ -192,7 +204,11 @@ export function ProjectsScreen() {
     // Configurar proyecto
     setProjectName(name)
     setProjectOperationType(newType)
-    setWorkArea({ width: newWidth, height: newHeight, origin: 'bottom-left' })
+    setWorkArea({
+      width: newWidth,
+      height: newHeight,
+      origin: useMachineStore.getState().getActive()?.workArea.origin ?? 'bottom-left',
+    })
     useCanvasStore.setState({ printCut: DEFAULT_PRINT_CUT })
     // La herramienta y el material elegidos traen sus valores (presion,
     // velocidad, pasadas...); el material va despues porque manda

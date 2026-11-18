@@ -155,10 +155,31 @@ function App() {
   const activeProjectPath = useAppStore((s) => s.activeProjectPath)
 
   // Sincroniza workArea del canvas con la máquina activa.
+  // La hoja es del proyecto. Sin proyecto abierto, la maquina activa da el
+  // tamano por defecto; con uno abierto, cambiar de maquina no la toca (antes
+  // la pisaba sin aviso) y solo avisa si el proyecto no entra o si el origen
+  // de la maquina es otro.
   useEffect(() => {
     if (!activeMachineId) return
     const active = useMachineStore.getState().getActive()
-    if (active) setWorkArea(active.workArea)
+    if (!active) return
+    const { currentView: view } = useAppStore.getState()
+    if (view !== 'workspace') {
+      setWorkArea(active.workArea)
+      return
+    }
+    const sheet = useCanvasStore.getState().workArea
+    const m = active.workArea
+    if (sheet.width > m.width + 0.01 || sheet.height > m.height + 0.01) {
+      toast.warning(`La hoja del proyecto no entra en "${active.name}"`, {
+        detail: `Hoja ${sheet.width}x${sheet.height} mm, maquina ${m.width}x${m.height} mm. Ajusta la hoja o divide el trabajo en tiles.`,
+      })
+    }
+    if (sheet.origin !== m.origin) {
+      toast.warning(`El origen del proyecto (${sheet.origin}) no es el de "${active.name}" (${m.origin})`, {
+        detail: 'Cambialo en Area de trabajo si la pieza se va a cortar en esta maquina.',
+      })
+    }
   }, [activeMachineId, setWorkArea])
 
   useEffect(() => {
