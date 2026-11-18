@@ -18,7 +18,6 @@ import { parseGCode } from '@/lib/gcode-parser'
 import { withGenerating } from '@/lib/gcode-run'
 import { toast } from '@/lib/toast'
 import { validateToolVsPaths } from '@/lib/geometry'
-import { generateBoundaryGCode, computeBBox } from '@/components/modals/SetupWizardModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -509,18 +508,6 @@ function GenerateActions() {
     addConsoleLine('G-code copiado al portapapeles')
   }
 
-  const handleDryRun = () => {
-    if (!connected || sending) return
-    const jobs = getJobsForGCode()
-    const elementBBox = computeBBox(jobs)
-    const { workArea } = useCanvasStore.getState()
-    const bbox = elementBBox ?? { minX: 0, minY: 0, maxX: workArea.width, maxY: workArea.height }
-    const isLaser = globalConfig.operationType === 'laser'
-    const dryGCode = generateBoundaryGCode(bbox, isLaser ? 'laser' : 'cnc', 5, 10)
-    serial.sendGCode(dryGCode)
-    addConsoleLine(elementBBox ? t('dryRunStarted') : t('dryRunWorkArea'))
-  }
-
   const handleSendToWorkflow = () => {
     if (!gcodeGenerated) return
     addStep({
@@ -602,9 +589,6 @@ function GenerateActions() {
             <span className="truncate">{t('sendToWorkflow')}</span>
           </Button>
         )}
-        <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={handleDryRun} disabled={!connected || sending} title={t('dryRun')}>
-          <Scan className="h-3 w-3" />
-        </Button>
         {hasCutterOps && (
           <Button
             variant="outline"

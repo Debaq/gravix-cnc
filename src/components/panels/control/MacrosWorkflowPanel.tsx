@@ -1,3 +1,4 @@
+import { setupSafeZ } from '@/lib/perimeter'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useWorkflowStore } from '@/stores/useWorkflowStore'
@@ -43,7 +44,7 @@ import type { WorkflowStep } from '@/lib/types'
 function gotoProgram(x: number, y: number, z: number, isLaser: boolean): string {
   return isLaser
     ? ['G90', 'M5 S0', `G0 X${x} Y${y}`].join('\n')
-    : ['G90', 'G0 Z5', `G0 X${x} Y${y}`, `G0 Z${z}`].join('\n')
+    : ['G90', `G0 Z${setupSafeZ()}`, `G0 X${x} Y${y}`, `G0 Z${z}`].join('\n')
 }
 
 export function MacrosWorkflowPanel() {
@@ -236,7 +237,7 @@ export function MacrosWorkflowPanel() {
           if (isLaser) {
             return `${header}\nM5 S0\nG0 X${x} Y${y}`
           }
-          return `${header}\nG0 Z5\nG0 X${x} Y${y}\nG0 Z${z}`
+          return `${header}\nG0 Z${setupSafeZ()}\nG0 X${x} Y${y}\nG0 Z${z}`
         }
         case 'pause':
           return `${header}${step.data ? `\n; ${step.data}` : ''}`
@@ -820,7 +821,7 @@ export function MacrosWorkflowPanel() {
               const isLaser = operationType === 'laser'
               const preview = isLaser
                 ? `M5 S0\nG0 X${x} Y${y}`
-                : `G0 Z5\nG0 X${x} Y${y}\nG0 Z${z}`
+                : `G0 Z${setupSafeZ()}\nG0 X${x} Y${y}\nG0 Z${z}`
               return (
                 <>
                   <div>

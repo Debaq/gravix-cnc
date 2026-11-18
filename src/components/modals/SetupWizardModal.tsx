@@ -1,3 +1,4 @@
+import { computeBBox, generateBoundaryGCode, setupSafeZ, PERIMETER_LASER_POWER } from '@/lib/perimeter'
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/stores/useAppStore'
@@ -155,56 +156,6 @@ function PositionDisplay() {
 }
 
 // ─── Bounding box helper ───
-
-export function computeBBox(jobs: GCodeJob[]): { minX: number; minY: number; maxX: number; maxY: number } | null {
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-  let has = false
-  for (const job of jobs) {
-    for (const path of job.paths) {
-      for (const pt of path.points) {
-        minX = Math.min(minX, pt.x)
-        minY = Math.min(minY, pt.y)
-        maxX = Math.max(maxX, pt.x)
-        maxY = Math.max(maxY, pt.y)
-        has = true
-      }
-    }
-  }
-  return has ? { minX, minY, maxX, maxY } : null
-}
-
-// ─── Dry-run G-code generator ───
-
-export function generateBoundaryGCode(
-  bbox: { minX: number; minY: number; maxX: number; maxY: number },
-  mode: 'cnc' | 'laser',
-  safeZ: number,
-  laserTestPower: number,
-): string {
-  const { minX, minY, maxX, maxY } = bbox
-  const f = (n: number) => n.toFixed(2)
-  const lines: string[] = ['G90 G21']
-
-  if (mode === 'laser') {
-    lines.push(`G0 X${f(minX)} Y${f(minY)}`)
-    lines.push(`M4 S${laserTestPower}`)
-    lines.push(`G1 X${f(maxX)} Y${f(minY)} F1000`)
-    lines.push(`G1 X${f(maxX)} Y${f(maxY)} F1000`)
-    lines.push(`G1 X${f(minX)} Y${f(maxY)} F1000`)
-    lines.push(`G1 X${f(minX)} Y${f(minY)} F1000`)
-    lines.push('M5')
-  } else {
-    lines.push(`G0 Z${f(safeZ)}`)
-    lines.push(`G0 X${f(minX)} Y${f(minY)}`)
-    lines.push(`G0 X${f(maxX)} Y${f(minY)}`)
-    lines.push(`G0 X${f(maxX)} Y${f(maxY)}`)
-    lines.push(`G0 X${f(minX)} Y${f(maxY)}`)
-    lines.push(`G0 X${f(minX)} Y${f(minY)}`)
-  }
-
-  lines.push('G0 X0 Y0')
-  return lines.join('\n')
-}
 
 // ─── Main Wizard ───
 
@@ -391,7 +342,7 @@ export function SetupWizardModal() {
             // El probe establece Z al contacto, luego seteamos a cero y subimos
             setTimeout(async () => {
               await serial.sendCommand('G10 L20 P1 Z0')
-              await serial.sendCommand('G0 Z5')
+              await serial.sendCommand(`G0 Z${setupSafeZ()}`)
               addConsoleLine(t('zZeroSet'))
               markDone(3)
             }, 3000)
@@ -542,7 +493,7 @@ export function SetupWizardModal() {
             <Button
               className="w-full gap-1.5"
               onClick={async () => {
-                const gcode = generateBoundaryGCode(bbox, isLaser ? 'laser' : 'cnc', SAFE_Z, LASER_TEST_POWER)
+                const gcode = generateBoundaryGCode(bbox, isLaser ? 'laser' : 'cnc', setupSafeZ(), PERIMETER_LASER_POWER)
                 setDryRunning(true)
                 addConsoleLine('Iniciando prueba de area...')
                 try {

@@ -52,7 +52,6 @@ import { getClientRole } from '@/lib/client-role'
 import { useLicense } from '@/hooks/useLicense'
 import { getTrialDaysLeft, isTrialActive } from '@/lib/trial'
 import { GravixMark, GravixWordmark } from '@/components/brand/GravixLogo'
-import { computeBBox, generateBoundaryGCode } from '@/components/modals/SetupWizardModal'
 import type { Workspace } from '@/lib/types'
 
 export function Header() {
@@ -89,18 +88,6 @@ export function Header() {
   const serial = useSerial()
   const project = useProject()
   const cm = useCanvasManager()
-
-  const handleDryRun = useCallback(() => {
-    if (!connected || sending) return
-    const jobs = cm.getJobsForGCode()
-    const elementBBox = computeBBox(jobs)
-    const { workArea } = useCanvasStore.getState()
-    const bbox = elementBBox ?? { minX: 0, minY: 0, maxX: workArea.width, maxY: workArea.height }
-    const isLaser = globalConfig.operationType === 'laser'
-    const gcode = generateBoundaryGCode(bbox, isLaser ? 'laser' : 'cnc', 5, 10)
-    serial.sendGCode(gcode)
-    addConsoleLine(elementBBox ? 'Prueba de area iniciada' : 'Prueba de area iniciada (area de trabajo completa)')
-  }, [connected, sending, cm, globalConfig, serial, addConsoleLine])
 
   // Guardar: con proyecto activo escribe el .gravix; si no, cae al dialogo.
   const handleSave = useCallback(async () => {
@@ -368,18 +355,6 @@ export function Header() {
           title={t('setupWizard')}
         >
           <Wand2 className="h-4 w-4" />
-        </Button>
-
-        {/* Probar area */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className={`hover:bg-primary/80 ${connected ? 'text-primary-foreground' : 'text-primary-foreground/40'}`}
-          onClick={handleDryRun}
-          disabled={!connected || sending}
-          title={t('dryRun')}
-        >
-          <Play className="h-4 w-4" />
         </Button>
 
         {/* Red: solo icono */}

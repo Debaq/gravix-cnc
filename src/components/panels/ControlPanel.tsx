@@ -4,6 +4,9 @@ import { useSerialStore } from '@/stores/useSerialStore'
 import { useWorkflowStore } from '@/stores/useWorkflowStore'
 import { useAppStore } from '@/stores/useAppStore'
 import { useSerial } from '@/hooks/useSerial'
+import { useCanvasManager } from '@/hooks/useCanvasManager'
+import { perimeterProgram, setupSafeZ } from '@/lib/perimeter'
+import { JobQueuePanel } from '@/components/panels/JobQueuePanel'
 import { useCAMStore } from '@/stores/useCAMStore'
 import { buildResumeProgram, normalizeGCode, suggestResumeLine } from '@/lib/resume-job'
 import { cancelReconnect, RECONNECT_MAX_ATTEMPTS } from '@/lib/serial-reconnect'
@@ -244,66 +247,24 @@ export function ControlPanel() {
     }
   }
 
-  const handleLaserFrame = () => {
-    if (!connected) return
-
-    // Get design bounding box from Fabric canvas objects
-    const canvas = getSharedCanvas()
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-    let hasObjects = false
-
-    if (canvas) {
-      const objects = canvas.getObjects().filter((o: any) => !o.excludeFromExport && o.visible !== false)
-      for (const obj of objects) {
-        const br = obj.getBoundingRect()
-        if (!br) continue
-        hasObjects = true
-        if (br.left < minX) minX = br.left
-        if (br.top < minY) minY = br.top
-        if (br.left + br.width > maxX) maxX = br.left + br.width
-        if (br.top + br.height > maxY) maxY = br.top + br.height
-      }
-    }
-
-    if (!hasObjects) {
-      // Fallback: use work area
-      const wa = useCanvasStore.getState().workArea
-      minX = 0; minY = 0; maxX = wa.width; maxY = wa.height
-      addConsoleLine('Frame: sin objetos, usando área de trabajo completa')
-    }
-
-    // Convert canvas coords to mm (canvas Y is inverted)
-    const wa = useCanvasStore.getState().workArea
-    const x1 = Math.max(0, minX).toFixed(3)
-    const y1 = Math.max(0, wa.height - maxY).toFixed(3)
-    const x2 = Math.min(wa.width, maxX).toFixed(3)
-    const y2 = Math.min(wa.height, wa.height - minY).toFixed(3)
-
-    const feedRate = 1000
-    const framePower = 'S10' // Very low power for visibility
-
-    const gcode = [
-      '; Laser Frame - Bounding box preview',
-      'G90 G21',
-      'M5 S0',
-      `G0 X${x1} Y${y1}`,
-      `M4 ${framePower}`,
-      `G1 X${x2} Y${y1} F${feedRate}`,
-      `G1 X${x2} Y${y2} F${feedRate}`,
-      `G1 X${x1} Y${y2} F${feedRate}`,
-      `G1 X${x1} Y${y1} F${feedRate}`,
-      'M5 S0',
-      'G0 X0 Y0',
-    ].join('\n')
-
+  // Recorre la caja del diseno sin cortar, a la altura segura del setup
+  const { getJobsForGCode } = useCanvasManager()
+  const handlePerimeter = () => {
+    if (!connected || sending) return
+    const { gcode, bbox, usedWorkArea } = perimeterProgram(getJobsForGCode())
     serial.sendGCode(gcode)
-    addConsoleLine(`Frame: (${x1},${y1}) → (${x2},${y2})`)
+    const f = (n: number) => n.toFixed(1)
+    addConsoleLine(
+      `Recorrido de perimetro${usedWorkArea ? ' (hoja completa, no hay piezas)' : ''}: ` +
+      `X${f(bbox.minX)}..${f(bbox.maxX)} Y${f(bbox.minY)}..${f(bbox.maxY)}`,
+    )
   }
 
   const handleTestCut = () => {
     if (!connected) return
     const cfg = useCanvasStore.getState().globalConfig
     const size = 10 // 10mm square
+    const safeZ = setupSafeZ()
     const lines: string[] = ['G90', 'G21', '; Test cut/draw - 10mm square at work origin']
 
     if (cfg.operationType === 'laser') {
@@ -315,20 +276,20 @@ export function ControlPanel() {
         'M5 S0')
     } else if (cfg.operationType === 'plotter' || cfg.operationType === 'pencil') {
       const penZ = cfg.pressureZ ?? -1
-      lines.push(`G0 Z5`, `G0 X0 Y0`, `G1 Z${penZ} F${cfg.speed || 1000}`,
+      lines.push(`G0 Z${safeZ}`, `G0 X0 Y0`, `G1 Z${penZ} F${cfg.speed || 1000}`,
         `G1 X${size} Y0 F${cfg.speed || 1000}`, `G1 X${size} Y${size} F${cfg.speed || 1000}`,
         `G1 X0 Y${size} F${cfg.speed || 1000}`, `G1 X0 Y0 F${cfg.speed || 1000}`,
-        'G0 Z5')
+        `G0 Z${safeZ}`)
     } else {
       // CNC
       const depth = -Math.min(Math.abs(cfg.depthStep), 1)
       // Primero sube: el rapido en XY a la Z actual podia arrastrar la fresa
       // por la pieza o una mordaza.
-      lines.push(`G0 Z5`, `M3 S${cfg.spindleRPM}`, 'G4 P2', `G0 X0 Y0`,
+      lines.push(`G0 Z${safeZ}`, `M3 S${cfg.spindleRPM}`, 'G4 P2', `G0 X0 Y0`,
         `G1 Z${depth} F${cfg.plungeRate}`,
         `G1 X${size} Y0 F${cfg.feedRate}`, `G1 X${size} Y${size} F${cfg.feedRate}`,
         `G1 X0 Y${size} F${cfg.feedRate}`, `G1 X0 Y0 F${cfg.feedRate}`,
-        'G0 Z5', 'M5')
+        `G0 Z${safeZ}`, 'M5')
     }
 
     serial.sendGCode(lines.join('\n'))
@@ -339,7 +300,13 @@ export function ControlPanel() {
     <ResizablePanelGroup direction="horizontal" className="h-full">
       {/* ═══ COL 1: Macros + Workflow ═══ */}
       <ResizablePanel defaultSize={15} minSize={8} maxSize={25}>
-        <MacrosWorkflowPanel />
+        <div className="flex h-full flex-col min-h-0">
+          <div className="flex-1 min-h-0">
+            <MacrosWorkflowPanel />
+          </div>
+          {/* Trabajos que llegan desde otros equipos de la red */}
+          <JobQueuePanel />
+        </div>
       </ResizablePanel>
 
       <ResizableHandle withHandle />
@@ -685,8 +652,8 @@ export function ControlPanel() {
                   <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={() => serial.setZero()} disabled={!connected} title={t('setZero') || 'Fijar origen actual (G10 L20 P1 X0 Y0 Z0)'}>
                     <Target className="h-3 w-3 shrink-0" /> <span className="truncate">{t('setZero') || 'Set Zero'}</span>
                   </Button>
-                  <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={handleLaserFrame} disabled={!connected} title="Laser Frame - Recorrer perímetro del diseño">
-                    <Frame className="h-3 w-3 shrink-0" /> <span className="truncate">Frame</span>
+                  <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={handlePerimeter} disabled={!connected || sending} title="Recorre la caja del diseno sin cortar, a la altura segura del setup">
+                    <Frame className="h-3 w-3 shrink-0" /> <span className="truncate">Perimetro</span>
                   </Button>
                   <Button variant="outline" size="sm" className="text-xs gap-1 overflow-hidden" onClick={handleTestCut} disabled={!connected} title="Test Cut/Draw - Cuadrado 10mm con config actual">
                     <TestTube className="h-3 w-3 shrink-0" /> <span className="truncate">Test</span>

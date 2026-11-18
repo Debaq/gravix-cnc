@@ -2,6 +2,7 @@ import { useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useJobStore, type Job } from '@/stores/useJobStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
+import { useWorkflowStore } from '@/stores/useWorkflowStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { getClientRole } from '@/lib/client-role'
 import { tauriInvoke, isRemote, isTauri } from '@/lib/tauri'
@@ -104,11 +105,26 @@ export function JobQueuePanel() {
     }
   }, [removeJob])
 
+  // Pasa el trabajo al workflow de este equipo, que es donde se ejecuta
+  const handleLoad = (job: Job) => {
+    useWorkflowStore.getState().addStep({
+      id: `step-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      type: 'gcode',
+      name: job.name,
+      data: job.gcode,
+      status: 'pending',
+    })
+    void handleApprove(job.id)
+  }
+
+  // En el equipo de la maquina la cola solo aparece cuando hay algo que ver
+  if (role === 'local' && jobs.length === 0) return null
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col max-h-72 border-t bg-background">
       <div className="flex items-center justify-between p-3 border-b">
         <h3 className="text-sm font-semibold">Cola de trabajos</h3>
-        {gcode && (
+        {gcode && role !== 'local' && (
           <Button size="sm" variant="outline" className="gap-1" onClick={handleSendToQueue}>
             <Plus className="h-3 w-3" />
             Enviar a cola
@@ -154,15 +170,16 @@ export function JobQueuePanel() {
               )}
 
               <div className="flex items-center gap-1 pt-1">
-                {role === 'local' && job.status === 'queued' && (
+                {role === 'local' && (job.status === 'queued' || job.status === 'approved') && (
                   <Button
                     size="sm"
                     variant="outline"
                     className="h-7 gap-1 text-xs"
-                    onClick={() => handleApprove(job.id)}
+                    onClick={() => handleLoad(job)}
+                    title="Aprueba el trabajo y lo agrega al workflow para cortarlo"
                   >
                     <Check className="h-3 w-3" />
-                    Aprobar
+                    Cargar al workflow
                   </Button>
                 )}
                 {role === 'local' && (job.status === 'queued' || job.status === 'approved') && (
