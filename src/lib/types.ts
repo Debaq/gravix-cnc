@@ -45,6 +45,8 @@ export interface VectorImportResult {
   height_mm: number
   /** El archivo tenia texto, que no se importa. */
   had_text: boolean
+  /** Paginas del archivo; si hay mas de una, solo entro la primera. */
+  page_count: number
 }
 
 // Vectorizacion: que contornos entran al resultado

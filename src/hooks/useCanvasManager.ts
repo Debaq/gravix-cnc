@@ -909,6 +909,9 @@ export function useCanvasManager() {
           `Importado (${res.format.toUpperCase()}): ${res.path_count} contornos, ` +
           `${res.width_mm.toFixed(1)}x${res.height_mm.toFixed(1)} mm`,
         )
+        if (res.page_count > 1) {
+          toast.info(`El archivo tiene ${res.page_count} paginas: se importo la primera`)
+        }
         if (res.had_text) {
           // El texto de un PDF no se convierte a curvas: hay que decirlo, o el
           // usuario manda a cortar un archivo al que le falta la mitad

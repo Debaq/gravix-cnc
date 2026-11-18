@@ -15,6 +15,7 @@
 //!   sin una libreria dedicada.
 //! - **Relleno, color, grosor y clipping**: se descartan. Lo que importa aca
 //!   es la geometria, que es lo que va a la maquina.
+//! - **PDF de varias paginas**: entra solo la primera (y se avisa).
 //! - **PDF cifrado**: no se descifra; los streams salen ilegibles y el import
 //!   avisa en vez de devolver basura.
 
@@ -46,6 +47,8 @@ pub struct VectorImportResult {
     pub height_mm: f64,
     /// true si el archivo tenia texto, que no se importa.
     pub had_text: bool,
+    /// Paginas del archivo. Si hay mas de una, solo entro la primera.
+    pub page_count: usize,
 }
 
 /// Comando de trazado ya en coordenadas del dispositivo (puntos, Y hacia
@@ -151,6 +154,8 @@ fn detect_format(bytes: &[u8]) -> Result<VectorFormat, String> {
 #[derive(Debug, Clone, Copy)]
 struct PageBox {
     y_top: f64,
+    /// Paginas del documento (1 en EPS). Solo se importa la primera.
+    pages: usize,
 }
 
 // ============================================
@@ -162,6 +167,20 @@ fn parse_pdf(bytes: &[u8]) -> Result<(Vec<Vec<PathCmd>>, PageBox, bool), String>
         return Err("El PDF esta cifrado y no se puede leer".into());
     }
 
+    // Camino normal: se resuelve la estructura de objetos y se dibuja SOLO la
+    // primera pagina, con sus Form XObjects y su rotacion.
+    let doc = PdfDoc::parse(bytes);
+    if let Some(page) = doc.first_page() {
+        if let Some(result) = doc.render_page(page) {
+            if !result.0.is_empty() {
+                return Ok(result);
+            }
+        }
+    }
+
+    // Respaldo para archivos con la estructura rota: se barren todos los
+    // streams con trazado. Junta todas las paginas, pero rescata geometria de
+    // PDF que de otro modo no abririan.
     let y_top = pdf_media_box_top(bytes).unwrap_or(842.0); // A4 por defecto
     let mut subpaths = Vec::new();
     let mut had_text = false;
@@ -172,7 +191,389 @@ fn parse_pdf(bytes: &[u8]) -> Result<(Vec<Vec<PathCmd>>, PageBox, bool), String>
         subpaths.extend(paths);
     }
 
-    Ok((subpaths, PageBox { y_top }, had_text))
+    Ok((subpaths, PageBox { y_top, pages: 1 }, had_text))
+}
+
+// --- Estructura de objetos del PDF ---
+
+struct PdfObj {
+    /// Todo el cuerpo del objeto antes del stream, como texto.
+    dict: String,
+    /// Stream ya descomprimido (None si no tiene o no se pudo leer).
+    stream: Option<Vec<u8>>,
+}
+
+struct PdfDoc {
+    objs: std::collections::HashMap<u32, PdfObj>,
+}
+
+impl PdfDoc {
+    fn parse(bytes: &[u8]) -> PdfDoc {
+        let mut objs = std::collections::HashMap::new();
+        let mut cursor = 0usize;
+
+        while let Some(rel) = find(&bytes[cursor..], b" obj") {
+            let kw = cursor + rel;
+            cursor = kw + 4;
+            // Hacia atras: "<num> <gen>" justo antes de " obj"
+            let Some(id) = obj_number_before(bytes, kw) else { continue };
+            let body_start = kw + 4;
+            let Some(end_rel) = find(&bytes[body_start..], b"endobj") else { break };
+            let body = &bytes[body_start..body_start + end_rel];
+            cursor = body_start + end_rel + 6;
+
+            let (dict, stream) = match find(body, b"stream") {
+                Some(sp) => {
+                    let dict = String::from_utf8_lossy(&body[..sp]).to_string();
+                    let mut ds = sp + 6;
+                    while ds < body.len() && (body[ds] == b'\r' || body[ds] == b'\n') {
+                        ds += 1;
+                    }
+                    let de = find(&body[ds..], b"endstream").map(|e| ds + e).unwrap_or(body.len());
+                    let raw = &body[ds..de];
+                    let data = if dict.contains("/FlateDecode") {
+                        inflate(raw)
+                    } else if dict.contains("/Filter") {
+                        None
+                    } else {
+                        Some(raw.to_vec())
+                    };
+                    (dict, data)
+                }
+                None => (String::from_utf8_lossy(body).to_string(), None),
+            };
+            objs.insert(id, PdfObj { dict, stream });
+        }
+
+        // Los PDF modernos guardan los diccionarios (paginas incluidas) dentro
+        // de object streams comprimidos.
+        let mut packed: Vec<(u32, PdfObj)> = Vec::new();
+        for obj in objs.values() {
+            if !obj.dict.contains("/ObjStm") {
+                continue;
+            }
+            let Some(data) = obj.stream.as_ref() else { continue };
+            let n = dict_number(&obj.dict, "/N").unwrap_or(0.0) as usize;
+            let first = dict_number(&obj.dict, "/First").unwrap_or(0.0) as usize;
+            if first > data.len() {
+                continue;
+            }
+            let header = String::from_utf8_lossy(&data[..first]);
+            let nums: Vec<usize> = header.split_whitespace().filter_map(|t| t.parse().ok()).collect();
+            for i in 0..n.min(nums.len() / 2) {
+                let id = nums[i * 2] as u32;
+                let start = first + nums[i * 2 + 1];
+                let end = if i + 1 < n && (i + 1) * 2 + 1 < nums.len() {
+                    first + nums[(i + 1) * 2 + 1]
+                } else {
+                    data.len()
+                };
+                if start <= end && end <= data.len() {
+                    packed.push((
+                        id,
+                        PdfObj {
+                            dict: String::from_utf8_lossy(&data[start..end]).to_string(),
+                            stream: None,
+                        },
+                    ));
+                }
+            }
+        }
+        for (id, obj) in packed {
+            objs.entry(id).or_insert(obj);
+        }
+
+        PdfDoc { objs }
+    }
+
+    fn get(&self, id: u32) -> Option<&PdfObj> {
+        self.objs.get(&id)
+    }
+
+    /// Primera pagina segun el arbol /Pages; si no se puede seguir, la de
+    /// menor numero de objeto.
+    fn first_page(&self) -> Option<u32> {
+        let catalog = self.objs.values().find(|o| dict_has_type(&o.dict, "Catalog"));
+        if let Some(root) = catalog.and_then(|c| dict_refs(&c.dict, "/Pages").first().copied()) {
+            let mut node = root;
+            for _ in 0..32 {
+                let obj = self.get(node)?;
+                if dict_has_type(&obj.dict, "Page") {
+                    return Some(node);
+                }
+                match dict_refs(&obj.dict, "/Kids").first() {
+                    Some(k) => node = *k,
+                    None => break,
+                }
+            }
+        }
+        self.objs
+            .iter()
+            .filter(|(_, o)| dict_has_type(&o.dict, "Page"))
+            .map(|(id, _)| *id)
+            .min()
+    }
+
+    /// Valor de una clave heredable (MediaBox, Rotate, Resources): se busca
+    /// en la pagina y, si falta, subiendo por /Parent.
+    fn inherited(&self, page: u32, key: &str) -> Option<String> {
+        let mut node = page;
+        for _ in 0..16 {
+            let obj = self.get(node)?;
+            if let Some(v) = dict_value(&obj.dict, key) {
+                return Some(self.resolve(v));
+            }
+            node = *dict_refs(&obj.dict, "/Parent").first()?;
+        }
+        None
+    }
+
+    /// Si el valor es una referencia `N G R`, devuelve el cuerpo del objeto.
+    fn resolve(&self, value: String) -> String {
+        match single_ref(&value).and_then(|id| self.get(id)) {
+            Some(obj) => obj.dict.clone(),
+            None => value,
+        }
+    }
+
+    /// Contenido de la pagina: /Contents puede ser un stream, un arreglo de
+    /// streams o una referencia a un arreglo.
+    fn page_content(&self, page: u32) -> Vec<u8> {
+        let mut out = Vec::new();
+        let Some(obj) = self.get(page) else { return out };
+        let Some(value) = dict_value(&obj.dict, "/Contents") else { return out };
+        let mut ids = all_refs(&value);
+        if ids.len() == 1 {
+            if let Some(target) = self.get(ids[0]) {
+                if target.stream.is_none() {
+                    ids = all_refs(&target.dict);
+                }
+            }
+        }
+        for id in ids {
+            if let Some(data) = self.get(id).and_then(|o| o.stream.as_ref()) {
+                out.extend_from_slice(data);
+                out.push(b'\n');
+            }
+        }
+        out
+    }
+
+    fn render_page(&self, page: u32) -> Option<(Vec<Vec<PathCmd>>, PageBox, bool)> {
+        let content = self.page_content(page);
+        if content.is_empty() {
+            return None;
+        }
+        let resources = self.inherited(page, "/Resources").unwrap_or_default();
+        let mut out = Vec::new();
+        let mut had_text = false;
+        interpret_content(&content, Matrix::identity(), Some((self, &resources)), 0, &mut out, &mut had_text);
+
+        let media: Vec<f64> = self
+            .inherited(page, "/MediaBox")
+            .map(|v| numbers_in(&v))
+            .filter(|n| n.len() >= 4)
+            .unwrap_or_else(|| vec![0.0, 0.0, 595.0, 842.0]);
+        let (x0, y0) = (media[0].min(media[2]), media[1].min(media[3]));
+        let (w, h) = ((media[2] - media[0]).abs(), (media[3] - media[1]).abs());
+        let rotate = self
+            .inherited(page, "/Rotate")
+            .and_then(|v| numbers_in(&v).first().copied())
+            .unwrap_or(0.0);
+        let rotate = (((rotate as i64) % 360) + 360) % 360;
+        let unit = dict_number(&self.get(page)?.dict, "/UserUnit").filter(|u| *u > 0.0).unwrap_or(1.0);
+
+        // /Rotate gira la pagina en sentido horario al mostrarla: se aplica a
+        // la geometria para que entre como se ve en cualquier visor.
+        let (map, y_top): (Box<dyn Fn(f64, f64) -> (f64, f64)>, f64) = match rotate {
+            90 => (Box::new(move |x, y| ((y - y0) * unit, (w - (x - x0)) * unit)), w * unit),
+            180 => (Box::new(move |x, y| ((w - (x - x0)) * unit, (h - (y - y0)) * unit)), h * unit),
+            270 => (Box::new(move |x, y| ((h - (y - y0)) * unit, (x - x0) * unit)), w * unit),
+            _ => (Box::new(move |x, y| (x * unit, y * unit)), (y0 + h) * unit),
+        };
+        for path in out.iter_mut() {
+            for cmd in path.iter_mut() {
+                *cmd = match *cmd {
+                    PathCmd::Move(x, y) => { let p = map(x, y); PathCmd::Move(p.0, p.1) }
+                    PathCmd::Line(x, y) => { let p = map(x, y); PathCmd::Line(p.0, p.1) }
+                    PathCmd::Cubic(a, b, c, d, e, f) => {
+                        let (p1, p2, p3) = (map(a, b), map(c, d), map(e, f));
+                        PathCmd::Cubic(p1.0, p1.1, p2.0, p2.1, p3.0, p3.1)
+                    }
+                    PathCmd::Close => PathCmd::Close,
+                };
+            }
+        }
+        let pages = self.objs.values().filter(|o| dict_has_type(&o.dict, "Page")).count().max(1);
+        Some((out, PageBox { y_top, pages }, had_text))
+    }
+
+    /// Form XObject por nombre: contenido, matriz y recursos propios.
+    fn form_xobject(&self, resources: &str, name: &str) -> Option<(Vec<u8>, Matrix, Option<String>)> {
+        let xobjects = self.resolve(dict_value(resources, "/XObject")?);
+        let id = *dict_refs(&xobjects, &format!("/{}", name)).first()?;
+        let obj = self.get(id)?;
+        // Las imagenes tambien son XObjects, pero no traen trazado
+        if !dict_value(&obj.dict, "/Subtype").map(|v| v.contains("Form")).unwrap_or(false) {
+            return None;
+        }
+        let m = dict_value(&obj.dict, "/Matrix").map(|v| numbers_in(&v)).filter(|n| n.len() >= 6);
+        let matrix = m
+            .map(|n| Matrix([n[0], n[1], n[2], n[3], n[4], n[5]]))
+            .unwrap_or_else(Matrix::identity);
+        let res = dict_value(&obj.dict, "/Resources").map(|v| self.resolve(v));
+        Some((obj.stream.clone()?, matrix, res))
+    }
+}
+
+/// Numero de objeto en "`N G obj`", leyendo hacia atras desde la palabra clave.
+fn obj_number_before(bytes: &[u8], kw: usize) -> Option<u32> {
+    let mut i = kw;
+    let digits_back = |i: &mut usize| -> Option<u32> {
+        let end = *i;
+        while *i > 0 && bytes[*i - 1].is_ascii_digit() {
+            *i -= 1;
+        }
+        if *i == end {
+            return None;
+        }
+        std::str::from_utf8(&bytes[*i..end]).ok()?.parse().ok()
+    };
+    digits_back(&mut i)?; // generacion
+    if i == 0 || bytes[i - 1] != b' ' {
+        return None;
+    }
+    i -= 1;
+    let id = digits_back(&mut i)?;
+    // Antes del numero tiene que haber un separador ("endobj\n12 0 obj")
+    if i > 0 && !bytes[i - 1].is_ascii_whitespace() {
+        return None;
+    }
+    Some(id)
+}
+
+/// Posicion de una clave `/Nombre` exacta (no `/NombreLargo`).
+fn dict_key_pos(dict: &str, key: &str) -> Option<usize> {
+    let bytes = dict.as_bytes();
+    let mut from = 0;
+    while let Some(rel) = dict[from..].find(key) {
+        let end = from + rel + key.len();
+        let next = bytes.get(end).copied().unwrap_or(b' ');
+        if !(next.is_ascii_alphanumeric() || next == b'_' || next == b'.') {
+            return Some(end);
+        }
+        from = end;
+    }
+    None
+}
+
+/// Valor crudo de una clave: un diccionario `<<..>>`, un arreglo `[..]` o
+/// el texto hasta la proxima clave.
+fn dict_value(dict: &str, key: &str) -> Option<String> {
+    let start = dict_key_pos(dict, key)?;
+    let rest = dict[start..].trim_start();
+    let bytes = rest.as_bytes();
+    if rest.starts_with("<<") {
+        let mut depth = 0i32;
+        let mut i = 0;
+        while i + 1 < bytes.len() {
+            if &bytes[i..i + 2] == b"<<" {
+                depth += 1;
+                i += 2;
+            } else if &bytes[i..i + 2] == b">>" {
+                depth -= 1;
+                i += 2;
+                if depth == 0 {
+                    return Some(rest[..i].to_string());
+                }
+            } else {
+                i += 1;
+            }
+        }
+        return Some(rest.to_string());
+    }
+    if rest.starts_with('[') {
+        let end = rest.find(']').map(|e| e + 1).unwrap_or(rest.len());
+        return Some(rest[..end].to_string());
+    }
+    // Escalar o referencia: hasta la proxima clave o cierre
+    let mut end = rest.len();
+    for (i, c) in rest.char_indices().skip(1) {
+        if c == '/' || c == '>' {
+            end = i;
+            break;
+        }
+    }
+    Some(rest[..end].trim().to_string())
+}
+
+fn dict_number(dict: &str, key: &str) -> Option<f64> {
+    numbers_in(&dict_value(dict, key)?).first().copied()
+}
+
+fn dict_refs(dict: &str, key: &str) -> Vec<u32> {
+    dict_value(dict, key).map(|v| all_refs(&v)).unwrap_or_default()
+}
+
+/// true si el diccionario declara `/Type /<name>`. Se miran todas las
+/// apariciones: un subdiccionario (`/Group << /Type /Group >>`) puede venir
+/// antes que el tipo del propio objeto.
+fn dict_has_type(dict: &str, name: &str) -> bool {
+    let mut from = 0;
+    while let Some(rel) = dict[from..].find("/Type") {
+        let end = from + rel + 5;
+        from = end;
+        let rest = dict[end..].trim_start();
+        if let Some(r) = rest.strip_prefix('/') {
+            let exact = r.starts_with(name)
+                && !r[name.len()..]
+                    .chars()
+                    .next()
+                    .map(|c| c.is_ascii_alphanumeric())
+                    .unwrap_or(false);
+            if exact {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn numbers_in(text: &str) -> Vec<f64> {
+    text.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+'))
+        .filter(|t| !t.is_empty())
+        .filter_map(|t| t.parse().ok())
+        .collect()
+}
+
+/// Todas las referencias `N G R` de un texto, en orden.
+fn all_refs(text: &str) -> Vec<u32> {
+    let tokens: Vec<&str> = text
+        .split(|c: char| c.is_whitespace() || c == '[' || c == ']' || c == '<' || c == '>')
+        .filter(|t| !t.is_empty())
+        .collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + 2 < tokens.len() {
+        if tokens[i + 2] == "R" {
+            if let (Ok(id), Ok(_gen)) = (tokens[i].parse::<u32>(), tokens[i + 1].parse::<u32>()) {
+                out.push(id);
+                i += 3;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+fn single_ref(text: &str) -> Option<u32> {
+    let t: Vec<&str> = text.split_whitespace().collect();
+    if t.len() == 3 && t[2] == "R" {
+        t[0].parse().ok()
+    } else {
+        None
+    }
 }
 
 /// Alto de la pagina, para dar vuelta el eje Y al pasar a SVG.
@@ -287,12 +688,29 @@ fn inflate(data: &[u8]) -> Option<Vec<u8>> {
 
 /// Interpreta los operadores de trazado de un content stream de PDF.
 fn parse_content_stream(data: &[u8]) -> (Vec<Vec<PathCmd>>, bool) {
+    let mut out = Vec::new();
+    let mut had_text = false;
+    interpret_content(data, Matrix::identity(), None, 0, &mut out, &mut had_text);
+    (out, had_text)
+}
+
+/// Igual, pero con matriz inicial y, si se pasa el documento, resolviendo los
+/// Form XObjects (`/Nombre Do`): Illustrator e Inkscape guardan ahi buena
+/// parte del dibujo, con su propia matriz.
+fn interpret_content(
+    data: &[u8],
+    base: Matrix,
+    doc: Option<(&PdfDoc, &str)>,
+    depth: usize,
+    out: &mut Vec<Vec<PathCmd>>,
+    had_text_out: &mut bool,
+) {
     let text = String::from_utf8_lossy(data);
-    let mut ctm = Matrix::identity();
+    let mut ctm = base;
     let mut stack: Vec<Matrix> = Vec::new();
     let mut operands: Vec<f64> = Vec::new();
+    let mut last_name: Option<String> = None;
 
-    let mut out: Vec<Vec<PathCmd>> = Vec::new();
     let mut current: Vec<PathCmd> = Vec::new();
     let mut cursor = (0.0, 0.0);
     let mut start = (0.0, 0.0);
@@ -305,7 +723,29 @@ fn parse_content_stream(data: &[u8]) -> (Vec<Vec<PathCmd>>, bool) {
             PsToken::Number(n) => operands.push(n),
             PsToken::Other => operands.clear(),
             PsToken::Operator(op) => {
+                // Un nombre (`/Fm0`) es operando del operador que sigue
+                if let Some(name) = op.strip_prefix('/') {
+                    last_name = Some(name.to_string());
+                    continue;
+                }
                 match op.as_str() {
+                    "Do" => {
+                        if let (Some((pdf, resources)), Some(name)) = (doc, last_name.as_deref()) {
+                            if depth < 8 {
+                                if let Some((content, matrix, res)) = pdf.form_xobject(resources, name) {
+                                    let child_res = res.unwrap_or_else(|| resources.to_string());
+                                    interpret_content(
+                                        &content,
+                                        matrix.then(&ctm),
+                                        Some((pdf, &child_res)),
+                                        depth + 1,
+                                        out,
+                                        &mut had_text,
+                                    );
+                                }
+                            }
+                        }
+                    }
                     "BT" => {
                         in_text = true;
                         had_text = true;
@@ -419,11 +859,12 @@ fn parse_content_stream(data: &[u8]) -> (Vec<Vec<PathCmd>>, bool) {
                     _ => {}
                 }
                 operands.clear();
+                last_name = None;
             }
         }
     }
 
-    (out, had_text)
+    *had_text_out |= had_text;
 }
 
 /// Cierra todo subtrazado que no termine en `Close` (semantica de relleno).
@@ -461,7 +902,7 @@ fn parse_eps(bytes: &[u8]) -> Result<(Vec<Vec<PathCmd>>, PageBox, bool), String>
 
     let y_top = eps_bounding_box(&text).map(|bb| bb.3).unwrap_or(842.0);
     let (paths, had_text) = run_postscript(&text);
-    Ok((paths, PageBox { y_top }, had_text))
+    Ok((paths, PageBox { y_top, pages: 1 }, had_text))
 }
 
 /// Un EPS "de Windows" viene envuelto en una cabecera binaria con offsets: el
@@ -1054,6 +1495,7 @@ fn build_result(
         width_mm,
         height_mm,
         had_text,
+        page_count: page.pages,
     }
 }
 
@@ -1104,6 +1546,71 @@ mod tests {
             body
         )
         .into_bytes()
+    }
+
+    /// PDF con arbol de paginas: `pages` son (contenido, extras del dict).
+    fn paged_pdf(pages: &[(&str, &str)], extra_objs: &str) -> Vec<u8> {
+        let mut out = String::from("%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+        let kids: Vec<String> = (0..pages.len()).map(|i| format!("{} 0 R", 10 + i * 2)).collect();
+        out += &format!(
+            "2 0 obj\n<< /Type /Pages /Kids [ {} ] /Count {} /MediaBox [ 0 0 200 100 ] >>\nendobj\n",
+            kids.join(" "),
+            pages.len()
+        );
+        for (i, (content, extra)) in pages.iter().enumerate() {
+            let id = 10 + i * 2;
+            out += &format!(
+                "{} 0 obj\n<< /Type /Page /Parent 2 0 R /Contents {} 0 R {} >>\nendobj\n",
+                id,
+                id + 1,
+                extra
+            );
+            out += &format!(
+                "{} 0 obj\n<< /Length {} >>\nstream\n{}\nendstream\nendobj\n",
+                id + 1,
+                content.len(),
+                content
+            );
+        }
+        out += extra_objs;
+        out += "%%EOF";
+        out.into_bytes()
+    }
+
+    #[test]
+    fn pdf_multipagina_importa_solo_la_primera() {
+        let pdf = paged_pdf(&[("0 0 72 72 re S", ""), ("0 0 144 144 re S", "")], "");
+        let res = import_vector_bytes(&pdf).unwrap();
+        assert_eq!(res.path_count, 1);
+        assert!((res.width_mm - 25.4).abs() < 0.01, "ancho {}", res.width_mm);
+    }
+
+    #[test]
+    fn pdf_dibuja_los_form_xobjects_con_su_matriz() {
+        let form = "0 0 72 72 re S";
+        let extra = format!(
+            "30 0 obj\n<< /Type /XObject /Subtype /Form /Matrix [ 2 0 0 1 0 0 ] /Length {} >>\nstream\n{}\nendstream\nendobj\n",
+            form.len(),
+            form
+        );
+        let pdf = paged_pdf(
+            &[("q /Fm0 Do Q", "/Resources << /XObject << /Fm0 30 0 R >> >>")],
+            &extra,
+        );
+        let res = import_vector_bytes(&pdf).unwrap();
+        assert_eq!(res.path_count, 1);
+        // La matriz del form duplica el ancho: 144pt = 50.8mm
+        assert!((res.width_mm - 50.8).abs() < 0.01, "ancho {}", res.width_mm);
+        assert!((res.height_mm - 25.4).abs() < 0.01, "alto {}", res.height_mm);
+    }
+
+    #[test]
+    fn pdf_respeta_la_rotacion_de_pagina() {
+        // 144x72 apaisado en una pagina girada 90: tiene que entrar parado
+        let pdf = paged_pdf(&[("0 0 144 72 re S", "/Rotate 90")], "");
+        let res = import_vector_bytes(&pdf).unwrap();
+        assert!((res.width_mm - 25.4).abs() < 0.01, "ancho {}", res.width_mm);
+        assert!((res.height_mm - 50.8).abs() < 0.01, "alto {}", res.height_mm);
     }
 
     #[test]
