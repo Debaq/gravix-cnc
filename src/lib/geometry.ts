@@ -4,6 +4,8 @@ import {
   NativeClipperLibRequestedFormat,
   JoinType,
   EndType,
+  ClipType,
+  PolyFillType,
   type ClipperLibWrapper,
   type IntPoint,
 } from 'js-angusj-clipper/web'
@@ -11,6 +13,9 @@ import {
 // Factor de escala para convertir mm (float) a enteros de Clipper
 // 1000 = precisión de 0.001mm (1 micra), más que suficiente para CNC
 export const CLIPPER_SCALE = 1000
+
+/** Desvio maximo (mm) al aproximar arcos de offset con segmentos. */
+const ARC_TOLERANCE_MM = 0.01
 
 // Instancia lazy de Clipper (se carga una sola vez)
 let clipperInstance: ClipperLibWrapper | null = null
@@ -149,7 +154,9 @@ export async function offsetPolygon(
       data: clipperPath,
     }],
     miterLimit: 2,
-    arcTolerance: 0.25 * CLIPPER_SCALE,
+    // Error maximo del arco en las uniones redondeadas. Con 0.25mm la
+    // trayectoria cortaba la cuerda y se comia hasta 0.25mm de cada esquina.
+    arcTolerance: ARC_TOLERANCE_MM * CLIPPER_SCALE,
   })
 
   if (!result || result.length === 0) return []
@@ -199,6 +206,58 @@ export async function generatePocketContours(
     currentInset += stepDistance
   }
 
+  return { roughing, finishing }
+}
+
+/**
+ * Offset de una region con agujeros (contorno exterior + islas) como un todo.
+ * Con `offset` negativo el exterior se achica y las islas crecen, que es lo
+ * que necesita un cajeado para no pasar por encima de las islas.
+ */
+export async function offsetRegion(region: Point2D[][], offset: number): Promise<Point2D[][]> {
+  const valid = region.filter((p) => p.length >= 3)
+  if (valid.length === 0) return []
+  const clipper = await getClipper()
+  // EvenOdd deja exterior e islas con orientaciones opuestas, que es como el
+  // offset de Clipper distingue material de agujero.
+  const normalized = clipper.clipToPaths({
+    clipType: ClipType.Union,
+    subjectFillType: PolyFillType.EvenOdd,
+    subjectInputs: valid.map((p) => ({ data: toClipperPath(p), closed: true })),
+  })
+  if (!normalized || normalized.length === 0) return []
+  if (Math.abs(offset) < 0.001) return normalized.map(fromClipperPath)
+  const result = clipper.offsetToPaths({
+    delta: offset * CLIPPER_SCALE,
+    offsetInputs: normalized.map((data) => ({
+      joinType: JoinType.Round,
+      endType: EndType.ClosedPolygon,
+      data,
+    })),
+    arcTolerance: ARC_TOLERANCE_MM * CLIPPER_SCALE,
+  })
+  return result ? result.map(fromClipperPath) : []
+}
+
+/** Cajeado por contornos paralelos de una region con islas. */
+export async function generatePocketContoursRegion(
+  region: Point2D[][],
+  toolRadius: number,
+  stepover: number,
+  initialInset: number = toolRadius,
+): Promise<{ roughing: Point2D[][]; finishing: Point2D[][] }> {
+  const stepDistance = toolRadius * 2 * stepover
+  const finishing = await offsetRegion(region, -initialInset)
+  if (finishing.length === 0 || stepDistance <= 0) return { roughing: [], finishing }
+
+  const roughing: Point2D[][] = []
+  let inset = initialInset
+  for (let guard = 0; guard < 10000; guard++) {
+    const contours = await offsetRegion(region, -inset)
+    if (contours.length === 0) break
+    roughing.push(...contours)
+    inset += stepDistance
+  }
   return { roughing, finishing }
 }
 

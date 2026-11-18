@@ -1,7 +1,7 @@
 import type { Point2D, GCodePath, GCodeJob, GlobalConfig, RasterData, ColorMapping, GCodeMarker, ClampRect, PocketStrategy, LeadType, MillDirection, CutterComp, TabMode } from './types'
 import { generatePhotoVCarve } from './photo-vcarve'
 import type { MachineProfile } from './profiles'
-import { offsetPolygon, generatePocketContours, generatePocketZigzag, generatePocketSpiral, generatePocketTrochoidal, orderPaths, orderPathsInsideFirst, pointInPolygon, generateHatchLines, validateToolVsPaths, withOrientation, millingCounterClockwise, buildLead } from './geometry'
+import { offsetPolygon, generatePocketContours, generatePocketContoursRegion, generatePocketZigzag, generatePocketSpiral, generatePocketTrochoidal, orderPaths, orderPathsInsideFirst, pointInPolygon, isCounterClockwise, generateHatchLines, validateToolVsPaths, withOrientation, millingCounterClockwise, buildLead } from './geometry'
 import { useMachineStore } from '@/stores/useMachineStore'
 import { computeRestRegions } from './boolean-ops'
 import { tauriInvoke } from './tauri'
@@ -45,6 +45,71 @@ function lineIntersectsRect(x1: number, y1: number, x2: number, y2: number, rect
  */
 function pointInRect(x: number, y: number, rect: ClampRect): boolean {
   return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
+}
+
+/**
+ * Cuantos contornos cerrados del conjunto contienen a cada uno. Impar = es
+ * un agujero (o isla dentro de un agujero) y las compensaciones cambian de lado.
+ */
+function nestingLevels(paths: { points: Point2D[]; closed: boolean }[]): number[] {
+  return paths.map((p, i) => {
+    if (!p.closed || p.points.length < 3) return 0
+    let n = 0
+    for (let j = 0; j < paths.length; j++) {
+      if (j === i || !paths[j].closed || paths[j].points.length < 3) continue
+      if (pointInPolygon(p.points[0], paths[j].points)) n++
+    }
+    return n
+  })
+}
+
+/**
+ * Compensacion de cuchilla de arrastre. La punta va `r` mm por detras del eje
+ * del portacuchillas, asi que el eje tiene que ir `r` adelantado en cada tramo
+ * y girar alrededor de la esquina para reorientar la hoja. En un contorno
+ * cerrado se agrega un sobrecorte para que el corte cierre.
+ *
+ * (Achicar el dibujo por el offset, como se hacia antes, no compensa nada:
+ * solo deja la pieza mas chica.)
+ */
+function dragKnifePath(points: Point2D[], closed: boolean, r: number): Point2D[] {
+  const src = points.filter((p, i) => i === 0 || Math.hypot(p.x - points[i - 1].x, p.y - points[i - 1].y) > 1e-6)
+  if (src.length < 2) return points
+  const pts = [...src]
+  if (closed && src.length >= 3) {
+    // Cierra el lazo y repite el primer tramo como sobrecorte
+    pts.push(src[0])
+    const d = Math.hypot(src[1].x - src[0].x, src[1].y - src[0].y)
+    const over = Math.min(d, r * 2)
+    pts.push({ x: src[0].x + ((src[1].x - src[0].x) / d) * over, y: src[0].y + ((src[1].y - src[0].y) / d) * over })
+  }
+  const dir = (a: Point2D, b: Point2D) => {
+    const l = Math.hypot(b.x - a.x, b.y - a.y) || 1
+    return { x: (b.x - a.x) / l, y: (b.y - a.y) / l }
+  }
+  const out: Point2D[] = []
+  let d0 = dir(pts[0], pts[1])
+  out.push({ x: pts[0].x + d0.x * r, y: pts[0].y + d0.y * r })
+  for (let i = 1; i < pts.length; i++) {
+    // La punta llega al vertice: el eje queda adelantado en la direccion de llegada
+    out.push({ x: pts[i].x + d0.x * r, y: pts[i].y + d0.y * r })
+    if (i === pts.length - 1) break
+    const d1 = dir(pts[i], pts[i + 1])
+    const a0 = Math.atan2(d0.y, d0.x)
+    let da = Math.atan2(d1.y, d1.x) - a0
+    while (da > Math.PI) da -= 2 * Math.PI
+    while (da < -Math.PI) da += 2 * Math.PI
+    // Giro alrededor del vertice hasta la nueva direccion
+    if (Math.abs(da) > 0.09) {
+      const steps = Math.max(1, Math.ceil(Math.abs(da) / (Math.PI / 12)))
+      for (let k = 1; k <= steps; k++) {
+        const a = a0 + (da * k) / steps
+        out.push({ x: pts[i].x + Math.cos(a) * r, y: pts[i].y + Math.sin(a) * r })
+      }
+    }
+    d0 = d1
+  }
+  return out
 }
 
 export class GCodeGenerator {
@@ -810,15 +875,7 @@ export class GCodeGenerator {
     // impar de otros es un agujero (o una isla dentro de un agujero), y la
     // herramienta va por el lado contrario. Sin esto, "outside" sobre una
     // pieza con agujero agrandaba el agujero en un diametro de fresa.
-    const nesting = paths.map((p, i) => {
-      if (!p.closed || p.points.length < 3) return 0
-      let n = 0
-      for (let j = 0; j < paths.length; j++) {
-        if (j === i || !paths[j].closed || paths[j].points.length < 3) continue
-        if (pointInPolygon(p.points[0], paths[j].points)) n++
-      }
-      return n
-    })
+    const nesting = nestingLevels(paths)
 
     const buildPaths = async (extra: number) => {
       const out: { points: Point2D[]; closed: boolean }[] = []
@@ -986,8 +1043,48 @@ export class GCodeGenerator {
       }
     }
 
+    // Islas: un contorno cerrado dentro de otro es material que el cajeado
+    // tiene que rodear. Antes cada contorno se cajeaba por separado y la isla
+    // desaparecia. Nivel par = exterior, impar = isla del exterior que lo
+    // contiene directamente.
+    const islandsOf = new Map<number, Point2D[][]>()
+    const isIsland = new Set<number>()
+    if (!opts.regions && boundaries.length > 1) {
+      const containers = boundaries.map((b, i) =>
+        boundaries
+          .map((other, j) => (j !== i && pointInPolygon(b[0], other) ? j : -1))
+          .filter((j) => j >= 0),
+      )
+      boundaries.forEach((b, i) => {
+        if (containers[i].length % 2 === 0) return
+        // Padre directo: el contenedor mas anidado
+        const parent = containers[i].reduce((best, j) =>
+          containers[j].length > containers[best].length ? j : best,
+        )
+        isIsland.add(i)
+        islandsOf.set(parent, [...(islandsOf.get(parent) ?? []), b])
+      })
+    }
+
     for (let i = 0; i < boundaries.length; i++) {
       const boundary = boundaries[i]
+      if (isIsland.has(i)) continue
+
+      const islands = islandsOf.get(i)
+      if (islands && islands.length > 0) {
+        const pocket = await generatePocketContoursRegion(
+          [boundary, ...islands], opts.toolRadius, opts.stepover, opts.toolRadius,
+        )
+        if (pocket.roughing.length === 0 && pocket.finishing.length === 0) {
+          lines.push(`; WARNING: Shape ${i + 1} too small for pocket with tool radius ${opts.toolRadius}mm`)
+          continue
+        }
+        if (strategy !== 'contour-parallel') {
+          lines.push(`; NOTE: shape ${i + 1} has ${islands.length} island(s): pocketed with contour-parallel`)
+        }
+        pocketData.push({ roughing: pocket.roughing, hatch: [], finishing: pocket.finishing, spiral: [] })
+        continue
+      }
 
       // Las regiones de rest machining ya vienen como recorrido de centro
       // de herramienta: cajearlas erosionando otra vez las dejaría vacías
@@ -1445,18 +1542,22 @@ export class GCodeGenerator {
       lines.push(`G0 Z${focusZ.toFixed(3)} ; Focus height`)
     }
 
-    // Kerf compensation: offset closed paths inward by half kerf width
+    // Kerf: el haz se come medio ancho a cada lado. El contorno exterior se
+    // corre hacia afuera y los agujeros hacia adentro, asi la pieza conserva
+    // su medida (antes todo iba hacia adentro y la pieza salia mas chica).
     let processedPaths = paths
     if (kerf > 0 && laserMode === 'cut') {
       lines.push(`; Kerf compensation: ${kerf}mm (offset: ${(kerf / 2).toFixed(3)}mm)`)
       const compensated: GCodePath[] = []
-      for (const path of paths) {
+      const levels = nestingLevels(paths)
+      for (let pi = 0; pi < paths.length; pi++) {
+        const path = paths[pi]
         if (path.closed && path.points.length >= 3) {
-          const offset = -(kerf / 2)
+          const offset = levels[pi] % 2 === 1 ? -(kerf / 2) : kerf / 2
           const result = await offsetPolygon(path.points, offset, true, 'round')
           if (result.length > 0) {
             for (const contour of result) {
-              compensated.push({ points: contour, closed: true })
+              compensated.push({ ...path, points: contour, closed: true })
             }
           } else {
             lines.push('; WARNING: Shape too small for kerf compensation, using original')
@@ -1554,8 +1655,9 @@ export class GCodeGenerator {
   ) {
     // Inside-first ordering: cut inner shapes before outer contours
     const ordered = orderPathsInsideFirst(paths)
+    const levels = nestingLevels(ordered)
 
-    ordered.forEach((path) => {
+    ordered.forEach((path, pathIdx) => {
       if (path.points.length === 0) return
 
       const startPoint = path.points[0]
@@ -1568,9 +1670,13 @@ export class GCodeGenerator {
         const dy = nextPt.y - startPoint.y
         const segLen = Math.sqrt(dx * dx + dy * dy)
         if (segLen > 0.001) {
-          // Perpendicular direction (outward from path)
-          const px = -dy / segLen * leadInDist
-          const py = dx / segLen * leadInDist
+          // La entrada va del lado del descarte: afuera en un contorno
+          // exterior, adentro en un agujero. La normal izquierda apunta
+          // hacia adentro en un poligono antihorario.
+          const isHole = levels[pathIdx] % 2 === 1
+          const side = isCounterClockwise(path.points) === isHole ? 1 : -1
+          const px = side * (-dy / segLen) * leadInDist
+          const py = side * (dx / segLen) * leadInDist
           const leadX = startPoint.x + px
           const leadY = startPoint.y + py
 
@@ -1710,27 +1816,16 @@ export class GCodeGenerator {
     lines.push(`; Speed: ${feedRate} | Z down: ${penDown} | Passes: ${passes}`)
     if (usePressure) lines.push(`; Pen/blade pressure: S${pressure.toFixed(0)}`)
 
-    // Blade offset compensation: expand closed paths outward by blade radius
+    // Compensacion de cuchilla de arrastre (giro en esquinas + sobrecorte)
+    // Un lapiz no arrastra: la compensacion solo aplica a la cuchilla.
     let processedPaths = paths
-    if (bladeOffset > 0) {
-      lines.push(`; Blade offset: ${bladeOffset}mm`)
-      const compensated: GCodePath[] = []
-      for (const path of paths) {
-        if (path.closed && path.points.length >= 3) {
-          const result = await offsetPolygon(path.points, -bladeOffset, true, 'round')
-          if (result.length > 0) {
-            for (const contour of result) {
-              compensated.push({ points: contour, closed: true })
-            }
-          } else {
-            lines.push('; WARNING: Shape too small for blade offset, using original')
-            compensated.push(path)
-          }
-        } else {
-          compensated.push(path)
-        }
-      }
-      processedPaths = compensated
+    if (bladeOffset > 0 && config.operationType !== 'pencil') {
+      lines.push(`; Blade offset: ${bladeOffset}mm (drag knife: corner swivel + overcut)`)
+      processedPaths = paths.map((path) =>
+        path.points.length >= 2
+          ? { ...path, points: dragKnifePath(path.points, path.closed, bladeOffset), closed: false }
+          : path,
+      )
     }
 
     // Group paths by stroke color for pen sorting (plotter)
