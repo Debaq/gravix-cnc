@@ -38,6 +38,14 @@ import {
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import type { WorkflowStep } from '@/lib/types'
 
+
+/** Ir a una posicion guardada: sube, viaja y recien ahi baja. */
+function gotoProgram(x: number, y: number, z: number, isLaser: boolean): string {
+  return isLaser
+    ? ['G90', 'M5 S0', `G0 X${x} Y${y}`].join('\n')
+    : ['G90', 'G0 Z5', `G0 X${x} Y${y}`, `G0 Z${z}`].join('\n')
+}
+
 export function MacrosWorkflowPanel() {
   const { t } = useTranslation('serial')
   const serial = useSerial()
@@ -299,14 +307,24 @@ export function MacrosWorkflowPanel() {
     }
     if (prevSendingRef.current && !sending) {
       const step = steps[currentStepIndex]
-      if (step && step.status === 'running' && (step.type === 'gcode' || step.type === 'macro')) {
-        setStepStatus(step.id, 'done')
-        addConsoleLine(`Paso completado: ${step.name}`)
-        setTimeout(() => advanceStep(), 300)
+      if (step && step.status === 'running' && step.type !== 'pause') {
+        // `sending` baja tambien cuando el envio se aborta por error, alarma,
+        // reset o timeout. Seguir con el paso siguiente ahi es mover la
+        // maquina con la posicion probablemente perdida.
+        const result = useSerialStore.getState().lastSendResult
+        if (result === 'done') {
+          setStepStatus(step.id, 'done')
+          addConsoleLine(`Paso completado: ${step.name}`)
+          setTimeout(() => advanceStep(), 300)
+        } else {
+          setStepStatus(step.id, 'pending')
+          addConsoleLine(`Workflow detenido: "${step.name}" no termino (${result ?? 'desconocido'})`)
+          stopWorkflow()
+        }
       }
     }
     prevSendingRef.current = sending
-  }, [sending, workflowRunning, currentStepIndex, steps, setStepStatus, advanceStep, addConsoleLine])
+  }, [sending, workflowRunning, currentStepIndex, steps, setStepStatus, advanceStep, stopWorkflow, addConsoleLine])
 
   // Iniciar ejecucion del paso actual
   useEffect(() => {
@@ -336,24 +354,10 @@ export function MacrosWorkflowPanel() {
         const parts = step.data.split(',').map(Number)
         const x = parts[0] ?? 0, y = parts[1] ?? 0, z = parts[2] ?? 0
         const isLaser = useCanvasStore.getState().globalConfig.operationType === 'laser'
-        if (isLaser) {
-          serial.sendCommand('M5 S0')
-          setTimeout(() => {
-            serial.sendCommand(`G0 X${x} Y${y}`)
-            setStepStatus(step.id, 'done')
-            addConsoleLine(`Posicion alcanzada: ${step.name}`)
-            setTimeout(() => advanceStep(), 300)
-          }, 300)
-        } else {
-          serial.sendCommand('G0 Z5')
-          setTimeout(() => serial.sendCommand(`G0 X${x} Y${y}`), 300)
-          setTimeout(() => {
-            serial.sendCommand(`G0 Z${z}`)
-            setStepStatus(step.id, 'done')
-            addConsoleLine(`Posicion alcanzada: ${step.name}`)
-            setTimeout(() => advanceStep(), 300)
-          }, 600)
-        }
+        // Va como un programa: se puede abortar entero. Antes eran comandos
+        // sueltos con setTimeout y el descenso en Z salia aunque ya se
+        // hubiera apretado STOP.
+        serial.sendGCode(gotoProgram(x, y, z, isLaser))
         break
       }
       case 'pause':
@@ -441,7 +445,7 @@ export function MacrosWorkflowPanel() {
   }
 
   const handleRunMacro = (gcode: string) => {
-    if (!connected) return
+    if (!connected || sending) return
     gcode.split('\n').forEach((line) => {
       const trimmed = line.trim()
       if (trimmed) serial.sendCommand(trimmed)
@@ -449,16 +453,9 @@ export function MacrosWorkflowPanel() {
   }
 
   const handleGoToPosition = (x: number, y: number, z: number) => {
-    if (!connected) return
+    if (!connected || sending) return
     const isLaser = useCanvasStore.getState().globalConfig.operationType === 'laser'
-    if (isLaser) {
-      serial.sendCommand('M5 S0')
-      serial.sendCommand(`G0 X${x} Y${y}`)
-    } else {
-      serial.sendCommand('G0 Z5')
-      serial.sendCommand(`G0 X${x} Y${y}`)
-      serial.sendCommand(`G0 Z${z}`)
-    }
+    serial.sendGCode(gotoProgram(x, y, z, isLaser))
   }
 
   const addWorkflowStep = (type: 'gcode' | 'macro' | 'pause' | 'goto', name: string, data: string) => {

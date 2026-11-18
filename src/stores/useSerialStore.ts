@@ -62,6 +62,9 @@ interface SerialState {
   setDiagnostics: (diag: Partial<GrblDiagnostics>) => void
   setParserState: (state: GrblParserState | null) => void
   setSending: (sending: boolean) => void
+  /** Como termino el ultimo envio: done | cancelled | error | alarm | reset | timeout. */
+  lastSendResult: string | null
+  setLastSendResult: (result: string | null) => void
   setSendProgress: (progress: number) => void
 }
 
@@ -141,5 +144,7 @@ export const useSerialStore = create<SerialState>((set) => ({
   })),
   setParserState: (parserState) => set({ parserState }),
   setSending: (sending) => set({ sending }),
+  lastSendResult: null,
+  setLastSendResult: (lastSendResult) => set({ lastSendResult }),
   setSendProgress: (progress) => set({ sendProgress: progress }),
 }))

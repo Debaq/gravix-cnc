@@ -25,7 +25,7 @@ import type { RealtimeCmd } from '@/lib/generated/RealtimeCmd'
 // Estados en los que la máquina no puede aceptar un programa nuevo.
 // Arrancar un job en Alarm o Hold es la vía rápida a un choque o a un job que
 // se ejecuta a medias sin que el operador se entere.
-const BLOCKING_STATES: MachineState[] = ['Alarm', 'Hold', 'Run', 'Home', 'Jog']
+const BLOCKING_STATES: MachineState[] = ['Alarm', 'Hold', 'Run', 'Home', 'Jog', 'Check', 'Sleep']
 
 // Genera las líneas de jog incremental según dialecto.
 // GRBL: una sola línea $J=G91. Marlin: G91 / G0 / G90.
@@ -102,7 +102,10 @@ function setupSerialListeners(): Promise<() => void> {
 
     // El backend manda por qué terminó: done | cancelled | error | alarm | reset.
     const unlComplete = await tauriListen<string>('serial:complete', (result) => {
-      const { setSending, setSendProgress } = useSerialStore.getState()
+      const { setSending, setSendProgress, setLastSendResult } = useSerialStore.getState()
+      // El resultado va antes que `sending`: quien reacciona al fin del envio
+      // (el workflow) necesita saber si termino bien.
+      setLastSendResult(result ?? 'error')
       setSending(false)
       if (result === 'done') {
         setSendProgress(100)
@@ -266,6 +269,7 @@ export function useSerial() {
       return
     }
     try {
+      useSerialStore.getState().setLastSendResult(null)
       store.setSending(true)
       store.setSendProgress(0)
       // El backend valida la envolvente antes del primer byte y rechaza el job
@@ -276,6 +280,7 @@ export function useSerial() {
       })
       addConsoleLine('Enviando G-code...')
     } catch (err) {
+      useSerialStore.getState().setLastSendResult('error')
       store.setSending(false)
       store.setSendProgress(0)
       addConsoleLine(`Error enviando G-code: ${err}`)
@@ -356,7 +361,12 @@ export function useSerial() {
 
   const requestStatus = useCallback(() => sendRealtime('status-report'), [sendRealtime])
 
-  const laserOff = useCallback(() => sendCommand('M5 S0'), [sendCommand])
+  // Con un job corriendo, un M5 por la cola espera detras de todo lo que el
+  // planner ya tiene: no apaga nada ahora. Ahi "OFF" es una parada.
+  const laserOff = useCallback(() => {
+    if (useSerialStore.getState().sending) return abort()
+    return sendCommand('M5 S0')
+  }, [sendCommand, abort])
 
   const jog = useCallback(
     async (axes: { x?: number; y?: number; z?: number }, feedRate: number) => {
@@ -382,9 +392,10 @@ export function useSerial() {
 
   const setZero = useCallback((axis?: 'x' | 'y' | 'z') => {
     if (axis) {
-      return sendCommand(`G10 L20 P1 ${axis.toUpperCase()}0`)
+      return sendCommand(`G10 L20 P0 ${axis.toUpperCase()}0`)
     }
-    return sendCommand('G10 L20 P1 X0 Y0 Z0')
+    // P0 = sistema de coordenadas activo (P1 pisaba siempre G54)
+    return sendCommand('G10 L20 P0 X0 Y0 Z0')
   }, [sendCommand])
 
   return {

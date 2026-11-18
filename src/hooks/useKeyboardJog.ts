@@ -30,11 +30,8 @@ export function useKeyboardJog() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Skip when typing in inputs
       const tag = (e.target as HTMLElement).tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) {
-        return
-      }
+      const typing = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable
 
       const { currentWorkspace } = useAppStore.getState()
       if (currentWorkspace !== 'cnc') return
@@ -42,12 +39,17 @@ export function useKeyboardJog() {
       const { connected, jogDistance, jogSpeed, sending } = useSerialStore.getState()
       if (!connected) return
 
-      // Escape = emergency stop
-      if (e.key === 'Escape') {
+      // Escape = parada de emergencia: feed hold + reset + husillo apagado.
+      // Solo feed hold dejaba el husillo girando. Con un job corriendo vale
+      // aunque el foco este en un campo de texto.
+      if (e.key === 'Escape' && (sending || !typing)) {
         e.preventDefault()
-        serial.stop()
+        serial.abort()
         return
       }
+
+      // Skip when typing in inputs
+      if (typing) return
 
       if (!JOG_KEYS.includes(e.key)) return
       e.preventDefault()

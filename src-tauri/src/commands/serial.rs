@@ -693,6 +693,8 @@ struct Io {
     last_poll: Instant,
     last_progress_emit: Instant,
     pending_status_reply: bool,
+    // Hay una parada en curso: el banner de reinicio que provoca es esperado.
+    aborting: bool,
     last_status: Arc<Mutex<Option<GrblStatus>>>,
     sending: Arc<AtomicBool>,
     // Ultimo byte recibido del puerto. Con GRBL los reportes de status llegan
@@ -824,6 +826,7 @@ impl Io {
     // Solo `!` no alcanza (GRBL sigue con los bloques ya bufferizados) y solo
     // dejar de enviar líneas tampoco (hay hasta ~30 bloques en el planner).
     fn abort_job(&mut self, reason: &str) {
+        self.aborting = true;
         self.queue.clear();
         if let Some(job) = self.job.as_mut() {
             job.remaining.clear();
@@ -837,10 +840,11 @@ impl Io {
                 Deferred::FinishAbort,
             ));
         } else {
-            // Marlin: M108 rompe esperas, M410 frena, M5 apaga.
-            self.queue.push_back("M108".to_string());
-            self.queue.push_back("M410".to_string());
-            self.queue.push_back("M5".to_string());
+            // Marlin: M108 rompe esperas, M410 frena, M5 apaga. Van directo
+            // al puerto: por la cola esperaban el `ok` de la linea en vuelo y
+            // `finish_abort` las descartaba antes de enviarlas, dejando el
+            // husillo o el laser encendido.
+            self.write_raw(b"M108\nM410\nM5\n");
             self.deferred.push((
                 Instant::now() + Duration::from_millis(200),
                 Deferred::FinishAbort,
@@ -853,6 +857,7 @@ impl Io {
     }
 
     fn finish_abort(&mut self) {
+        self.aborting = false;
         self.inflight.clear();
         self.inflight_bytes = 0;
         self.queue.clear();
@@ -866,6 +871,11 @@ impl Io {
         self.inflight.clear();
         self.inflight_bytes = 0;
         self.wco = None;
+        // El reset lo pidio el propio abort: `finish_abort` cierra el job con
+        // "cancelled". Emitir aca "reset" daba dos finales para un solo job.
+        if self.aborting {
+            return;
+        }
         if self.job.take().is_some() {
             self.queue.clear();
             self.sending.store(false, Ordering::SeqCst);
@@ -977,6 +987,11 @@ impl Io {
                 RX_SILENCE_TIMEOUT.as_secs()
             ),
         );
+        // Que no conteste no prueba que este quieto: el planner puede seguir
+        // ejecutando lo que ya tenia. Se intenta frenar antes de soltar el job.
+        // Solo feed hold, sin reset: un `$H` dentro del job tambien deja al
+        // firmware mudo y un reset ahi cortaria el homing por la mitad.
+        self.write_raw(b"!");
         self.queue.clear();
         self.job = None;
         self.inflight.clear();
@@ -1068,6 +1083,7 @@ fn io_loop(
         last_poll: Instant::now(),
         last_progress_emit: Instant::now() - Duration::from_secs(1),
         pending_status_reply: false,
+            aborting: false,
         last_status: Arc::clone(&last_status_slot),
         sending: Arc::clone(&sending),
         last_rx: Instant::now(),
@@ -1247,6 +1263,20 @@ pub fn serial_connect(
         .handle
         .lock()
         .map_err(|e| format!("Error de lock: {}", e))?;
+    // Si el hilo de I/O murio solo (cable desenchufado, error de lectura) el
+    // handle queda puesto aunque ya no haya puerto: hay que soltarlo o la
+    // reconexion falla para siempre con "Ya hay un puerto conectado".
+    let stale = guard
+        .as_ref()
+        .map(|h| h.join.as_ref().map(|j| j.is_finished()).unwrap_or(true))
+        .unwrap_or(false);
+    if stale {
+        if let Some(mut old) = guard.take() {
+            if let Some(join) = old.join.take() {
+                let _ = join.join();
+            }
+        }
+    }
     if guard.is_some() {
         return Err("Ya hay un puerto conectado. Desconecte primero.".to_string());
     }
@@ -1367,9 +1397,29 @@ pub fn serial_send(state: State<'_, Arc<SerialState>>, command: String) -> Resul
         return Ok(());
     }
     if let Some(bytes) = realtime_from_text(&cmd) {
-        return state.send_request(IoRequest::Realtime(bytes));
+        return send_realtime(&state, bytes);
+    }
+    // Una linea manual tiene prioridad sobre el job en la cola: un `G0 Z5` o
+    // un `$H` de una macro caia en medio del programa. Durante un job solo
+    // pasan los comandos realtime (hold, resume, reset, overrides).
+    if state.is_sending() {
+        return Err("Hay un job en curso. Detenga el envio antes de mandar comandos.".to_string());
     }
     state.send_request(IoRequest::Line(cmd))
+}
+
+// Los bytes realtime son de GRBL. Marlin no los entiende y un 0x85 suelto se
+// pega a la linea siguiente y la corrompe: el hold se traduce a M410 y el
+// resto se descarta.
+fn send_realtime(state: &SerialState, bytes: Vec<u8>) -> Result<(), String> {
+    if state.current_dialect() == Dialect::Marlin {
+        return match bytes.first() {
+            Some(b'!') => state.send_request(IoRequest::Realtime(b"M410\n".to_vec())),
+            Some(b'?') => state.send_request(IoRequest::Realtime(bytes)),
+            _ => Ok(()),
+        };
+    }
+    state.send_request(IoRequest::Realtime(bytes))
 }
 
 #[tauri::command]
@@ -1377,7 +1427,7 @@ pub fn serial_realtime(
     state: State<'_, Arc<SerialState>>,
     cmd: RealtimeCmd,
 ) -> Result<(), String> {
-    state.send_request(IoRequest::Realtime(vec![cmd.byte()]))
+    send_realtime(&state, vec![cmd.byte()])
 }
 
 #[tauri::command]

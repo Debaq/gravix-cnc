@@ -241,7 +241,7 @@ export function ControlPanel() {
     if (!connected) return
     const cfg = useCanvasStore.getState().globalConfig
     const size = 10 // 10mm square
-    const lines: string[] = ['G90 G21', '; Test cut/draw - 10mm square at current position']
+    const lines: string[] = ['G90', 'G21', '; Test cut/draw - 10mm square at work origin']
 
     if (cfg.operationType === 'laser') {
       const power = Math.round((cfg.laserPower / 100) * 1000)
@@ -251,7 +251,7 @@ export function ControlPanel() {
         `G1 X0 Y${size} F${cfg.feedRate}`, `G1 X0 Y0 F${cfg.feedRate}`,
         'M5 S0')
     } else if (cfg.operationType === 'plotter' || cfg.operationType === 'pencil') {
-      const penZ = cfg.pressureZ || -1
+      const penZ = cfg.pressureZ ?? -1
       lines.push(`G0 Z5`, `G0 X0 Y0`, `G1 Z${penZ} F${cfg.speed || 1000}`,
         `G1 X${size} Y0 F${cfg.speed || 1000}`, `G1 X${size} Y${size} F${cfg.speed || 1000}`,
         `G1 X0 Y${size} F${cfg.speed || 1000}`, `G1 X0 Y0 F${cfg.speed || 1000}`,
@@ -259,14 +259,15 @@ export function ControlPanel() {
     } else {
       // CNC
       const depth = -Math.min(Math.abs(cfg.depthStep), 1)
-      lines.push(`M3 S${cfg.spindleRPM}`, 'G4 P2', `G0 X0 Y0`, `G0 Z5`,
+      // Primero sube: el rapido en XY a la Z actual podia arrastrar la fresa
+      // por la pieza o una mordaza.
+      lines.push(`G0 Z5`, `M3 S${cfg.spindleRPM}`, 'G4 P2', `G0 X0 Y0`,
         `G1 Z${depth} F${cfg.plungeRate}`,
         `G1 X${size} Y0 F${cfg.feedRate}`, `G1 X${size} Y${size} F${cfg.feedRate}`,
         `G1 X0 Y${size} F${cfg.feedRate}`, `G1 X0 Y0 F${cfg.feedRate}`,
         'G0 Z5', 'M5')
     }
 
-    lines.push('G0 X0 Y0')
     serial.sendGCode(lines.join('\n'))
     addConsoleLine(`Test ${cfg.operationType}: 10mm square`)
   }
@@ -615,9 +616,14 @@ export function ControlPanel() {
                       { label: t('spindlePresetHigh') || 'Rápido', value: 20000 },
                     ]
                 const offCmd = isLaser ? serial.laserOff : () => serial.sendCommand('M5')
+                // Encendido, espera y apagado van en un solo programa: el apagado
+                // ya esta en el buffer del control. Con un timer de JS, si la
+                // ventana se cerraba o se caia la conexion el laser quedaba
+                // encendido quemando un punto.
                 const testCmd = () => {
-                  serial.sendCommand(`M3 S${laserPower}`)
-                  setTimeout(() => serial.sendCommand(isLaser ? 'M5 S0' : 'M5'), laserTestDuration)
+                  if (useSerialStore.getState().sending) return
+                  const secs = Math.max(0.01, laserTestDuration / 1000).toFixed(2)
+                  serial.sendGCode([`M3 S${laserPower}`, `G4 P${secs}`, isLaser ? 'M5 S0' : 'M5'].join('\n'))
                 }
                 return (
                   <div className={`bg-background border rounded-lg p-3 space-y-2 ${isLaser ? 'border-orange-500/30' : 'border-blue-500/30'}`}>

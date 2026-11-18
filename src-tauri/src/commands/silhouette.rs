@@ -945,9 +945,19 @@ pub async fn silhouette_send(
     let job_state: Arc<SilhouetteJobState> = state.inner().clone();
     let rt = Handle::current();
     tokio::task::spawn_blocking(move || {
+        // `busy` se libera al salir del bloque aunque el envio entre en
+        // panico: si no, quedaba en true y no se podia volver a cortar sin
+        // reiniciar la app.
+        struct BusyGuard(Arc<SilhouetteJobState>);
+        impl Drop for BusyGuard {
+            fn drop(&mut self) {
+                self.0.busy.store(false, Ordering::SeqCst);
+            }
+        }
+        let guard = BusyGuard(job_state.clone());
         let cancel = job_state.cancel.clone();
         let result = run_job(&app, &rt, &target, &steps, &cancel);
-        job_state.busy.store(false, Ordering::SeqCst);
+        drop(guard);
         let payload = match result {
             Ok(()) => SilhouetteResult {
                 success: true,
@@ -1022,10 +1032,26 @@ fn run_job(
         }
     })?;
 
+    // Cualquier salida con error despues de haber mandado datos aborta: el
+    // equipo tiene comandos en buffer y los seguiria ejecutando (un timeout de
+    // USB/BLE o cancelar durante el registro lo dejaban cortando solo).
+    let result = send_steps(app, &mut link, steps, cancel, total);
+    if result.is_err() {
+        abort(&mut link);
+    }
+    result
+}
+
+fn send_steps(
+    app: &AppHandle,
+    link: &mut Link,
+    steps: &[SilhouetteStep],
+    cancel: &AtomicBool,
+    total: usize,
+) -> Result<(), String> {
     let mut sent = 0;
     for step in steps {
         if cancel.load(Ordering::SeqCst) {
-            abort(&mut link);
             return Err("cancelado".to_string());
         }
         match step {
@@ -1033,20 +1059,12 @@ fn run_job(
                 let program = encode(commands);
                 for chunk in split_chunks(&program) {
                     if cancel.load(Ordering::SeqCst) {
-                        abort(&mut link);
                         return Err("cancelado".to_string());
                     }
                     link.write(chunk)?;
                     sent += chunk.len();
                     emit_progress(app, sent, total, "sending");
-                    if let Err(e) =
-                        link.wait_ready(CHUNK_READY_TIMEOUT, Duration::from_millis(50), cancel, |_| {})
-                    {
-                        if cancel.load(Ordering::SeqCst) {
-                            abort(&mut link);
-                        }
-                        return Err(e);
-                    }
+                    link.wait_ready(CHUNK_READY_TIMEOUT, Duration::from_millis(50), cancel, |_| {})?;
                 }
             }
             SilhouetteStep::Expect { command, expect, timeout_ms, error } => {
@@ -1057,14 +1075,8 @@ fn run_job(
                 sent += data.len();
                 match resp {
                     Some(r) if r == expect.trim() => {}
-                    Some(r) => {
-                        abort(&mut link);
-                        return Err(format!("{error} (respuesta: \"{r}\")"));
-                    }
-                    None => {
-                        abort(&mut link);
-                        return Err(format!("{error} (sin respuesta)"));
-                    }
+                    Some(r) => return Err(format!("{error} (respuesta: \"{r}\")")),
+                    None => return Err(format!("{error} (sin respuesta)")),
                 }
                 link.wait_ready(CHUNK_READY_TIMEOUT, Duration::from_millis(100), cancel, |_| {})?;
             }
