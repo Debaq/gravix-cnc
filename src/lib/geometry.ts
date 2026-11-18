@@ -255,6 +255,56 @@ export async function offsetRegion(region: Point2D[][], offset: number): Promise
   return result ? result.map(fromClipperPath) : []
 }
 
+/**
+ * Cajeado de una region con islas en cualquiera de las estrategias. Devuelve
+ * lo mismo que consume el emisor: anillos cerrados, barridos, acabado y
+ * recorridos abiertos.
+ */
+export async function generatePocketRegion(
+  region: Point2D[][],
+  strategy: 'contour-parallel' | 'zigzag' | 'spiral' | 'trochoidal' | string,
+  toolRadius: number,
+  stepover: number,
+  loopRadius: number,
+): Promise<{
+  roughing: Point2D[][]
+  hatch: { start: Point2D; end: Point2D }[]
+  finishing: Point2D[][]
+  spiral: Point2D[][]
+}> {
+  const toolDiameter = toolRadius * 2
+  const step = toolDiameter * stepover
+  const finishing = await offsetRegion(region, -toolRadius)
+  const empty = { roughing: [], hatch: [], finishing, spiral: [] }
+  if (finishing.length === 0 || step <= 0) return empty
+
+  if (strategy === 'zigzag') {
+    // El barrido se retrae medio paso para que el acabado no corte a ancho completo
+    const area = await offsetRegion(region, -(toolRadius + step / 2))
+    return { ...empty, hatch: generateHatchLinesRegion(area.length > 0 ? area : finishing, step, 45, true) }
+  }
+
+  if (strategy === 'trochoidal') {
+    const radius = Math.max(toolRadius * 0.25, loopRadius)
+    const band = 2 * radius + toolDiameter
+    const { roughing } = await generatePocketContoursRegion(region, toolRadius, band / toolDiameter, toolRadius + radius)
+    const advance = Math.max(0.05, step)
+    return {
+      ...empty,
+      spiral: roughing.filter((r) => r.length >= 3).map((r) => trochoidalPath(r, radius, advance, true)),
+    }
+  }
+
+  const { roughing } = await generatePocketContoursRegion(region, toolRadius, stepover, toolRadius)
+  if (strategy === 'spiral') {
+    // Con islas los anillos de un mismo nivel son varios y no se pueden coser
+    // en una sola espiral sin cruzar una isla: se recorren de adentro hacia
+    // afuera, cada uno cerrado. El ultimo nivel hace de acabado.
+    return { roughing: [...roughing].reverse(), hatch: [], finishing: [], spiral: [] }
+  }
+  return { roughing, hatch: [], finishing, spiral: [] }
+}
+
 /** Cajeado por contornos paralelos de una region con islas. */
 export async function generatePocketContoursRegion(
   region: Point2D[][],
@@ -478,17 +528,33 @@ export function generateHatchLines(
   angleDeg: number = 0,
   bidirectional: boolean = true,
 ): { start: Point2D; end: Point2D }[] {
-  if (polygon.length < 3 || spacing <= 0) return []
+  return generateHatchLinesRegion([polygon], spacing, angleDeg, bidirectional)
+}
+
+/**
+ * Igual que `generateHatchLines` pero sobre una region con agujeros: se
+ * cruzan los bordes de todos los anillos y el emparejado par/impar deja
+ * afuera las islas.
+ */
+export function generateHatchLinesRegion(
+  rings: Point2D[][],
+  spacing: number,
+  angleDeg: number = 0,
+  bidirectional: boolean = true,
+): { start: Point2D; end: Point2D }[] {
+  rings = rings.filter((r) => r.length >= 3)
+  if (rings.length === 0 || spacing <= 0) return []
 
   const angleRad = (angleDeg * Math.PI) / 180
   const cosA = Math.cos(angleRad)
   const sinA = Math.sin(angleRad)
 
   // Rotar polígono para trabajar con líneas horizontales
-  const rotated = polygon.map(p => ({
+  const rotatedRings = rings.map((ring) => ring.map(p => ({
     x: p.x * cosA + p.y * sinA,
     y: -p.x * sinA + p.y * cosA,
-  }))
+  })))
+  const rotated = rotatedRings.flat()
 
   // Bounding box del polígono rotado
   let minY = Infinity, maxY = -Infinity
@@ -506,15 +572,16 @@ export function generateHatchLines(
     // Encontrar intersecciones con todos los bordes del polígono
     const intersections: number[] = []
 
-    for (let i = 0; i < rotated.length; i++) {
-      const j = (i + 1) % rotated.length
-      const p1 = rotated[i]
-      const p2 = rotated[j]
+    for (const ring of rotatedRings) {
+      for (let i = 0; i < ring.length; i++) {
+        const p1 = ring[i]
+        const p2 = ring[(i + 1) % ring.length]
 
-      // Verificar si la línea horizontal cruza este borde
-      if ((p1.y <= y && p2.y > y) || (p2.y <= y && p1.y > y)) {
-        const t = (y - p1.y) / (p2.y - p1.y)
-        intersections.push(p1.x + t * (p2.x - p1.x))
+        // Verificar si la línea horizontal cruza este borde
+        if ((p1.y <= y && p2.y > y) || (p2.y <= y && p1.y > y)) {
+          const t = (y - p1.y) / (p2.y - p1.y)
+          intersections.push(p1.x + t * (p2.x - p1.x))
+        }
       }
     }
 

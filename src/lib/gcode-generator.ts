@@ -1,7 +1,7 @@
 import type { Point2D, GCodePath, GCodeJob, GlobalConfig, RasterData, ColorMapping, GCodeMarker, ClampRect, PocketStrategy, LeadType, MillDirection, CutterComp, TabMode } from './types'
 import { generatePhotoVCarve } from './photo-vcarve'
 import type { MachineProfile } from './profiles'
-import { offsetPolygon, generatePocketContours, generatePocketContoursRegion, generatePocketZigzag, generatePocketSpiral, generatePocketTrochoidal, orderPaths, orderPathsInsideFirst, pointInPolygon, isCounterClockwise, generateHatchLines, validateToolVsPaths, withOrientation, millingCounterClockwise, buildLead } from './geometry'
+import { offsetPolygon, generatePocketContours, generatePocketRegion, generatePocketZigzag, generatePocketSpiral, generatePocketTrochoidal, orderPaths, orderPathsInsideFirst, pointInPolygon, isCounterClockwise, generateHatchLines, validateToolVsPaths, withOrientation, millingCounterClockwise, buildLead } from './geometry'
 import { useMachineStore } from '@/stores/useMachineStore'
 import { computeRestRegions } from './boolean-ops'
 import { tauriInvoke } from './tauri'
@@ -1072,17 +1072,16 @@ export class GCodeGenerator {
 
       const islands = islandsOf.get(i)
       if (islands && islands.length > 0) {
-        const pocket = await generatePocketContoursRegion(
-          [boundary, ...islands], opts.toolRadius, opts.stepover, opts.toolRadius,
+        const loopRadius = (opts.trochoidalRadius ?? 0) > 0 ? opts.trochoidalRadius! : opts.toolRadius
+        const pocket = await generatePocketRegion(
+          [boundary, ...islands], strategy, opts.toolRadius, opts.stepover, loopRadius,
         )
-        if (pocket.roughing.length === 0 && pocket.finishing.length === 0) {
+        if (pocket.roughing.length + pocket.hatch.length + pocket.finishing.length + pocket.spiral.length === 0) {
           lines.push(`; WARNING: Shape ${i + 1} too small for pocket with tool radius ${opts.toolRadius}mm`)
           continue
         }
-        if (strategy !== 'contour-parallel') {
-          lines.push(`; NOTE: shape ${i + 1} has ${islands.length} island(s): pocketed with contour-parallel`)
-        }
-        pocketData.push({ roughing: pocket.roughing, hatch: [], finishing: pocket.finishing, spiral: [] })
+        lines.push(`; Shape ${i + 1}: ${islands.length} island(s) kept`)
+        pocketData.push(pocket)
         continue
       }
 
