@@ -2,7 +2,7 @@ import { getSharedCanvas, ELEMENT_ID_KEY, NON_INTERACTIVE_KEY } from '@/hooks/us
 import { useAppStore } from '@/stores/useAppStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
-import type { CanvasElement, GlobalConfig, OperationType } from '@/lib/types'
+import type { CanvasElement, GlobalConfig, Layer, OperationType, WorkArea } from '@/lib/types'
 import type { Sheet } from '@/stores/useCanvasStore'
 import { useCAMStore, type CAMSnapshot } from '@/stores/useCAMStore'
 import type { PrintCutSetup } from './print-cut'
@@ -44,14 +44,23 @@ export interface GravixFile {
   cam?: CAMSnapshot
   /** Desde 1.5: hoja de print & cut (papel y marcas de registro). */
   printCut?: PrintCutSetup
+  /**
+   * Desde 1.6: origen del area de trabajo y capas. Sin el origen, un proyecto
+   * con cero arriba o al centro se abria con cero abajo-izquierda y el G-code
+   * salia desplazado; sin las capas, los elementos de capas propias quedaban
+   * huerfanos y no se cortaban.
+   */
+  origin?: WorkArea['origin']
+  layers?: Layer[]
+  activeLayerId?: string
 }
 
-export const GRAVIX_FILE_VERSION = '1.5.0'
+export const GRAVIX_FILE_VERSION = '1.6.0'
 
 /** Arma el contenido del `.gravix` con el estado actual de los stores. */
 export function serializeGravixProject(createdAt?: number): GravixFile {
   const { projectName, projectOperationType } = useAppStore.getState()
-  const { elements, workArea, globalConfig, sheets, activeSheetId } = useCanvasStore.getState()
+  const { elements, workArea, globalConfig, sheets, activeSheetId, layers, activeLayerId } = useCanvasStore.getState()
   const { gcode, gcodeGenerated } = useGCodeStore.getState()
 
   const now = Math.floor(Date.now() / 1000)
@@ -84,6 +93,9 @@ export function serializeGravixProject(createdAt?: number): GravixFile {
     activeSheetId,
     cam: useCAMStore.getState().serialize(),
     printCut: useCanvasStore.getState().printCut,
+    origin: workArea.origin,
+    layers,
+    activeLayerId,
   }
 }
 
@@ -106,6 +118,8 @@ export function projectFingerprint(): string {
     // cambiar el stock no disparaba el autosave.
     useCAMStore.getState().serialize(),
     useCanvasStore.getState().printCut,
+    useCanvasStore.getState().layers,
+    useCanvasStore.getState().activeLayerId,
   ])
 }
 

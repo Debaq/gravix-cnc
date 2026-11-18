@@ -220,6 +220,8 @@ interface CanvasState {
   removeLayer: (id: string) => void
   updateLayer: (id: string, updates: Partial<Layer>) => void
   reorderLayers: (layers: Layer[]) => void
+  /** Carga las capas de un proyecto (o las de fabrica) y reubica elementos huerfanos. */
+  restoreLayers: (layers?: Layer[] | null, activeLayerId?: string | null) => void
   setActiveLayer: (id: string) => void
   setColorMappings: (mappings: ColorMapping[]) => void
   setVectorCleanup: (cleanup: Partial<VectorCleanupConfig>) => void
@@ -555,6 +557,23 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   })),
 
   reorderLayers: (layers) => set({ layers }),
+
+  restoreLayers: (saved, savedActive) => set((state) => {
+    const layers: Layer[] = saved && saved.length > 0
+      ? saved
+      : [{ id: 'layer_001', name: 'Capa 1', color: '#333333', visible: true, locked: false, order: 0, config: null }]
+    const ids = new Set(layers.map((l) => l.id))
+    const activeLayerId = savedActive && ids.has(savedActive) ? savedActive : layers[0].id
+    // Un elemento que apunta a una capa que no existe no entra a ningun job:
+    // se pasa a la capa activa en vez de desaparecer del G-code en silencio.
+    const fix = (els: CanvasElement[]): CanvasElement[] =>
+      els.map((el) => ({
+        ...el,
+        layerId: el.layerId && ids.has(el.layerId) ? el.layerId : activeLayerId,
+        ...(el.children ? { children: fix(el.children) } : {}),
+      }))
+    return { layers, activeLayerId, elements: fix(state.elements) }
+  }),
 
   setActiveLayer: (id) => set({ activeLayerId: id }),
 

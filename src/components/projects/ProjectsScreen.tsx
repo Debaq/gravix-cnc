@@ -182,6 +182,7 @@ export function ProjectsScreen() {
     const { setElements, setSheets, clearGuides } = useCanvasStore.getState()
     setElements([])
     setSheets([])
+    useCanvasStore.getState().restoreLayers(null)
     clearGuides()
     clearGCode()
     // Proyecto nuevo: stock, clamps y marcadores arrancan de cero
@@ -251,7 +252,7 @@ export function ProjectsScreen() {
         setWorkArea({
           width: data.width || 300,
           height: data.height || 300,
-          origin: 'bottom-left',
+          origin: data.origin || 'bottom-left',
         })
         // Lo guardado manda sobre el default: si el proyecto trae su config de
         // herramienta y material, restaurarla o el G-code sale con otra.
@@ -267,9 +268,10 @@ export function ProjectsScreen() {
         useCanvasStore.setState({ printCut: DEFAULT_PRINT_CUT })
         if (data.printCut) useCanvasStore.getState().setPrintCut(data.printCut)
 
-        if (data.elements?.length) {
-          setElements(data.elements)
-        }
+        // Tambien cuando viene vacio: si no, quedaban los elementos del
+        // proyecto anterior en el store con el lienzo en blanco.
+        setElements(data.elements ?? [])
+        useCanvasStore.getState().restoreLayers(data.layers, data.activeLayerId)
 
         // La geometria la levanta DesignCanvas al montarse. En archivos <= 1.2
         // no hay snapshot, pero si la copia que quedaba colgada de cada elemento.
