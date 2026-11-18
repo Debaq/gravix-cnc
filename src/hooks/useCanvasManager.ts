@@ -1185,7 +1185,7 @@ export function useCanvasManager() {
       const baseProps = { fill: 'transparent', stroke, strokeWidth: 1 }
 
       // Determine object dimensions for placement
-      let objW = defaultSize
+      const objW = defaultSize
       let objH = defaultSize
       switch (type) {
         case 'roundRect':

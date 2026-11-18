@@ -81,7 +81,7 @@ let segmentHoverAnchorIdx = -1
 // Measuring mode state
 let measureStart: Point | null = null
 let measureEnd: Point | null = null
-let measureMid: Point | null = null  // vertex for angle measurement
+const measureMid: Point | null = null  // vertex for angle measurement
 let measureAnglePoints: Point[] = [] // 0=start, 1=vertex, 2=end
 
 // ============================================

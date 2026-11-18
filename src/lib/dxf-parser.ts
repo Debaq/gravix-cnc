@@ -459,7 +459,7 @@ export function dxfToFabricObjects(entities: DxfEntity[]): any[] {
         }))
         break
 
-      case 'CIRCLE':
+      case 'CIRCLE': {
         const r = (ent.radius || 0) * PIXELS_PER_MM
         objects.push(new Circle({
           left: (ent.centerX || 0) * PIXELS_PER_MM - r,
@@ -470,6 +470,7 @@ export function dxfToFabricObjects(entities: DxfEntity[]): any[] {
           strokeWidth: 1
         }))
         break
+      }
 
       case 'ARC': {
         const cx = (ent.centerX || 0) * PIXELS_PER_MM
