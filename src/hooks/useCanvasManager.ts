@@ -7,6 +7,7 @@ import {
   Line,
   Path,
   Polygon as FabricPolygon,
+  Polyline as FabricPolyline,
   Group,
   FabricObject,
   FabricImage,
@@ -2424,80 +2425,7 @@ export function useCanvasManager() {
     for (const obj of userObjects) {
       if (!obj.visible) continue
 
-      if (obj instanceof Path) {
-        const pathPoints = extractPathPoints(obj, originPos, wa.origin)
-        if (pathPoints.length > 0) {
-          paths.push({ points: pathPoints, closed: isPathClosed(obj) })
-        }
-      } else if (obj instanceof Rect) {
-        const left = obj.left ?? 0
-        const top = obj.top ?? 0
-        const w = (obj.width ?? 0) * (obj.scaleX ?? 1)
-        const h = (obj.height ?? 0) * (obj.scaleY ?? 1)
-
-        const points = convertToMM(
-          [
-            { x: left, y: top },
-            { x: left + w, y: top },
-            { x: left + w, y: top + h },
-            { x: left, y: top + h },
-          ],
-          originPos,
-          wa.origin,
-        )
-        paths.push({ points, closed: true })
-      } else if (obj instanceof Circle) {
-        const cx = (obj.left ?? 0) + (obj.radius ?? 0) * (obj.scaleX ?? 1)
-        const cy = (obj.top ?? 0) + (obj.radius ?? 0) * (obj.scaleY ?? 1)
-        const r = (obj.radius ?? 0) * (obj.scaleX ?? 1)
-        const segments = 72
-        const circlePoints: Point2D[] = []
-
-        for (let i = 0; i <= segments; i++) {
-          const angle = (i / segments) * Math.PI * 2
-          circlePoints.push({
-            x: cx + r * Math.cos(angle),
-            y: cy + r * Math.sin(angle),
-          })
-        }
-
-        const points = convertToMM(circlePoints, originPos, wa.origin)
-        paths.push({ points, closed: true })
-      } else if (obj instanceof Line) {
-        const x1 = obj.x1 ?? 0
-        const y1 = obj.y1 ?? 0
-        const x2 = obj.x2 ?? 0
-        const y2 = obj.y2 ?? 0
-
-        const points = convertToMM(
-          [
-            { x: (obj.left ?? 0) + x1, y: (obj.top ?? 0) + y1 },
-            { x: (obj.left ?? 0) + x2, y: (obj.top ?? 0) + y2 },
-          ],
-          originPos,
-          wa.origin,
-        )
-        paths.push({ points, closed: false })
-      } else if (obj instanceof Ellipse) {
-        const extracted = extractObjectPaths(obj, originPos, wa.origin)
-        paths.push(...extracted)
-      } else if (obj instanceof FabricPolygon) {
-        const extracted = extractObjectPaths(obj, originPos, wa.origin)
-        paths.push(...extracted)
-      } else if (obj instanceof Group) {
-        const groupObjects = obj.getObjects()
-        for (const child of groupObjects) {
-          if (child instanceof Path) {
-            const pathPoints = extractPathPoints(child, originPos, wa.origin, obj)
-            if (pathPoints.length > 0) {
-              paths.push({ points: pathPoints, closed: isPathClosed(child) })
-            }
-          } else {
-            const extracted = extractObjectPaths(child, originPos, wa.origin)
-            paths.push(...extracted)
-          }
-        }
-      }
+      paths.push(...extractObjectPaths(obj, originPos, wa.origin))
     }
 
     return options?.raw ? paths : cleanPaths(paths)
@@ -2565,80 +2493,7 @@ export function useCanvasManager() {
         // Extract paths from this object
         const paths: GCodePath[] = []
 
-        if (obj instanceof Path) {
-        const pathPoints = extractPathPoints(obj, originPos, wa.origin)
-        if (pathPoints.length > 0) {
-          paths.push({ points: pathPoints, closed: isPathClosed(obj) })
-        }
-      } else if (obj instanceof Rect) {
-        const left = obj.left ?? 0
-        const top = obj.top ?? 0
-        const w = (obj.width ?? 0) * (obj.scaleX ?? 1)
-        const h = (obj.height ?? 0) * (obj.scaleY ?? 1)
-
-        const points = convertToMM(
-          [
-            { x: left, y: top },
-            { x: left + w, y: top },
-            { x: left + w, y: top + h },
-            { x: left, y: top + h },
-          ],
-          originPos,
-          wa.origin,
-        )
-        paths.push({ points, closed: true })
-      } else if (obj instanceof Circle) {
-        const cx = (obj.left ?? 0) + (obj.radius ?? 0) * (obj.scaleX ?? 1)
-        const cy = (obj.top ?? 0) + (obj.radius ?? 0) * (obj.scaleY ?? 1)
-        const r = (obj.radius ?? 0) * (obj.scaleX ?? 1)
-        const segments = 72
-        const circlePoints: Point2D[] = []
-
-        for (let i = 0; i <= segments; i++) {
-          const angle = (i / segments) * Math.PI * 2
-          circlePoints.push({
-            x: cx + r * Math.cos(angle),
-            y: cy + r * Math.sin(angle),
-          })
-        }
-
-        const points = convertToMM(circlePoints, originPos, wa.origin)
-        paths.push({ points, closed: true })
-      } else if (obj instanceof Line) {
-        const x1 = obj.x1 ?? 0
-        const y1 = obj.y1 ?? 0
-        const x2 = obj.x2 ?? 0
-        const y2 = obj.y2 ?? 0
-
-        const points = convertToMM(
-          [
-            { x: (obj.left ?? 0) + x1, y: (obj.top ?? 0) + y1 },
-            { x: (obj.left ?? 0) + x2, y: (obj.top ?? 0) + y2 },
-          ],
-          originPos,
-          wa.origin,
-        )
-        paths.push({ points, closed: false })
-      } else if (obj instanceof Ellipse) {
-        const extracted = extractObjectPaths(obj, originPos, wa.origin)
-        paths.push(...extracted)
-      } else if (obj instanceof FabricPolygon) {
-        const extracted = extractObjectPaths(obj, originPos, wa.origin)
-        paths.push(...extracted)
-      } else if (obj instanceof Group) {
-        const groupObjects = obj.getObjects()
-        for (const child of groupObjects) {
-          if (child instanceof Path) {
-            const pathPoints = extractPathPoints(child, originPos, wa.origin, obj)
-            if (pathPoints.length > 0) {
-              paths.push({ points: pathPoints, closed: isPathClosed(child) })
-            }
-          } else {
-            const extracted = extractObjectPaths(child, originPos, wa.origin)
-            paths.push(...extracted)
-          }
-        }
-      }
+        paths.push(...extractObjectPaths(obj, originPos, wa.origin))
 
       const cleaned = cleanPaths(paths)
       paths.length = 0
@@ -3514,37 +3369,40 @@ export function useCanvasManager() {
       0, 0
     )
 
-    const subjectPaths: Point2D[][] = []
-    const clipPaths: Point2D[][] = []
+    // Una figura por objeto (contorno + agujeros). Solo contornos cerrados:
+    // una linea abierta no encierra area.
+    const shapeOf = (obj: FabricObject): Point2D[][] =>
+      extractObjectPaths(obj, originPos, origin)
+        .filter(p => p.closed && p.points.length >= 3)
+        .map(p => p.points)
+
+    const subjectShapes: Point2D[][][] = []
+    const clipShapes: Point2D[][][] = []
 
     if (op === 'union') {
-      objects.forEach(obj => {
-        const paths = extractObjectPaths(obj, originPos, origin)
-        subjectPaths.push(...paths.map(p => p.points))
-      })
+      objects.forEach(obj => subjectShapes.push(shapeOf(obj)))
     } else {
       // Sort by z-index to determine subject (bottom-most in stack)
       const allCanvasObjects = canvas.getObjects()
       const sorted = [...objects].sort((a, b) => {
         return allCanvasObjects.indexOf(a) - allCanvasObjects.indexOf(b)
       })
-      
-      const subjectObj = sorted[0]
-      const clipObjs = sorted.slice(1)
-
-      const sPaths = extractObjectPaths(subjectObj, originPos, origin)
-      subjectPaths.push(...sPaths.map(p => p.points))
-
-      clipObjs.forEach(obj => {
-        const cPaths = extractObjectPaths(obj, originPos, origin)
-        clipPaths.push(...cPaths.map(p => p.points))
-      })
+      subjectShapes.push(shapeOf(sorted[0]))
+      sorted.slice(1).forEach(obj => clipShapes.push(shapeOf(obj)))
     }
 
-    const resultPoints = await booleanOperation(subjectPaths, clipPaths, op)
-    
+    // Sin contornos cerrados no hay nada que operar: se avisa y no se toca
+    // nada (antes los originales se borraban).
+    const usable = [...subjectShapes, ...clipShapes].filter(sh => sh.length > 0).length
+    if (usable < 2) {
+      toast.error('La operacion necesita al menos dos figuras cerradas')
+      return
+    }
+
+    const resultPoints = await booleanOperation(subjectShapes, clipShapes, op)
+
     if (resultPoints.length === 0) {
-      deleteSelected()
+      toast.error('El resultado de la operacion es vacio; no se modifico nada')
       return
     }
 
@@ -3921,51 +3779,7 @@ export function useCanvasManager() {
     for (const obj of userObjects) {
       if (!obj.visible) continue
 
-      if (obj instanceof Circle) {
-        const matrix = obj.calcTransformMatrix()
-        const center = util.transformPoint(new Point(0, 0), matrix)
-        const c = toMM(center.x, center.y)
-        const r = (obj.radius ?? 0) * (obj.scaleX ?? 1) / PIXELS_PER_MM
-        dxf += `  0\nCIRCLE\n  8\n0\n 10\n${c.x.toFixed(4)}\n 20\n${c.y.toFixed(4)}\n 40\n${r.toFixed(4)}\n`
-      } else if (obj instanceof Ellipse) {
-        const extracted = extractObjectPaths(obj, originPos, wa.origin)
-        for (const p of extracted) emitPolyline(p.points, true)
-      } else if (obj instanceof Rect) {
-        const w = (obj.width ?? 0)
-        const h = (obj.height ?? 0)
-        const matrix = obj.calcTransformMatrix()
-        const corners = [
-          util.transformPoint(new Point(-w / 2, -h / 2), matrix),
-          util.transformPoint(new Point(w / 2, -h / 2), matrix),
-          util.transformPoint(new Point(w / 2, h / 2), matrix),
-          util.transformPoint(new Point(-w / 2, h / 2), matrix),
-        ].map(p => toMM(p.x, p.y))
-        emitPolyline(corners, true)
-      } else if (obj instanceof Line) {
-        const matrix = obj.calcTransformMatrix()
-        const p1 = util.transformPoint(new Point(obj.x1 ?? 0, obj.y1 ?? 0), matrix)
-        const p2 = util.transformPoint(new Point(obj.x2 ?? 0, obj.y2 ?? 0), matrix)
-        const a = toMM(p1.x, p1.y)
-        const b = toMM(p2.x, p2.y)
-        dxf += `  0\nLINE\n  8\n0\n 10\n${a.x.toFixed(4)}\n 20\n${a.y.toFixed(4)}\n 11\n${b.x.toFixed(4)}\n 21\n${b.y.toFixed(4)}\n`
-      } else if (obj instanceof Path) {
-        const pts = extractPathPoints(obj, originPos, wa.origin)
-        if (pts.length > 0) emitPolyline(pts, isPathClosed(obj))
-      } else if (obj instanceof FabricPolygon) {
-        const extracted = extractObjectPaths(obj, originPos, wa.origin)
-        for (const p of extracted) emitPolyline(p.points, true)
-      } else if (obj instanceof Group) {
-        const children = obj.getObjects()
-        for (const child of children) {
-          if (child instanceof Path) {
-            const pts = extractPathPoints(child, originPos, wa.origin, obj)
-            if (pts.length > 0) emitPolyline(pts, isPathClosed(child))
-          } else {
-            const extracted = extractObjectPaths(child, originPos, wa.origin)
-            for (const p of extracted) emitPolyline(p.points, p.closed)
-          }
-        }
-      }
+      for (const p of extractObjectPaths(obj, originPos, wa.origin)) emitPolyline(p.points, p.closed)
     }
 
     dxf += "  0\nENDSEC\n  0\nEOF\n"
@@ -4167,75 +3981,6 @@ function convertToMM(
   }))
 }
 
-function extractPathPoints(
-  pathObj: Path,
-  originPos: { x: number; y: number },
-  origin: string,
-  parentGroup?: Group,
-): Point2D[] {
-  const points: Point2D[] = []
-  const pathData = pathObj.path
-
-  if (!pathData || !Array.isArray(pathData)) return points
-
-  // Use calcTransformMatrix + pathOffset for correct positioning.
-  // This accounts for Fabric's internal path centering (pathOffset)
-  // and all transforms (position, rotation, scale, parent group).
-  const matrix = parentGroup
-    ? util.multiplyTransformMatrices(
-        parentGroup.calcTransformMatrix(),
-        pathObj.calcOwnMatrix(),
-      )
-    : pathObj.calcTransformMatrix()
-  const pOff = pathObj.pathOffset ?? new Point(0, 0)
-
-  const txPt = (px: number, py: number): Point2D => {
-    const tp = util.transformPoint(
-      new Point(px - pOff.x, py - pOff.y),
-      matrix,
-    )
-    return { x: tp.x, y: tp.y }
-  }
-
-  for (const cmd of pathData) {
-    const command = cmd[0]
-    switch (command) {
-      case 'M':
-      case 'L':
-        points.push(txPt(cmd[1], cmd[2]))
-        break
-      case 'C': {
-        const prevC = points[points.length - 1] ?? txPt(0, 0)
-        const cp1 = txPt(cmd[1], cmd[2])
-        const cp2 = txPt(cmd[3], cmd[4])
-        const endC = txPt(cmd[5], cmd[6])
-        const linearizedC = linearizeCubicBezier(prevC, cp1, cp2, endC, 0.38)
-        points.push(...linearizedC.slice(1))
-        break
-      }
-      case 'Q': {
-        const prevQ = points[points.length - 1] ?? txPt(0, 0)
-        const cpQ = txPt(cmd[1], cmd[2])
-        const endQ = txPt(cmd[3], cmd[4])
-        const linearizedQ = linearizeQuadraticBezier(prevQ, cpQ, endQ, 0.38)
-        points.push(...linearizedQ.slice(1))
-        break
-      }
-      case 'Z':
-        break
-    }
-  }
-
-  return convertToMM(points, originPos, origin)
-}
-
-function isPathClosed(pathObj: Path): boolean {
-  const pathData = pathObj.path
-  if (!pathData || !Array.isArray(pathData) || pathData.length === 0) return false
-  const lastCmd = pathData[pathData.length - 1]
-  return lastCmd[0] === 'Z'
-}
-
 // Apply a 2D affine transform matrix [a, b, c, d, e, f] to a point
 function applyMatrix(x: number, y: number, m: number[]): Point2D {
   return {
@@ -4244,17 +3989,89 @@ function applyMatrix(x: number, y: number, m: number[]): Point2D {
   }
 }
 
-// Extract paths from any FabricObject using its full transform matrix
-// Works for both standalone objects and group children
+/**
+ * Extractor unico de geometria: cualquier objeto Fabric -> trayectorias en mm.
+ *
+ * Lo usan el CAM, la exportacion DXF, las booleanas y el offset, asi que todo
+ * lo que se dibuja llega igual a todos lados. Aplica la matriz completa
+ * (`calcTransformMatrix` incluye rotacion, flip, skew, grupos anidados y la
+ * seleccion activa), parte los Path en un contorno por subpath y recorre los
+ * grupos recursivamente.
+ */
 function extractObjectPaths(
   obj: FabricObject,
   originPos: { x: number; y: number },
   origin: string,
 ): GCodePath[] {
+  if (obj instanceof Group) {
+    const out: GCodePath[] = []
+    for (const child of obj.getObjects()) {
+      if (child.visible === false) continue
+      out.push(...extractObjectPaths(child, originPos, origin))
+    }
+    return out
+  }
+
   const paths: GCodePath[] = []
   const matrix = obj.calcTransformMatrix()
+  const push = (pts: Point2D[], closed: boolean) => {
+    if (pts.length < 2) return
+    paths.push({ points: convertToMM(pts, originPos, origin), closed })
+  }
 
-  if (obj instanceof Circle) {
+  if (obj instanceof Path) {
+    const pathData = obj.path
+    if (!pathData || !Array.isArray(pathData)) return paths
+    const pOff = obj.pathOffset ?? new Point(0, 0)
+    const txPt = (px: number, py: number): Point2D =>
+      applyMatrix(px - pOff.x, py - pOff.y, matrix)
+
+    // Un contorno por subpath: cada `M` abre uno nuevo y `Z` lo cierra. Unirlos
+    // en una sola polilinea cortaba un puente entre letras y entre un contorno
+    // y su agujero.
+    let current: Point2D[] = []
+    let start: Point2D | null = null
+    const flush = (closed: boolean) => {
+      push(current, closed)
+      current = []
+    }
+    for (const cmd of pathData) {
+      switch (cmd[0]) {
+        case 'M':
+          flush(false)
+          start = txPt(cmd[1], cmd[2])
+          current.push(start)
+          break
+        case 'L':
+          if (current.length === 0 && start) current.push(start)
+          current.push(txPt(cmd[1], cmd[2]))
+          break
+        case 'C': {
+          if (current.length === 0 && start) current.push(start)
+          const prev = current[current.length - 1] ?? txPt(0, 0)
+          const lin = linearizeCubicBezier(
+            prev, txPt(cmd[1], cmd[2]), txPt(cmd[3], cmd[4]), txPt(cmd[5], cmd[6]), 0.38,
+          )
+          current.push(...lin.slice(1))
+          break
+        }
+        case 'Q': {
+          if (current.length === 0 && start) current.push(start)
+          const prev = current[current.length - 1] ?? txPt(0, 0)
+          const lin = linearizeQuadraticBezier(
+            prev, txPt(cmd[1], cmd[2]), txPt(cmd[3], cmd[4]), 0.38,
+          )
+          current.push(...lin.slice(1))
+          break
+        }
+        case 'Z':
+          // Tras cerrar, el punto actual vuelve al inicio del subpath
+          flush(true)
+          break
+      }
+    }
+    flush(false)
+  } else if (obj instanceof Circle) {
     const r = obj.radius ?? 0
     const segments = 72
     const pts: Point2D[] = []
@@ -4262,7 +4079,7 @@ function extractObjectPaths(
       const a = (i / segments) * Math.PI * 2
       pts.push(applyMatrix(r * Math.cos(a), r * Math.sin(a), matrix))
     }
-    paths.push({ points: convertToMM(pts, originPos, origin), closed: true })
+    push(pts, true)
   } else if (obj instanceof Ellipse) {
     const rx = obj.rx ?? 0
     const ry = obj.ry ?? 0
@@ -4272,26 +4089,52 @@ function extractObjectPaths(
       const a = (i / segments) * Math.PI * 2
       pts.push(applyMatrix(rx * Math.cos(a), ry * Math.sin(a), matrix))
     }
-    paths.push({ points: convertToMM(pts, originPos, origin), closed: true })
-  } else if (obj instanceof FabricPolygon) {
+    push(pts, true)
+  } else if (obj instanceof FabricPolyline) {
+    // FabricPolygon hereda de Polyline: el poligono cierra, la polilinea no
     const polyPts = obj.points
     if (polyPts && polyPts.length > 0) {
-      const po = (obj as unknown as { pathOffset: { x: number; y: number } }).pathOffset ?? { x: 0, y: 0 }
-      const pts: Point2D[] = polyPts.map((p) =>
-        applyMatrix(p.x - po.x, p.y - po.y, matrix),
+      const po = obj.pathOffset ?? { x: 0, y: 0 }
+      push(
+        polyPts.map((p) => applyMatrix(p.x - po.x, p.y - po.y, matrix)),
+        obj instanceof FabricPolygon,
       )
-      paths.push({ points: convertToMM(pts, originPos, origin), closed: true })
     }
   } else if (obj instanceof Rect) {
     const w = obj.width ?? 0
     const h = obj.height ?? 0
-    const corners = [
-      applyMatrix(-w / 2, -h / 2, matrix),
-      applyMatrix(w / 2, -h / 2, matrix),
-      applyMatrix(w / 2, h / 2, matrix),
-      applyMatrix(-w / 2, h / 2, matrix),
-    ]
-    paths.push({ points: convertToMM(corners, originPos, origin), closed: true })
+    const rx = Math.min(Math.max(obj.rx ?? 0, 0), w / 2)
+    const ry = Math.min(Math.max(obj.ry ?? 0, 0), h / 2)
+    if (rx > 0 && ry > 0) {
+      // Esquinas redondeadas: un cuarto de elipse por esquina
+      const local: Point2D[] = []
+      const corner = (cx: number, cy: number, a0: number) => {
+        const steps = 12
+        for (let i = 0; i <= steps; i++) {
+          const a = a0 + (i / steps) * (Math.PI / 2)
+          local.push({ x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a) })
+        }
+      }
+      corner(w / 2 - rx, -h / 2 + ry, -Math.PI / 2)
+      corner(w / 2 - rx, h / 2 - ry, 0)
+      corner(-w / 2 + rx, h / 2 - ry, Math.PI / 2)
+      corner(-w / 2 + rx, -h / 2 + ry, Math.PI)
+      push(local.map((p) => applyMatrix(p.x, p.y, matrix)), true)
+    } else {
+      push(
+        [
+          applyMatrix(-w / 2, -h / 2, matrix),
+          applyMatrix(w / 2, -h / 2, matrix),
+          applyMatrix(w / 2, h / 2, matrix),
+          applyMatrix(-w / 2, h / 2, matrix),
+        ],
+        true,
+      )
+    }
+  } else if (obj instanceof Line) {
+    // calcLinePoints da los extremos relativos al centro del objeto
+    const lp = obj.calcLinePoints()
+    push([applyMatrix(lp.x1, lp.y1, matrix), applyMatrix(lp.x2, lp.y2, matrix)], false)
   }
 
   return paths

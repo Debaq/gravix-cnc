@@ -7,19 +7,39 @@ import type { Point2D } from './types'
 import { getClipper, toClipperPath, fromClipperPath, offsetPolygon } from './geometry'
 
 /**
- * Realiza operaciones booleanas entre dos conjuntos de caminos (paths).
- * @param subjectPaths Caminos base (sujeto)
- * @param clipPaths Caminos que operan sobre el sujeto (clip)
- * @param op Tipo de operación ('union' | 'difference' | 'intersection' | 'xor')
- * @returns Resultado de la operación como Point2D[][]
+ * Operacion booleana entre figuras.
+ *
+ * Cada figura es un conjunto de contornos (exterior + agujeros). Primero se
+ * normaliza cada una por separado con EvenOdd, que respeta sus agujeros y deja
+ * la orientacion coherente (exterior en un sentido, agujeros en el otro).
+ * Recien entonces se operan entre si con NonZero: con EvenOdd directo, la zona
+ * donde dos figuras se solapan contaba dos veces y la union dejaba un hueco.
+ *
+ * @param subjectShapes Figuras base
+ * @param clipShapes Figuras que operan sobre las base
  */
 export async function booleanOperation(
-  subjectPaths: Point2D[][],
-  clipPaths: Point2D[][],
+  subjectShapes: Point2D[][][],
+  clipShapes: Point2D[][][],
   op: 'union' | 'difference' | 'intersection' | 'xor'
 ): Promise<Point2D[][]> {
   const clipper = await getClipper()
-  
+
+  const normalize = (shape: Point2D[][]): Point2D[][] => {
+    const valid = shape.filter(p => p.length >= 3)
+    if (valid.length === 0) return []
+    const r = clipper.clipToPaths({
+      clipType: ClipType.Union,
+      subjectFillType: PolyFillType.EvenOdd,
+      subjectInputs: valid.map(p => ({ data: toClipperPath(p), closed: true })),
+    })
+    return r ? r.map(fromClipperPath) : []
+  }
+
+  const subject = subjectShapes.flatMap(normalize)
+  const clip = clipShapes.flatMap(normalize)
+  if (subject.length === 0) return []
+
   const clipType = {
     union: ClipType.Union,
     difference: ClipType.Difference,
@@ -27,25 +47,22 @@ export async function booleanOperation(
     xor: ClipType.Xor,
   }[op]
 
-  // Configurar entradas para Clipper
-  // Usamos EvenOdd fill type como estándar en la mayoría de editores vectoriales
   const result = clipper.clipToPaths({
     clipType,
-    subjectFillType: PolyFillType.EvenOdd,
-    clipFillType: PolyFillType.EvenOdd,
-    subjectInputs: subjectPaths.map(p => ({ 
-      data: toClipperPath(p), 
-      polyType: PolyType.Subject, 
-      closed: true 
+    subjectFillType: PolyFillType.NonZero,
+    clipFillType: PolyFillType.NonZero,
+    subjectInputs: subject.map(p => ({
+      data: toClipperPath(p),
+      polyType: PolyType.Subject,
+      closed: true
     })),
-    clipInputs: clipPaths.map(p => ({ 
-      data: toClipperPath(p), 
-      polyType: PolyType.Clip, 
-      closed: true 
+    clipInputs: clip.map(p => ({
+      data: toClipperPath(p),
+      polyType: PolyType.Clip,
+      closed: true
     })),
   })
 
-  // Convertir de vuelta a Point2D[][]
   return result ? result.map(fromClipperPath) : []
 }
 
