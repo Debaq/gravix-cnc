@@ -5,7 +5,7 @@ import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useCanvasManager } from '@/hooks/useCanvasManager'
 import { useProject } from '@/hooks/useProject'
 import { createGenerator, plannedJobs, setupGeneratorParams } from '@/lib/build-program'
-import { computeTileGrid, generateTiles, tileHeader } from '@/lib/tiling'
+import { computeTileGrid, generateTiles, tileGCode, tileHeader } from '@/lib/tiling'
 import type { Tile, TilingConfig } from '@/lib/tiling'
 import type { GCodeJob } from '@/lib/types'
 import {
@@ -84,15 +84,23 @@ export function TilingModal() {
     if (buckets.length === 0) return
     setExporting(true)
     try {
-      for (let i = 0; i < buckets.length; i++) {
-        const bucket = buckets[i]
-        const generator = createGenerator(setupGeneratorParams())
-        const body = await generator.generateFromJobs(bucket.jobs)
-        const gcode = [...tileHeader(bucket.tile, buckets.length, i), body].join('\n')
-        const name = `tile_r${bucket.tile.row + 1}c${bucket.tile.col + 1}.gcode`
-        await project.downloadGCode(gcode, name)
+      // El programa se genera entero y se recorta la trayectoria: asi cada
+      // tile conserva compensacion de herramienta, cajeado, tabs y rampas.
+      // (Recortar la geometria dejaba contornos abiertos, sin compensar.)
+      const jobs = plannedJobs(getJobsForGCode())
+      const params = setupGeneratorParams()
+      const program = await createGenerator(params).generateFromJobs(jobs)
+      const tiles = tileGCode(program, config, {
+        safeZ: params.safeZ + params.zShift,
+        useZ: jobs.some((j) => j.config.operationType !== 'laser'),
+        useBeam: jobs.some((j) => j.config.operationType === 'laser'),
+      })
+      for (let i = 0; i < tiles.length; i++) {
+        const tile = tiles[i]
+        const gcode = [...tileHeader({ ...tile, paths: [] }, tiles.length, i), tile.gcode].join('\n')
+        await project.downloadGCode(gcode, `tile_r${tile.row + 1}c${tile.col + 1}.gcode`)
       }
-      addConsoleLine(`Tiling: ${buckets.length} archivo(s) exportado(s)`)
+      addConsoleLine(`Tiling: ${tiles.length} archivo(s) exportado(s)`)
       closeModal()
     } finally {
       setExporting(false)

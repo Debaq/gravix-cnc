@@ -226,3 +226,350 @@ export function tileHeader(tile: Tile, totalTiles: number, index: number = 0): s
     '',
   ]
 }
+
+// ============================================
+// Tiling sobre el G-code ya generado
+// ============================================
+//
+// Recortar la geometria y generar despues no sirve: un contorno partido por
+// el borde del tile queda abierto, y un path abierto no se compensa por el
+// radio de la fresa ni se cajea. Aca se genera el programa completo una sola
+// vez y se recorta la TRAYECTORIA, que ya trae offset, cajeado, tabs y rampas.
+
+export interface GCodeTile {
+  row: number
+  col: number
+  x: number
+  y: number
+  width: number
+  height: number
+  gcode: string
+}
+
+export interface GCodeTilingOptions {
+  /** Altura de retraccion para entrar y salir del tile a mitad de un corte. */
+  safeZ: number
+  /** El programa corta bajando en Z (CNC, plotter). */
+  useZ: boolean
+  /** El programa corta con haz (laser): al salir del tile hay que apagarlo. */
+  useBeam: boolean
+}
+
+const WORD = /([A-Z])\s*(-?\d*\.?\d+)/gi
+
+function splitLine(line: string): { code: string; comment: string } {
+  const semi = line.indexOf(';')
+  return semi >= 0
+    ? { code: line.slice(0, semi), comment: line.slice(semi) }
+    : { code: line, comment: '' }
+}
+
+function parseWords(code: string): Map<string, number[]> {
+  const words = new Map<string, number[]>()
+  for (const m of code.matchAll(WORD)) {
+    const k = m[1].toUpperCase()
+    words.set(k, [...(words.get(k) ?? []), parseFloat(m[2])])
+  }
+  return words
+}
+
+/** Caja de todos los movimientos de corte (no rapidos) del programa. */
+function cuttingBBox(lines: string[]): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  let x = 0, y = 0, motion = 0
+  const add = (px: number, py: number) => {
+    if (px < minX) minX = px
+    if (py < minY) minY = py
+    if (px > maxX) maxX = px
+    if (py > maxY) maxY = py
+  }
+  for (const line of lines) {
+    const w = parseWords(splitLine(line).code)
+    for (const g of w.get('G') ?? []) if (g <= 3 || (g >= 81 && g <= 83)) motion = g
+    const nx = w.get('X')?.[0]
+    const ny = w.get('Y')?.[0]
+    if (nx === undefined && ny === undefined) continue
+    const px = nx ?? x
+    const py = ny ?? y
+    if (motion !== 0) {
+      add(x, y)
+      add(px, py)
+    }
+    x = px
+    y = py
+  }
+  return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null
+}
+
+/**
+ * Parte un programa completo en un G-code por tile.
+ *
+ * Cada tile recibe los tramos de corte que caen dentro de su rectangulo, en
+ * coordenadas locales. Cuando un corte entra o sale por el borde, la
+ * herramienta sube (o el haz se apaga), viaja y vuelve a bajar a la Z que el
+ * programa tenia en ese punto.
+ */
+export function tileGCode(program: string, config: TilingConfig, opts: GCodeTilingOptions): GCodeTile[] {
+  const lines = program.split('\n')
+  const bbox = cuttingBBox(lines)
+  if (!bbox) return []
+
+  const effW = Math.max(0.001, config.tileWidth - config.overlap)
+  const effH = Math.max(0.001, config.tileHeight - config.overlap)
+  const startX = bbox.minX - config.margin
+  const startY = bbox.minY - config.margin
+  const cols = Math.max(1, Math.ceil((bbox.maxX - bbox.minX + config.margin * 2) / effW))
+  const rows = Math.max(1, Math.ceil((bbox.maxY - bbox.minY + config.margin * 2) / effH))
+
+  const tiles: GCodeTile[] = []
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const tx = startX + col * effW
+      const ty = startY + row * effH
+      const gcode = clipProgramToTile(lines, tx, ty, config.tileWidth, config.tileHeight, opts)
+      if (gcode) {
+        tiles.push({ row, col, x: tx, y: ty, width: config.tileWidth, height: config.tileHeight, gcode })
+      }
+    }
+  }
+  return tiles
+}
+
+function clipProgramToTile(
+  lines: string[],
+  tx: number, ty: number, tw: number, th: number,
+  opts: GCodeTilingOptions,
+): string | null {
+  const out: string[] = []
+  const f3 = (n: number) => n.toFixed(3)
+  const EPS = 1e-6
+  const inside = (px: number, py: number) =>
+    px >= tx - EPS && px <= tx + tw + EPS && py >= ty - EPS && py <= ty + th + EPS
+
+  // Posicion del programa original
+  let px = 0, py = 0
+  let pz: number | null = null
+  let motion = 0
+  let feed = 0
+  let plungeFeed = 0
+  // Posicion real de la herramienta en este tile
+  let synced = true        // XY real == XY del programa
+  let realZ: number | null = null
+  // Herramienta/haz
+  let toolOnLine: string | null = null   // ultimo M3/M4 del programa
+  let toolIsOn = false                   // encendido en el tile
+  let deferredOn: string | null = null   // encendido pendiente de reubicarse
+  let deferredDwell: string | null = null
+  // Ciclos de taladrado
+  let cycleHead: string | null = null    // "G83 Z.. R.. Q.. F.." sin XY
+  let cycleEmitted = false
+  let cuts = 0
+
+  const retract = () => {
+    if (opts.useZ && (realZ === null || realZ < opts.safeZ)) {
+      out.push(`G0 Z${f3(opts.safeZ)}`)
+      realZ = opts.safeZ
+    }
+  }
+  const beamOff = () => {
+    if (opts.useBeam && toolIsOn) {
+      out.push('M5 S0')
+      toolIsOn = false
+      deferredOn = toolOnLine
+    }
+  }
+  const flushDeferredOn = () => {
+    if (!deferredOn) return
+    out.push(deferredOn)
+    if (deferredDwell) out.push(deferredDwell)
+    else if (opts.useZ && !opts.useBeam) out.push('G4 P2 ; Dwell for spindle startup')
+    toolIsOn = true
+    deferredOn = null
+    deferredDwell = null
+  }
+  /** Lleva la herramienta a (x,y) del programa y la deja a la Z `z`. */
+  const enterAt = (x: number, y: number, z: number | null) => {
+    beamOff()
+    retract()
+    out.push(`G0 X${f3(x - tx)} Y${f3(y - ty)}`)
+    flushDeferredOn()
+    if (opts.useZ && z !== null && realZ !== z) {
+      out.push(`G1 Z${f3(z)} F${plungeFeed || feed || 100}`)
+      realZ = z
+    }
+  }
+
+  for (const line of lines) {
+    const { code, comment } = splitLine(line)
+    const trimmed = code.trim()
+    if (!trimmed) {
+      out.push(line)
+      continue
+    }
+    const w = parseWords(trimmed)
+    const gs = w.get('G') ?? []
+    const ms = w.get('M') ?? []
+    const X = w.get('X')?.[0]
+    const Y = w.get('Y')?.[0]
+    const Z = w.get('Z')?.[0]
+    const F = w.get('F')?.[0]
+    if (F !== undefined) feed = F
+
+    // --- Encendido / apagado de husillo o laser
+    if (ms.includes(3) || ms.includes(4)) {
+      toolOnLine = line
+      if (synced) {
+        out.push(line)
+        toolIsOn = true
+        deferredOn = null
+      } else {
+        // Encender fuera de posicion quema un punto (laser): se difiere
+        deferredOn = line
+        deferredDwell = null
+      }
+      continue
+    }
+    if (ms.includes(5)) {
+      out.push(line)
+      toolIsOn = false
+      deferredOn = null
+      deferredDwell = null
+      continue
+    }
+
+    for (const g of gs) {
+      if (g <= 3) { motion = g; cycleHead = null }
+      else if (g >= 81 && g <= 83) {
+        motion = g
+        cycleHead = trimmed.replace(/[XY]\s*-?\d*\.?\d+\s*/gi, '').trim()
+        cycleEmitted = false
+      } else if (g === 80) { cycleHead = null; motion = 0 }
+    }
+
+    if (gs.includes(4)) {
+      if (deferredOn) deferredDwell = line
+      else out.push(line)
+      continue
+    }
+
+    const hasXY = X !== undefined || Y !== undefined
+    const isMotion = hasXY || Z !== undefined
+
+    // Todo lo que no mueve (G90, G21, M0, comentarios con codigo, G80...)
+    if (!isMotion || gs.some((g) => g === 10 || g === 28 || g === 30 || g === 53 || g === 92)) {
+      out.push(line)
+      continue
+    }
+
+    // --- Ciclos de taladrado: un agujero por linea
+    if (motion >= 81 && motion <= 83) {
+      const hx = X ?? px
+      const hy = Y ?? py
+      px = hx
+      py = hy
+      if (inside(hx, hy) && cycleHead) {
+        if (!cycleEmitted) {
+          out.push(`${cycleHead.replace(/^(G8[123])/i, `$1 X${f3(hx - tx)} Y${f3(hy - ty)}`)}`)
+          cycleEmitted = true
+        } else {
+          out.push(`X${f3(hx - tx)} Y${f3(hy - ty)}`)
+        }
+        cuts++
+      }
+      synced = false
+      continue
+    }
+
+    const nx = X ?? px
+    const ny = Y ?? py
+    const nz: number | null = Z ?? pz
+
+    // --- Solo Z
+    if (!hasXY) {
+      const goingUp = realZ === null || (nz !== null && nz >= realZ)
+      // El avance de penetracion se recuerda aunque la bajada no se emita:
+      // hace falta para volver a bajar al reentrar al tile.
+      if (motion === 1 && F !== undefined) plungeFeed = F
+      if (synced || goingUp) {
+        out.push(line)
+        realZ = nz
+      }
+      pz = nz
+      continue
+    }
+
+    // --- Rapido en XY
+    if (motion === 0) {
+      // El retorno a origen del pie no aplica: cada tile termina donde esta
+      if (inside(nx, ny) && !/return to origin/i.test(comment)) {
+        if (!synced) { beamOff(); retract() }
+        out.push(`G0 X${f3(nx - tx)} Y${f3(ny - ty)}${Z !== undefined ? ` Z${f3(Z)}` : ''}${comment ? ' ' + comment : ''}`)
+        if (Z !== undefined) realZ = Z
+        synced = true
+        flushDeferredOn()
+      } else {
+        if (synced) beamOff()
+        synced = false
+      }
+      px = nx; py = ny; pz = nz
+      continue
+    }
+
+    // --- Arcos: solo si entran enteros (el generador los usa en entradas cortas)
+    if (motion === 2 || motion === 3) {
+      if (synced && inside(px, py) && inside(nx, ny)) {
+        out.push(trimmed
+          .replace(/X\s*-?\d*\.?\d+/i, `X${f3(nx - tx)}`)
+          .replace(/Y\s*-?\d*\.?\d+/i, `Y${f3(ny - ty)}`) + (comment ? ' ' + comment : ''))
+        cuts++
+      } else {
+        if (synced) { beamOff(); retract() }
+        synced = false
+      }
+      px = nx; py = ny; pz = nz
+      continue
+    }
+
+    // --- Corte recto: se recorta contra el tile
+    const clipped = clipSegment({ x: px, y: py }, { x: nx, y: ny }, tx, ty, tw, th)
+    const segLen = Math.hypot(nx - px, ny - py)
+    if (!clipped || (segLen > EPS && Math.hypot(clipped[1].x - clipped[0].x, clipped[1].y - clipped[0].y) < EPS)) {
+      if (synced) { beamOff(); retract() }
+      synced = false
+      px = nx; py = ny; pz = nz
+      continue
+    }
+    const [s, e] = clipped
+    const tAt = (p: Point2D) => (segLen > EPS ? Math.hypot(p.x - px, p.y - py) / segLen : 1)
+    const zAt = (t: number) => (pz === null || nz === null ? nz : pz + (nz - pz) * t)
+    const startsHere = Math.abs(s.x - px) < EPS && Math.abs(s.y - py) < EPS
+    const endsHere = Math.abs(e.x - nx) < EPS && Math.abs(e.y - ny) < EPS
+
+    if (!synced || !startsHere) {
+      enterAt(s.x, s.y, zAt(tAt(s)))
+    } else {
+      flushDeferredOn()
+      const z0 = pz
+      if (opts.useZ && z0 !== null && realZ !== z0) {
+        out.push(`G1 Z${f3(z0)} F${plungeFeed || feed || 100}`)
+        realZ = z0
+      }
+    }
+    const ze = zAt(tAt(e))
+    const zWord = Z !== undefined && ze !== null ? ` Z${f3(ze)}` : ''
+    out.push(`G1 X${f3(e.x - tx)} Y${f3(e.y - ty)}${zWord} F${feed || 100}`)
+    if (Z !== undefined && ze !== null) realZ = ze
+    cuts++
+
+    if (endsHere) {
+      synced = true
+    } else {
+      beamOff()
+      retract()
+      synced = false
+    }
+    px = nx; py = ny; pz = nz
+  }
+
+  return cuts > 0 ? out.join('\n') : null
+}
