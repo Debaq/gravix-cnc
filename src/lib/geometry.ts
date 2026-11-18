@@ -17,6 +17,9 @@ export const CLIPPER_SCALE = 1000
 /** Desvio maximo (mm) al aproximar arcos de offset con segmentos. */
 const ARC_TOLERANCE_MM = 0.01
 
+/** Tope de subdivision de curvas Bezier (2^16 tramos alcanza de sobra). */
+const MAX_SUBDIV_DEPTH = 16
+
 // Instancia lazy de Clipper (se carga una sola vez)
 let clipperInstance: ClipperLibWrapper | null = null
 
@@ -56,13 +59,13 @@ export function linearizeCubicBezier(
   tolerance: number = 0.1
 ): Point2D[] {
   const result: Point2D[] = [p0]
-  subdivCubic(p0, cp1, cp2, p3, tolerance * tolerance, result)
+  subdivCubic(p0, cp1, cp2, p3, tolerance * tolerance, result, 0)
   return result
 }
 
 function subdivCubic(
   p0: Point2D, p1: Point2D, p2: Point2D, p3: Point2D,
-  tolSq: number, out: Point2D[]
+  tolSq: number, out: Point2D[], depth: number
 ) {
   // Test de planitud: distancia máxima de los puntos de control a la línea p0-p3
   const dx = p3.x - p0.x
@@ -71,7 +74,17 @@ function subdivCubic(
   const d2 = Math.abs((p2.x - p3.x) * dy - (p2.y - p3.y) * dx)
   const dSq = dx * dx + dy * dy
 
-  if (dSq > 0 && ((d1 + d2) * (d1 + d2)) / dSq <= tolSq) {
+  // Extremos coincidentes (lazo o curva degenerada): la planitud se mide por
+  // la distancia de los controles al punto. Sin esto, y sin tope de
+  // profundidad, una curva con sus 4 puntos iguales (comun en SVG exportados)
+  // subdividia hasta reventar la pila.
+  const flat = dSq > 0
+    ? ((d1 + d2) * (d1 + d2)) / dSq <= tolSq
+    : Math.max(
+        (p1.x - p0.x) ** 2 + (p1.y - p0.y) ** 2,
+        (p2.x - p0.x) ** 2 + (p2.y - p0.y) ** 2,
+      ) <= tolSq
+  if (flat || depth >= MAX_SUBDIV_DEPTH) {
     out.push(p3)
     return
   }
@@ -84,8 +97,8 @@ function subdivCubic(
   const m123 = mid(m12, m23)
   const m0123 = mid(m012, m123)
 
-  subdivCubic(p0, m01, m012, m0123, tolSq, out)
-  subdivCubic(m0123, m123, m23, p3, tolSq, out)
+  subdivCubic(p0, m01, m012, m0123, tolSq, out, depth + 1)
+  subdivCubic(m0123, m123, m23, p3, tolSq, out, depth + 1)
 }
 
 export function linearizeQuadraticBezier(
@@ -93,20 +106,23 @@ export function linearizeQuadraticBezier(
   tolerance: number = 0.1
 ): Point2D[] {
   const result: Point2D[] = [p0]
-  subdivQuad(p0, cp, p2, tolerance * tolerance, result)
+  subdivQuad(p0, cp, p2, tolerance * tolerance, result, 0)
   return result
 }
 
 function subdivQuad(
   p0: Point2D, p1: Point2D, p2: Point2D,
-  tolSq: number, out: Point2D[]
+  tolSq: number, out: Point2D[], depth: number
 ) {
   const dx = p2.x - p0.x
   const dy = p2.y - p0.y
   const d = Math.abs((p1.x - p2.x) * dy - (p1.y - p2.y) * dx)
   const dSq = dx * dx + dy * dy
 
-  if (dSq > 0 && (d * d) / dSq <= tolSq) {
+  const flat = dSq > 0
+    ? (d * d) / dSq <= tolSq
+    : (p1.x - p0.x) ** 2 + (p1.y - p0.y) ** 2 <= tolSq
+  if (flat || depth >= MAX_SUBDIV_DEPTH) {
     out.push(p2)
     return
   }
@@ -115,8 +131,8 @@ function subdivQuad(
   const m12 = mid(p1, p2)
   const m012 = mid(m01, m12)
 
-  subdivQuad(p0, m01, m012, tolSq, out)
-  subdivQuad(m012, m12, p2, tolSq, out)
+  subdivQuad(p0, m01, m012, tolSq, out, depth + 1)
+  subdivQuad(m012, m12, p2, tolSq, out, depth + 1)
 }
 
 function mid(a: Point2D, b: Point2D): Point2D {

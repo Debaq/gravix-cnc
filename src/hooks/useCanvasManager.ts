@@ -455,6 +455,36 @@ interface HistoryEntry {
   selectedElementId: string | null
   /** Setup de CAM serializado: stock, clamps, marcadores, orden y apagados. */
   cam: string
+  /** Hojas y capas serializadas (los elementos apuntan a ellas). */
+  sheets?: string
+  layers?: string
+}
+
+/** Repone lienzo, elementos, hojas, capas y CAM desde una entrada del historial. */
+async function restoreHistoryEntry(canvas: Canvas, entry: HistoryEntry): Promise<void> {
+  await canvas.loadFromJSON(entry.fabricJSON)
+
+  const store = useCanvasStore.getState()
+  // Hojas y capas van antes que los elementos: cada elemento apunta a ellas.
+  // Sin esto, deshacer el borrado de una hoja dejaba elementos huerfanos.
+  if (entry.sheets) {
+    const { sheets, activeSheetId } = JSON.parse(entry.sheets)
+    store.setSheets(sheets, activeSheetId)
+  }
+  const elements: CanvasElement[] = JSON.parse(entry.storeElements)
+  store.setElements(elements)
+  if (entry.layers) {
+    const { layers, activeLayerId } = JSON.parse(entry.layers)
+    useCanvasStore.getState().restoreLayers(layers, activeLayerId)
+  }
+  store.selectElement(entry.selectedElementId)
+
+  // El CAM va despues de los elementos: el arbol se rearma a partir de ellos
+  // y recien ahi tiene sentido reponer orden, apagados y setup.
+  if (entry.cam) {
+    useCAMStore.getState().restore(JSON.parse(entry.cam))
+    useCAMStore.getState().syncFromCanvas()
+  }
 }
 
 const historyStack: HistoryEntry[] = []
@@ -514,6 +544,8 @@ export function pushToHistory(coalesceKey?: string): void {
     storeElements,
     selectedElementId: state.selectedElementId,
     cam: JSON.stringify(useCAMStore.getState().serialize()),
+    sheets: JSON.stringify({ sheets: state.sheets, activeSheetId: state.activeSheetId }),
+    layers: JSON.stringify({ layers: state.layers, activeLayerId: state.activeLayerId }),
   }
 
   if (coalesce) {
@@ -2044,28 +2076,20 @@ export function useCanvasManager() {
     if (!canvas) return
 
     isRestoring = true
-    historyIndex--
-    const entry = historyStack[historyIndex]
-
-    await canvas.loadFromJSON(entry.fabricJSON)
-
-    // Restore store elements
-    const elements: CanvasElement[] = JSON.parse(entry.storeElements)
-    useCanvasStore.getState().setElements(elements)
-    useCanvasStore.getState().selectElement(entry.selectedElementId)
-
-    // El CAM va despues de los elementos: el arbol se rearma a partir de ellos
-    // y recien ahi tiene sentido reponer orden, apagados y setup.
-    if (entry.cam) {
-      useCAMStore.getState().restore(JSON.parse(entry.cam))
-      useCAMStore.getState().syncFromCanvas()
+    // try/finally: si la restauracion falla, `isRestoring` no puede quedar
+    // en true o el historial deja de registrar por el resto de la sesion.
+    try {
+      historyIndex--
+      await restoreHistoryEntry(canvas, historyStack[historyIndex])
+      // El JSON trae todo visible: hay que volver a ocultar las otras hojas
+      applySheetVisibility()
+      canvas.requestRenderAll()
+    } catch (err) {
+      console.error('[history] no se pudo restaurar', err)
+      toast.error('No se pudo deshacer/rehacer este paso')
+    } finally {
+      isRestoring = false
     }
-
-    // El JSON trae todo visible: hay que volver a ocultar las otras hojas
-    applySheetVisibility()
-
-    canvas.requestRenderAll()
-    isRestoring = false
   }, [applySheetVisibility])
 
   // ------------------------------------------
@@ -2077,28 +2101,20 @@ export function useCanvasManager() {
     if (!canvas) return
 
     isRestoring = true
-    historyIndex++
-    const entry = historyStack[historyIndex]
-
-    await canvas.loadFromJSON(entry.fabricJSON)
-
-    // Restore store elements
-    const elements: CanvasElement[] = JSON.parse(entry.storeElements)
-    useCanvasStore.getState().setElements(elements)
-    useCanvasStore.getState().selectElement(entry.selectedElementId)
-
-    // El CAM va despues de los elementos: el arbol se rearma a partir de ellos
-    // y recien ahi tiene sentido reponer orden, apagados y setup.
-    if (entry.cam) {
-      useCAMStore.getState().restore(JSON.parse(entry.cam))
-      useCAMStore.getState().syncFromCanvas()
+    // try/finally: si la restauracion falla, `isRestoring` no puede quedar
+    // en true o el historial deja de registrar por el resto de la sesion.
+    try {
+      historyIndex++
+      await restoreHistoryEntry(canvas, historyStack[historyIndex])
+      // El JSON trae todo visible: hay que volver a ocultar las otras hojas
+      applySheetVisibility()
+      canvas.requestRenderAll()
+    } catch (err) {
+      console.error('[history] no se pudo restaurar', err)
+      toast.error('No se pudo deshacer/rehacer este paso')
+    } finally {
+      isRestoring = false
     }
-
-    // El JSON trae todo visible: hay que volver a ocultar las otras hojas
-    applySheetVisibility()
-
-    canvas.requestRenderAll()
-    isRestoring = false
   }, [applySheetVisibility])
 
   // ------------------------------------------
