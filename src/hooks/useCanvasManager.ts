@@ -33,7 +33,7 @@ import { linearizeCubicBezier, linearizeQuadraticBezier, arcFrom3Points, catmull
 import { booleanOperation } from '@/lib/boolean-ops'
 import { autoJoinPaths, removeTinySpans, removeDuplicatePaths } from '@/lib/vector-diagnostics'
 import { offsetPolygon } from '@/lib/geometry'
-import { parseDxf, dxfToFabricObjects } from '@/lib/dxf-parser'
+import { parseDxf, dxfToFabricObjects, lastDxfReport } from '@/lib/dxf-parser'
 import {
   GRID_MINOR_COLOR,
   GRID_MAJOR_COLOR,
@@ -792,6 +792,18 @@ export function useCanvasManager() {
       try {
         const entities = parseDxf(text)
         const objects = dxfToFabricObjects(entities)
+
+        // Lo que no se pudo traer se avisa: un DXF al que le faltan piezas
+        // sin ningun mensaje se descubre recien al cortar.
+        const skipped = Object.entries(lastDxfReport.skipped)
+        if (skipped.length > 0) {
+          toast.warning('El DXF tenia entidades que no se importan', {
+            detail: skipped.map(([type, n]) => `${type} x${n}`).join(', '),
+          })
+        }
+        if (lastDxfReport.unitScale !== 1) {
+          toast.info(`DXF convertido a mm (factor ${lastDxfReport.unitScale})`)
+        }
 
         if (objects.length === 0) return
 
