@@ -349,17 +349,31 @@ export function orderPathsInsideFirst(
       let nearestIdx = 0
       let nearestDist = Infinity
 
+      let reverse = false
       for (let i = 0; i < remaining.length; i++) {
-        const start = remaining[i].path.points[0]
+        const cand = remaining[i].path
+        const start = cand.points[0]
         if (!start) continue
         const dist = distSq(currentPos, start)
         if (dist < nearestDist) {
           nearestDist = dist
           nearestIdx = i
+          reverse = false
+        }
+        // Un path abierto se puede recorrer al reves si su final queda mas
+        // cerca. Uno cerrado no: su sentido define concordancia/oposicion.
+        if (!cand.closed) {
+          const dEnd = distSq(currentPos, cand.points[cand.points.length - 1])
+          if (dEnd < nearestDist) {
+            nearestDist = dEnd
+            nearestIdx = i
+            reverse = true
+          }
         }
       }
 
       const item = remaining.splice(nearestIdx, 1)[0]
+      if (reverse) item.path = { ...item.path, points: [...item.path.points].reverse() }
       result.push(item.path)
       const pts = item.path.points
       const last = pts[pts.length - 1]

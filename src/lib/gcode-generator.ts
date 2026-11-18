@@ -1,7 +1,7 @@
 import type { Point2D, GCodePath, GCodeJob, GlobalConfig, RasterData, ColorMapping, GCodeMarker, ClampRect, PocketStrategy, LeadType, MillDirection, CutterComp, TabMode } from './types'
 import { generatePhotoVCarve } from './photo-vcarve'
 import type { MachineProfile } from './profiles'
-import { offsetPolygon, generatePocketContours, generatePocketZigzag, generatePocketSpiral, generatePocketTrochoidal, orderPaths, orderPathsInsideFirst, generateHatchLines, validateToolVsPaths, withOrientation, millingCounterClockwise, buildLead } from './geometry'
+import { offsetPolygon, generatePocketContours, generatePocketZigzag, generatePocketSpiral, generatePocketTrochoidal, orderPaths, orderPathsInsideFirst, pointInPolygon, generateHatchLines, validateToolVsPaths, withOrientation, millingCounterClockwise, buildLead } from './geometry'
 import { useMachineStore } from '@/stores/useMachineStore'
 import { computeRestRegions } from './boolean-ops'
 import { tauriInvoke } from './tauri'
@@ -83,18 +83,33 @@ export class GCodeGenerator {
     const abs = (d?.absolutePositioning ?? 'G90')
     // Si el perfil trae header custom, usarlo tal cual; si no, fallback mínimo.
     if (d?.header && d.header.length > 0) {
-      return d.header.map((l) => l)
+      // Un header custom que no fija unidades o modo absoluto deja al control
+      // con lo que tuviera de antes (G20/G91): se completan si faltan.
+      const has = (code: string) =>
+        d.header.some((l) => new RegExp(`\\b${code}\\b`, 'i').test(l.split(';')[0]))
+      const pre: string[] = []
+      if (!has(abs)) pre.push(`${abs} ; Absolute positioning`)
+      if (!has(units)) pre.push(`${units} ; Millimeters`)
+      return [...pre, ...d.header]
     }
     return [`${abs} ; Absolute positioning`, `${units} ; Millimeters`]
   }
 
   programFooter(): string[] {
     const d = this.dialect
-    const retract = `G0 Z${FINAL_RETRACT_Z} ; Final retract`
+    // Nunca por debajo de la altura segura: con mordazas altas, Z10 fijo
+    // dejaba el retorno a origen pasando por encima... o no.
+    const retractZ = Math.max(this.safeZ, FINAL_RETRACT_Z)
+    const retract = `G0 Z${retractZ} ; Final retract`
     const home = 'G0 X0 Y0 ; Return to origin'
     if (d?.footer && d.footer.length > 0) {
-      // Retract + footer custom, evita duplicar home si el perfil ya trae algo equivalente.
-      return [retract, ...d.footer]
+      // Retract + footer custom. Un `G0 Z..` del footer mas bajo que el
+      // retract volveria a bajar la herramienta sobre la pieza: se descarta.
+      const kept = d.footer.filter((l) => {
+        const m = /^\s*G0?0\s+Z(-?[\d.]+)\s*$/i.exec(l.split(';')[0])
+        return !(m && parseFloat(m[1]) < retractZ)
+      })
+      return [retract, ...kept]
     }
     return [retract, `${d?.spindleOff ?? 'M5'} ; All OFF`, home, 'M2 ; Program end']
   }
@@ -312,6 +327,15 @@ export class GCodeGenerator {
               }
               lines.push(`M0 ; ${m.message}`)
               lines.push('; Resume after tool change')
+              // El marcador apago el husillo: si el grupo sigue, hay que
+              // volver a encenderlo o el proximo job baja con la fresa parada.
+              // (Al cambiar de grupo lo enciende la cabecera del grupo.)
+              const nextJob = group.jobs[group.jobs.indexOf(job) + 1]
+              if (nextJob && nextJob.config.operationType === 'cnc') {
+                lines.push(`G0 Z${this.safeZ} ; Safe height`)
+                lines.push(this.spindleOn(parseFloat(String(nextJob.config.spindleRPM))))
+                lines.push(this.dwell(2, 'Dwell for spindle startup'))
+              }
             } else if (m.type === 'pause') {
               lines.push(`; @PAUSE: ${m.message}`)
               if (park) {
@@ -545,7 +569,9 @@ export class GCodeGenerator {
     const workType = config.workType
     const stepover = config.stepover ?? 0.5
 
-    const numPasses = Math.ceil(depth / depthStep)
+    // El epsilon evita que 2.1/0.7 = 3.0000000000000004 agregue una pasada
+    // repetida al fondo.
+    const numPasses = Math.ceil(depth / depthStep - 1e-9)
 
     lines.push(`; Tool: ${toolDiameter}mm | Depth: -${depth}mm (${depthStep}mm steps, ${numPasses} passes)`)
     lines.push(`; Feed: ${feedRate} | Plunge: ${plungeRate}`)
@@ -634,7 +660,7 @@ export class GCodeGenerator {
           stepSize: step,
           flatDepth: flatD,
         })
-        lines.push(...emitVCarveGCode(passes, feedRate, plungeRate))
+        lines.push(...emitVCarveGCode(passes, feedRate, plungeRate, this.safeZ))
       }
     } else if (workType === 'pocket') {
       const pocketStrategy: PocketStrategy = config.pocketStrategy ?? 'contour-parallel'
@@ -748,15 +774,30 @@ export class GCodeGenerator {
       return 0
     }
 
+    // Anidamiento dentro del elemento: un contorno contenido en un numero
+    // impar de otros es un agujero (o una isla dentro de un agujero), y la
+    // herramienta va por el lado contrario. Sin esto, "outside" sobre una
+    // pieza con agujero agrandaba el agujero en un diametro de fresa.
+    const nesting = paths.map((p, i) => {
+      if (!p.closed || p.points.length < 3) return 0
+      let n = 0
+      for (let j = 0; j < paths.length; j++) {
+        if (j === i || !paths[j].closed || paths[j].points.length < 3) continue
+        if (pointInPolygon(p.points[0], paths[j].points)) n++
+      }
+      return n
+    })
+
     const buildPaths = async (extra: number) => {
       const out: { points: Point2D[]; closed: boolean }[] = []
-      for (const path of paths) {
+      for (let pi = 0; pi < paths.length; pi++) {
+        const path = paths[pi]
         const isContourOffset = opts.workType === 'inside' || opts.workType === 'outside'
         if (!isContourOffset || !path.closed || useComp) {
           out.push({ points: path.points, closed: path.closed })
           continue
         }
-        const offset = offsetFor(extra)
+        const offset = nesting[pi] % 2 === 1 ? -offsetFor(extra) : offsetFor(extra)
         const result = await offsetPolygon(path.points, offset, true, 'round')
         if (result.length === 0) {
           if (extra === 0) {
@@ -771,17 +812,15 @@ export class GCodeGenerator {
       return out
     }
 
-    const orderProcessed = (processed: { points: Point2D[]; closed: boolean }[]) => {
-      // `orderPaths` reordena y deduplica, asi que el flag `closed` se sigue
-      // por referencia del array y no por indice.
-      const closedByRef = new Map<Point2D[], boolean>()
-      for (const p of processed) closedByRef.set(p.points, p.closed)
-
-      return orderPaths(processed.map((p) => p.points)).map((pts) => {
-        const closed = closedByRef.get(pts) ?? false
-        return { points: closed ? withOrientation(pts, ccw) : pts, closed }
-      })
-    }
+    // Interiores primero: si el perimetro se corta antes que sus agujeros, la
+    // pieza queda suelta y los agujeros salen movidos. El orden conserva el
+    // flag `closed` de cada contorno (antes se perdia al invertir un path y el
+    // contorno salia sin su tramo de cierre).
+    const orderProcessed = (processed: { points: Point2D[]; closed: boolean }[]) =>
+      orderPathsInsideFirst(processed).map((p) => ({
+        points: p.closed ? withOrientation(p.points, ccw) : p.points,
+        closed: p.closed,
+      }))
 
     const roughPaths = orderProcessed(await buildPaths(wantsFinish ? allowance : 0))
     const finishPaths = wantsFinish ? orderProcessed(await buildPaths(0)) : []
@@ -812,6 +851,9 @@ export class GCodeGenerator {
       lines.push(`${comp.toUpperCase()} D${opts.cutterCompD ?? 1}`)
     }
 
+    // Cota Z de la cara superior de los tabs (absoluta, no relativa a la pasada)
+    const tabTopZ = -(opts.depth - Math.min(opts.depth, Math.max(0, opts.tabHeight ?? 1)))
+
     const emitPass = (
       pass: { points: Point2D[]; closed: boolean }[],
       currentDepth: number,
@@ -823,7 +865,7 @@ export class GCodeGenerator {
         if (withTabs && path.closed) {
           this.emitPathGCodeWithTabs(
             lines, path.points, currentDepth, opts.feedRate, opts.plungeRate,
-            opts.tabHeight ?? 1, opts.tabWidth ?? 5, opts.tabCount ?? 4,
+            tabTopZ, opts.tabWidth ?? 5, opts.tabCount ?? 4,
             manualTabs ? opts.tabPositions : undefined,
           )
           continue
@@ -850,9 +892,10 @@ export class GCodeGenerator {
 
     for (let pass = 1; pass <= opts.numPasses; pass++) {
       const currentDepth = -Math.min(opts.depth, opts.depthStep * pass)
-      const isLastPass = pass === opts.numPasses
-      // Con pasada de acabado los tabs van en el acabado, no en el desbaste
-      const tabsHere = !!useTabs && isLastPass && !wantsFinish
+      // Los tabs van en toda pasada que baje de su cara superior, no solo en
+      // la ultima: si las anteriores ya cortaron el perimetro completo, el tab
+      // queda mas bajo que lo pedido (o no queda).
+      const tabsHere = !!useTabs && currentDepth < tabTopZ - 1e-6
 
       lines.push(`; Pass ${pass}/${opts.numPasses} Z${currentDepth.toFixed(3)}${tabsHere ? ' (with tabs)' : ''}`)
       emitPass(roughPaths, currentDepth, tabsHere)
@@ -1116,88 +1159,89 @@ export class GCodeGenerator {
       return
     }
 
+    const move = (from: Point2D, to: Point2D, f = feedRate, z?: number) => {
+      lines.push(`G1 X${to.x.toFixed(3)} Y${to.y.toFixed(3)}${z !== undefined ? ` Z${z.toFixed(3)}` : ''} F${f}`)
+      const d = this.distance(from, to)
+      this.totalDistance += d
+      this.totalTime += (d / f) * 60
+    }
+    const isLoop = closed && points.length > 2
+    // Donde queda la herramienta al terminar (para la salida tangente)
+    let endPos: Point2D = isLoop ? points[0] : points[points.length - 1]
+
     // Ramp entry: descend gradually along the first segment(s) instead of plunge
-    if (rampAngle && rampAngle > 0 && points.length >= 2) {
-      const zDrop = Math.abs(depth) + this.safeZ  // Total Z to descend (from safe to depth)
+    if (rampAngle && rampAngle > 0 && points.length >= 2 && depth < 0) {
+      // La rampa arranca en la cara del material (Z0), no en la altura segura
+      const zDrop = Math.abs(depth)
       const rampRad = (rampAngle * Math.PI) / 180
       const rampLength = zDrop / Math.tan(rampRad)  // Horizontal distance needed
+      const rampFeed = Math.min(feedRate, plungeRate * 2)
 
-      // Move to safe Z first, then ramp down along path segments
       lines.push(`G0 Z${this.safeZ}`)
-      let remaining = rampLength
-      let currentZ = 0  // Start from Z0 level
-      let ptIdx = 0
+      lines.push(`G1 Z0.000 F${plungeRate}`)
 
-      while (remaining > 0 && ptIdx < points.length - 1) {
+      // Recorrido de la rampa: [inicio, ..., punto donde llega a profundidad]
+      const trail: Point2D[] = [points[0]]
+      let travelled = 0
+      let ptIdx = 0
+      let currentZ = 0
+
+      while (travelled < rampLength - 1e-9 && ptIdx < points.length - 1) {
         const from = points[ptIdx]
         const to = points[ptIdx + 1]
         const segLen = this.distance(from, to)
-
         if (segLen <= 0.001) {
           ptIdx++
           continue
         }
-
-        if (segLen >= remaining) {
-          // Partial segment — interpolate end point
-          const t = remaining / segLen
-          const interpX = from.x + (to.x - from.x) * t
-          const interpY = from.y + (to.y - from.y) * t
+        const left = rampLength - travelled
+        if (segLen >= left) {
+          const t = left / segLen
+          const end = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t }
           currentZ = depth
-          lines.push(`G1 X${interpX.toFixed(3)} Y${interpY.toFixed(3)} Z${currentZ.toFixed(3)} F${Math.min(feedRate, plungeRate * 2)}`)
-          this.totalDistance += remaining
-          this.totalTime += (remaining / feedRate) * 60
-          remaining = 0
+          move(trail[trail.length - 1], end, rampFeed, currentZ)
+          trail.push(end)
+          travelled = rampLength
         } else {
-          // Full segment
-          const fraction = segLen / rampLength
-          currentZ = Math.max(depth, currentZ - fraction * zDrop)
-          lines.push(`G1 X${to.x.toFixed(3)} Y${to.y.toFixed(3)} Z${currentZ.toFixed(3)} F${Math.min(feedRate, plungeRate * 2)}`)
-          this.totalDistance += segLen
-          this.totalTime += (segLen / feedRate) * 60
-          remaining -= segLen
+          travelled += segLen
+          currentZ = Math.max(depth, -(travelled / rampLength) * zDrop)
+          move(from, to, rampFeed, currentZ)
+          trail.push(to)
           ptIdx++
         }
       }
 
-      // Ensure we're at target depth
+      // El contorno era mas corto que la rampa: el resto baja recto
       if (currentZ > depth) {
         lines.push(`G1 Z${depth.toFixed(3)} F${plungeRate}`)
       }
 
-      // Continue with remaining points at depth
-      for (let i = ptIdx + 1; i < points.length; i++) {
-        const pt = points[i]
-        lines.push(`G1 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${feedRate}`)
-        const prev = points[i - 1]
-        const dist = this.distance(prev, pt)
-        this.totalDistance += dist
-        this.totalTime += (dist / feedRate) * 60
+      // El tramo de la rampa quedo a profundidad parcial: hay que repasarlo
+      // a fondo o la pieza queda unida por una cuna.
+      const rampEnd = trail[trail.length - 1]
+      if (isLoop) {
+        // Lazo: se completa la vuelta y se sigue hasta el fin de la rampa
+        let prev = rampEnd
+        for (let i = ptIdx + 1; i < points.length; i++) {
+          move(prev, points[i])
+          prev = points[i]
+        }
+        move(prev, points[0])
+        for (let i = 1; i < trail.length; i++) move(trail[i - 1], trail[i])
+        endPos = rampEnd
+      } else {
+        // Abierto: se vuelve al inicio a fondo y se recorre entero
+        for (let i = trail.length - 2; i >= 0; i--) move(trail[i + 1], trail[i])
+        for (let i = 1; i < points.length; i++) move(points[i - 1], points[i])
       }
     } else {
       // Standard plunge entry
       lines.push(`G1 Z${depth.toFixed(3)} F${plungeRate}`)
-
-      for (let i = 1; i < points.length; i++) {
-        const pt = points[i]
-        lines.push(`G1 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${feedRate}`)
-
-        const prev = points[i - 1]
-        const dist = this.distance(prev, pt)
-        this.totalDistance += dist
-        this.totalTime += (dist / feedRate) * 60
-      }
+      for (let i = 1; i < points.length; i++) move(points[i - 1], points[i])
+      if (isLoop) move(points[points.length - 1], points[0])
     }
 
-    if (closed && points.length > 2) {
-      lines.push(`G1 X${start.x.toFixed(3)} Y${start.y.toFixed(3)} F${feedRate}`)
-      const last = points[points.length - 1]
-      const dist = this.distance(last, start)
-      this.totalDistance += dist
-      this.totalTime += (dist / feedRate) * 60
-    }
-
-    this.emitLeadOut(lines, closed && points.length > 2 ? points[0] : points[points.length - 1], leadOut, feedRate)
+    this.emitLeadOut(lines, endPos, leadOut, feedRate)
 
     lines.push(`G0 Z${this.safeZ}`)
   }
@@ -1230,7 +1274,8 @@ export class GCodeGenerator {
     depth: number,
     feedRate: number,
     plungeRate: number,
-    tabHeight: number,
+    /** Cota Z absoluta de la cara superior del tab. */
+    tabTopZ: number,
     tabWidth: number,
     tabCount: number,
     /** Posiciones manuales 0..1 sobre el perimetro. Si falta, se reparten parejo. */
@@ -1302,7 +1347,7 @@ export class GCodeGenerator {
     }
 
     // Check if a distance is inside a tab
-    const tabDepth = depth + tabHeight
+    const tabDepth = Math.max(depth, tabTopZ)
     const isInTab = (d: number): boolean => {
       const halfW = tabWidth / 2
       for (const center of tabCenters) {
@@ -1326,13 +1371,15 @@ export class GCodeGenerator {
       const midDist = (enriched[i - 1].dist + pt.dist) / 2
       const nowInTab = isInTab(midDist)
 
-      lines.push(`G1 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${feedRate}`)
-
+      // La Z se ajusta ANTES de recorrer el tramo: hacerlo despues corria
+      // el tab un segmento (se cortaba el tab y se saltaba el tramo vecino).
       if (nowInTab !== inTab) {
         inTab = nowInTab
         currentZ = inTab ? tabDepth : depth
         lines.push(`G1 Z${currentZ.toFixed(3)} F${plungeRate}`)
       }
+
+      lines.push(`G1 X${pt.x.toFixed(3)} Y${pt.y.toFixed(3)} F${feedRate}`)
 
       const prev = enriched[i - 1]
       const dist = this.distance(prev, pt)
@@ -1619,7 +1666,7 @@ export class GCodeGenerator {
   private async emitPlotterBody(paths: GCodePath[], config: GlobalConfig): Promise<string[]> {
     const lines: string[] = []
     const feedRate = parseFloat(String(config.speed || config.feedRate || 1000))
-    const penDown = parseFloat(String(config.pressureZ || -1))
+    const penDown = parseFloat(String(config.pressureZ ?? -1))
     const passes = Math.max(1, config.passes || 1)
     const bladeOffset = config.bladeOffset || 0
     // Presión de pluma/cuchilla: se emite como palabra S en el pen-down.
