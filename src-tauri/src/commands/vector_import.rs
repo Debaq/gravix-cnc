@@ -404,6 +404,12 @@ fn parse_content_stream(data: &[u8]) -> (Vec<Vec<PathCmd>>, bool) {
                             if matches!(op.as_str(), "s" | "b" | "b*") {
                                 current.push(PathCmd::Close);
                             }
+                            // Rellenar cierra cada subtrazado aunque no traiga
+                            // `h`: sin esto un logo relleno llegaba abierto al
+                            // CAM y no se podia compensar ni cajear.
+                            if matches!(op.as_str(), "f" | "F" | "f*" | "B" | "B*" | "b" | "b*") {
+                                close_subpaths(&mut current);
+                            }
                             out.push(std::mem::take(&mut current));
                         } else {
                             current.clear();
@@ -418,6 +424,27 @@ fn parse_content_stream(data: &[u8]) -> (Vec<Vec<PathCmd>>, bool) {
     }
 
     (out, had_text)
+}
+
+/// Cierra todo subtrazado que no termine en `Close` (semantica de relleno).
+fn close_subpaths(cmds: &mut Vec<PathCmd>) {
+    let mut out: Vec<PathCmd> = Vec::with_capacity(cmds.len() + 4);
+    // Cantidad de comandos del subtrazado en curso (un Move solo no encierra nada)
+    let mut len = 0usize;
+    for cmd in cmds.drain(..) {
+        if matches!(cmd, PathCmd::Move(..)) {
+            if len > 1 && !matches!(out.last(), Some(PathCmd::Close)) {
+                out.push(PathCmd::Close);
+            }
+            len = 0;
+        }
+        len += 1;
+        out.push(cmd);
+    }
+    if len > 1 && !matches!(out.last(), Some(PathCmd::Close)) {
+        out.push(PathCmd::Close);
+    }
+    *cmds = out;
 }
 
 fn last2(operands: &[f64]) -> (f64, f64) {
@@ -769,7 +796,12 @@ fn apply_ps_operator(op: &str, ctx: &mut PsContext) {
             ctx.finish_path(false);
             0
         }
-        "stroke" | "fill" | "eofill" => {
+        "stroke" => {
+            ctx.finish_path(true);
+            0
+        }
+        "fill" | "eofill" => {
+            close_subpaths(&mut ctx.current);
             ctx.finish_path(true);
             0
         }
