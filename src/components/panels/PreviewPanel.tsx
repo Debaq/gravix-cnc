@@ -24,7 +24,7 @@ import {
   Scan,
 } from 'lucide-react'
 import { GCodeGenerator } from '@/lib/gcode-generator'
-import { withGenerating } from '@/lib/gcode-run'
+import { buildProgram } from '@/lib/build-program'
 import { generateBoundaryGCode, computeBBox } from '@/components/modals/SetupWizardModal'
 
 function GCodeLineViewer() {
@@ -112,48 +112,7 @@ export function PreviewPanel() {
   const { getJobsForGCode } = useCanvasManager()
 
   const handleGenerate = async () => {
-    const jobs = getJobsForGCode()
-    const isRaster = globalConfig.operationType === 'laser' && globalConfig.laserMode === 'raster'
-
-    if (jobs.length === 0 && !isRaster) {
-      addConsoleLine('No se encontraron elementos validos en el canvas')
-      return
-    }
-
-    if (isRaster && !rasterData) {
-      addConsoleLine('No hay imagen raster cargada - importa una imagen primero')
-      return
-    }
-
-    // Validate: CNC jobs MUST have a tool selected
-    const cncJobsNoTool = jobs.filter(
-      (j) => j.config.operationType === 'cnc' && !j.config.tool,
-    )
-    if (cncJobsNoTool.length > 0) {
-      for (const j of cncJobsNoTool) {
-        addConsoleLine(`ERROR: "${j.elementName}" no tiene herramienta asignada`)
-      }
-      addConsoleLine('Selecciona una herramienta para cada elemento CNC antes de generar')
-      return
-    }
-
-    addConsoleLine('Generando G-code...')
-
-    const { result, est } = await withGenerating(async () => {
-      const generator = new GCodeGenerator()
-      const out = await generator.generateFromJobs(jobs, rasterData)
-      return { result: out, est: generator.getEstimates() }
-    })
-
-    setGCode(result)
-    setEstimates({
-      time: est.time > 60 ? `${(est.time / 60).toFixed(1)} min` : `${est.time.toFixed(0)} seg`,
-      distance: est.distance > 1000 ? `${(est.distance / 1000).toFixed(2)} m` : `${est.distance.toFixed(1)} mm`,
-    })
-
-    const lineCount = result.split('\n').length
-    const uniqueTools = new Set(jobs.map(j => j.config.tool).filter(Boolean)).size
-    addConsoleLine(`G-code generado: ${lineCount} lineas, ${jobs.length} elementos, ${uniqueTools} herramientas`)
+    await buildProgram(getJobsForGCode())
   }
 
   const handleDownload = () => {

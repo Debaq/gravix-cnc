@@ -4,7 +4,7 @@ import { useAppStore } from '@/stores/useAppStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useCanvasManager } from '@/hooks/useCanvasManager'
 import { useProject } from '@/hooks/useProject'
-import { GCodeGenerator } from '@/lib/gcode-generator'
+import { createGenerator, plannedJobs, setupGeneratorParams } from '@/lib/build-program'
 import { computeTileGrid, generateTiles, tileHeader } from '@/lib/tiling'
 import type { Tile, TilingConfig } from '@/lib/tiling'
 import type { GCodeJob } from '@/lib/types'
@@ -54,7 +54,8 @@ export function TilingModal() {
     if (!isOpen) return []
     if (tileWidth <= overlap || tileHeight <= overlap) return []
 
-    const jobs = getJobsForGCode()
+    // Mismo plan que el G-code normal: operaciones apagadas no se tilean
+    const jobs = plannedJobs(getJobsForGCode())
     const allPaths = jobs.flatMap((j) => j.paths)
     if (allPaths.length === 0) return []
 
@@ -85,7 +86,7 @@ export function TilingModal() {
     try {
       for (let i = 0; i < buckets.length; i++) {
         const bucket = buckets[i]
-        const generator = new GCodeGenerator()
+        const generator = createGenerator(setupGeneratorParams())
         const body = await generator.generateFromJobs(bucket.jobs)
         const gcode = [...tileHeader(bucket.tile, buckets.length, i), body].join('\n')
         const name = `tile_r${bucket.tile.row + 1}c${bucket.tile.col + 1}.gcode`

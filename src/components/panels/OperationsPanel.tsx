@@ -11,7 +11,7 @@ import { useSerialStore } from '@/stores/useSerialStore'
 import { useSerial } from '@/hooks/useSerial'
 import { useProject } from '@/hooks/useProject'
 import { useFlatCAM } from '@/hooks/useFlatCAM'
-import { GCodeGenerator } from '@/lib/gcode-generator'
+import { buildProgram } from '@/lib/build-program'
 import { applyCAMPlan, jobsBBox, resolveStock, checkStockCoverage } from '@/lib/cam-jobs'
 import { findCollisions, summarizeCollisions, toolProfileFrom } from '@/lib/collision'
 import { parseGCode } from '@/lib/gcode-parser'
@@ -492,182 +492,11 @@ function GenerateActions() {
   // lo que haya quedado guardado no tiene que avisar ni bloquear
   const flat = useFlatCAM()
 
+  // Toda la validacion y el armado viven en `buildProgram`: es el mismo
+  // camino que usan los demas botones de generar.
   const handleGenerate = useCallback(async () => {
-    // Block if CAM operations have errors
-    const { operations, soloOperationId } = useCAMStore.getState()
-    const errors = operations.filter((o) => o.status === 'error' && opRunsInGCode(o, soloOperationId))
-    if (errors.length > 0) {
-      for (const err of errors) {
-        addConsoleLine(`ERROR: ${err.elementName} — ${err.warnings.join(', ')}`)
-      }
-      addConsoleLine('Corrige los errores antes de generar G-code')
-      toast.error('G-code bloqueado por errores en el arbol', {
-        detail: errors.map((e) => `${e.elementName}: ${e.warnings.join(', ')}`).join(' | '),
-      })
-      return
-    }
-
-    const camState = useCAMStore.getState()
-    const rawJobs = getJobsForGCode()
-
-    // El arbol de CAM manda: apagar, reordenar o aislar una operacion ahi
-    // tiene que verse en el G-code.
-    const jobs = applyCAMPlan(rawJobs, {
-      order: camState.operationOrder,
-      disabled: new Set(camState.operations.filter((o) => !o.enabled).map((o) => o.id)),
-      soloId: camState.soloOperationId,
-      optimize: camState.setup.optimizeOrder,
-    })
-
-    if (rawJobs.length > 0 && jobs.length === 0) {
-      addConsoleLine('Todas las operaciones estan apagadas')
-      toast.warning('Todas las operaciones estan apagadas')
-      return
-    }
-    if (camState.setup.optimizeOrder) {
-      addConsoleLine('Orden optimizado por cercania entre operaciones')
-    }
-
-    const isRaster = globalConfig.operationType === 'laser' && globalConfig.laserMode === 'raster'
-
-    if (jobs.length === 0 && !isRaster) {
-      addConsoleLine('No se encontraron elementos validos en el canvas')
-      toast.warning('No hay elementos validos en el canvas')
-      return
-    }
-
-    // Avisos de stock (la profundidad por operacion ya la valida el arbol)
-    const stock = camState.setup.stock
-    if (stock.enabled && !flat) {
-      const resolved = resolveStock(stock, jobsBBox(jobs))
-      for (const warn of checkStockCoverage(resolved, jobsBBox(jobs))) {
-        addConsoleLine(`WARN: ${warn}`)
-      }
-    }
-    if (isRaster && !rasterData) {
-      addConsoleLine('No hay imagen raster cargada')
-      toast.warning('No hay imagen raster cargada')
-      return
-    }
-
-    // Build markers from CAM store timeline markers
-    const { markers: camMarkers } = useCAMStore.getState()
-    const gcodeMarkers: import('@/lib/types').GCodeMarker[] = []
-
-    if (camMarkers.length > 0 && jobs.length > 0) {
-      for (const marker of camMarkers) {
-        // Map progress % to job index
-        const jobIdx = Math.min(
-          Math.floor((marker.progress / 100) * jobs.length),
-          jobs.length - 1,
-        )
-        gcodeMarkers.push({
-          type: marker.type,
-          message: marker.message,
-          afterJobIndex: jobIdx,
-          parkPosition: marker.parkPosition,
-        })
-      }
-    }
-
-    // Check clamp collisions with cut paths
-    const { setup } = useCAMStore.getState()
-    const clamps = flat ? [] : setup.clamps
-    if (clamps.length > 0) {
-      for (const job of jobs) {
-        for (const path of job.paths) {
-          for (let i = 0; i < path.points.length - 1; i++) {
-            const a = path.points[i]
-            const b = path.points[i + 1]
-            for (const clamp of clamps) {
-              // Liang-Barsky line-rect intersection
-              const dx = b.x - a.x, dy = b.y - a.y
-              const p = [-dx, dx, -dy, dy]
-              const q = [a.x - clamp.x, clamp.x + clamp.width - a.x, a.y - clamp.y, clamp.y + clamp.height - a.y]
-              let u1 = 0, u2 = 1, collision = true
-              for (let k = 0; k < 4; k++) {
-                if (p[k] === 0) { if (q[k] < 0) { collision = false; break } }
-                else { const t = q[k] / p[k]; if (p[k] < 0) { if (t > u2) { collision = false; break }; if (t > u1) u1 = t } else { if (t < u1) { collision = false; break }; if (t < u2) u2 = t } }
-              }
-              if (collision && u1 <= u2) {
-                addConsoleLine(`ERROR: "${job.elementName}" colisiona con clamp "${clamp.label}" — mueve el clamp o el elemento`)
-                toast.error('G-code bloqueado: colision con un clamp', {
-                  detail: `"${job.elementName}" pasa por "${clamp.label}"`,
-                })
-                return
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // Pass clamps to generator for rapid avoidance
-    const clampRects = clamps.map((c) => ({ x: c.x, y: c.y, width: c.width, height: c.height, zHeight: c.zHeight }))
-
-    // Validate tool diameter vs path geometry for CNC operations
-    let hasToolGeometryError = false
-    for (const job of jobs) {
-      if (job.config.operationType !== 'cnc') continue
-      const toolDiam = parseFloat(String(job.config.toolDiameter))
-      if (!toolDiam || toolDiam <= 0) continue
-
-      const pathData = job.paths.map(p => ({ points: p.points, closed: p.closed }))
-      const validation = validateToolVsPaths(pathData, toolDiam, job.config.workType)
-
-      for (const err of validation.errors) {
-        addConsoleLine(`ERROR: "${job.elementName}" — ${err}`)
-        hasToolGeometryError = true
-      }
-      for (const warn of validation.warnings) {
-        addConsoleLine(`WARN: "${job.elementName}" — ${warn}`)
-      }
-    }
-
-    if (hasToolGeometryError) {
-      addConsoleLine('Generacion bloqueada: herramienta demasiado grande para la geometria. Usa una herramienta mas pequena o cambia la estrategia.')
-      toast.error('G-code bloqueado: herramienta demasiado grande para la geometria')
-      return
-    }
-
-    addConsoleLine('Generando G-code...')
-    const { result, est } = await withGenerating(async () => {
-      const generator = new GCodeGenerator()
-      generator.setSafeZ(useCAMStore.getState().setup.safeZ)
-      const out = await generator.generateFromJobs(jobs, rasterData, gcodeMarkers, clampRects)
-      return { result: out, est: generator.getEstimates() }
-    })
-
-    setGCode(result)
-    setEstimates({
-      time: est.time > 60 ? `${(est.time / 60).toFixed(1)} min` : `${est.time.toFixed(0)} seg`,
-      distance: est.distance > 1000 ? `${(est.distance / 1000).toFixed(2)} m` : `${est.distance.toFixed(1)} mm`,
-    })
-
-    const lineCount = result.split('\n').length
-    const uniqueTools = new Set(jobs.map((j) => j.config.tool).filter(Boolean)).size
-    addConsoleLine(`G-code generado: ${lineCount} lineas, ${jobs.length} elementos, ${uniqueTools} herramientas`)
-
-    // Colision de herramienta y portaherramientas contra las mordazas. El
-    // chequeo previo mira solo el eje de la fresa en planta; este mira el
-    // volumen real a cada altura, que es donde pega la tuerca del portapinzas.
-    if (clamps.length > 0) {
-      const { tools } = useLibraryStore.getState()
-      const cncJob = jobs.find((j) => j.config.operationType === 'cnc')
-      if (cncJob) {
-        const tool = cncJob.config.tool ? tools.find((t) => t.id === cncJob.config.tool) : null
-        const profile = toolProfileFrom(tool, cncJob.config.toolDiameter)
-        const moves = parseGCode(result).segments.map((seg) => ({ from: seg.from, to: seg.to }))
-        const hits = findCollisions(moves, clampRects, profile, clamps.map((c) => c.label))
-        for (const line of summarizeCollisions(hits)) {
-          addConsoleLine(`WARN: ${line}`)
-        }
-        if (hits.length > 0) {
-          addConsoleLine('Revisa las medidas del portaherramientas en la libreria si el aviso no corresponde')
-        }
-      }
-    }
-  }, [getJobsForGCode, globalConfig, rasterData, addConsoleLine, setGCode, setEstimates, flat])
+    await buildProgram(getJobsForGCode())
+  }, [getJobsForGCode])
 
   const handleDownload = () => {
     if (!gcodeGenerated) return

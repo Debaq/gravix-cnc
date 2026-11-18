@@ -5,7 +5,7 @@ import { useCanvasStore, GEOMETRIC_SNAP_KINDS } from '@/stores/useCanvasStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import { useAppStore } from '@/stores/useAppStore'
 import { GCodeGenerator } from '@/lib/gcode-generator'
-import { withGenerating } from '@/lib/gcode-run'
+import { buildProgram } from '@/lib/build-program'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -197,30 +197,7 @@ export function CanvasToolbar() {
   const hasMultipleSelection = isGroupSelection || selectedElements.length > 1
 
   const handleGenerate = async () => {
-    const jobs = cm.getJobsForGCode()
-    const isRaster = globalConfig.operationType === 'laser' && globalConfig.laserMode === 'raster'
-
-    if (jobs.length === 0 && !isRaster) {
-      addConsoleLine('No se encontraron elementos validos en el canvas')
-      return
-    }
-
-    addConsoleLine('Generando G-code...')
-    const { result, est } = await withGenerating(async () => {
-      const generator = new GCodeGenerator()
-      const out = await generator.generateFromJobs(jobs, rasterData)
-      return { result: out, est: generator.getEstimates() }
-    })
-
-    setGCode(result)
-    setEstimates({
-      time: est.time > 60 ? `${(est.time / 60).toFixed(1)} min` : `${est.time.toFixed(0)} seg`,
-      distance: est.distance > 1000 ? `${(est.distance / 1000).toFixed(2)} m` : `${est.distance.toFixed(1)} mm`,
-    })
-
-    const lineCount = result.split('\n').length
-    addConsoleLine(`G-code generado: ${lineCount} lineas, ${jobs.length} elementos`)
-    setWorkspace('cam')
+    if (await buildProgram(cm.getJobsForGCode())) setWorkspace('cam')
   }
 
   const cols = toolbarColumns

@@ -60,6 +60,38 @@ export class GCodeGenerator {
     if (Number.isFinite(z) && z > 0) this.safeZ = z
   }
 
+  /** Corrimiento de Z del programa entero (mm). Ver `setZShift`. */
+  private zShift = 0
+
+  /**
+   * Cero de pieza en la mesa: el programa se genera con Z0 en la cara
+   * superior y al final se sube todo el grosor del material. Sin esto, con
+   * "cero en la mesa" la fresa cortaba hacia abajo dentro de la mesa.
+   */
+  setZShift(dz: number) {
+    this.zShift = Number.isFinite(dz) ? dz : 0
+  }
+
+  private applyZShift(lines: string[]): string[] {
+    if (this.zShift === 0) return lines
+    const dz = this.zShift
+    const shift = (_: string, word: string, num: string) =>
+      `${word}${(parseFloat(num) + dz).toFixed(3)}`
+    const out = lines.map((line) => {
+      const semi = line.indexOf(';')
+      const code = semi >= 0 ? line.slice(0, semi) : line
+      const comment = semi >= 0 ? line.slice(semi) : ''
+      // Coordenadas de maquina y definiciones de offset no se tocan
+      if (!code.trim() || /\b(G53|G10|G92|G28|G30)\b/i.test(code)) return line
+      let shifted = code.replace(/\b(Z)(-?\d*\.?\d+)/gi, shift)
+      // El plano R de los ciclos de taladrado tambien es una cota Z
+      if (/\bG8[123]\b/i.test(code)) shifted = shifted.replace(/\b(R)(-?\d*\.?\d+)/gi, shift)
+      return shifted + comment
+    })
+    out.unshift(`; Cero de pieza en la mesa: Z desplazada +${dz}mm (grosor del material)`)
+    return out
+  }
+
   constructor(machine?: MachineProfile | null) {
     // Si no se provee, lee la máquina activa del store.
     this.machine = machine !== undefined
@@ -187,7 +219,7 @@ export class GCodeGenerator {
     const photoJob = jobs.find(j => j.config.operationType === 'cnc' && j.config.workType === 'photoVcarve')
     if (photoJob && rasterData) {
       lines.push(...await this.generatePhotoVCarveJob(rasterData, photoJob.config))
-      return lines.join('\n')
+      return this.applyZShift(lines).join('\n')
     }
 
     // Filter out jobs with no paths
@@ -364,10 +396,10 @@ export class GCodeGenerator {
 
     // Post-process: add clamp avoidance on rapids
     if (this.clamps.length > 0) {
-      return this.avoidClampsOnRapids(lines).join('\n')
+      return this.applyZShift(this.avoidClampsOnRapids(lines)).join('\n')
     }
 
-    return lines.join('\n')
+    return this.applyZShift(lines).join('\n')
   }
 
   /**

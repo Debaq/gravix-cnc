@@ -13,7 +13,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Progress } from '@/components/ui/progress'
 import { Code, Download, Copy, Cog, AlertTriangle, Square, ListPlus, Scan, Loader2, Grid2X2 } from 'lucide-react'
 import { GCodeGenerator } from '@/lib/gcode-generator'
-import { withGenerating } from '@/lib/gcode-run'
+import { buildProgram } from '@/lib/build-program'
 import { generateBoundaryGCode, computeBBox } from '@/components/modals/SetupWizardModal'
 
 export function GCodePanel() {
@@ -30,41 +30,7 @@ export function GCodePanel() {
   const { getJobsForGCode } = useCanvasManager()
 
   const handleGenerate = async () => {
-    const jobs = getJobsForGCode()
-    // Los dos modos que tallan/graban desde la imagen y no desde la geometria
-    const isLaserRaster = globalConfig.operationType === 'laser' && globalConfig.laserMode === 'raster'
-    const isPhotoVCarve = globalConfig.operationType === 'cnc' && globalConfig.workType === 'photoVcarve'
-    const fromImage = isLaserRaster || isPhotoVCarve
-
-    if (jobs.length === 0 && !fromImage) {
-      addConsoleLine('No se encontraron elementos validos en el canvas')
-      return
-    }
-
-    if (fromImage && !rasterData) {
-      addConsoleLine('No hay imagen cargada - importa una imagen primero')
-      return
-    }
-
-    addConsoleLine('Generando G-code...')
-
-    const { result, est } = await withGenerating(async () => {
-      const generator = new GCodeGenerator()
-      const out = await generator.generateFromJobs(jobs, rasterData)
-      return { result: out, est: generator.getEstimates() }
-    })
-
-    setGCode(result)
-    setEstimates({
-      time: est.time > 60 ? `${(est.time / 60).toFixed(1)} min` : `${est.time.toFixed(0)} seg`,
-      distance: est.distance > 1000 ? `${(est.distance / 1000).toFixed(2)} m` : `${est.distance.toFixed(1)} mm`,
-    })
-
-    const lineCount = result.split('\n').length
-    const uniqueTools = new Set(jobs.map(j => j.config.tool).filter(Boolean)).size
-    addConsoleLine(`G-code generado: ${lineCount} lineas, ${jobs.length} elementos, ${uniqueTools} herramientas`)
-
-    setWorkspace('cam')
+    if (await buildProgram(getJobsForGCode())) setWorkspace('cam')
   }
 
   const handleDownload = () => {
