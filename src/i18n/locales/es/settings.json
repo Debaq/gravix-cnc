@@ -7,7 +7,7 @@
     "presets": "Preajustes"
   },
   "globalConfig": {
-    "title": "Configuracion Global de Mecanizado",
+    "title": "Valores por defecto del proyecto",
     "operationType": "Tipo de Operacion",
     "tool": "Herramienta",
     "noTool": "Sin herramienta",
@@ -64,7 +64,8 @@
     "photoVertical": "Vertical",
     "photoStep": "Paso de muestreo (mm)",
     "photoInvert": "Invertir tonos (claro = profundo)",
-    "photoBidirectional": "Tallar en zig-zag"
+    "photoBidirectional": "Tallar en zig-zag",
+    "defaultsHint": "Se aplican a las piezas nuevas y a las que no tienen parametros propios. Los de cada pieza se editan en CAM."
   },
   "laserModes": {
     "cut": "Corte",

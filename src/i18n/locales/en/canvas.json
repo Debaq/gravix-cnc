@@ -60,7 +60,7 @@
   "bringToFront": "Bring to front",
   "sendToBack": "Send to back",
   "customConfig": "Custom config",
-  "useGlobal": "Using global config",
+  "useGlobal": "Uses the project defaults",
   "workTypeLabel": "Work type",
   "toolLabel": "Tool",
   "noTool": "No tool",

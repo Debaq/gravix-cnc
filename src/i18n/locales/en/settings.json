@@ -7,7 +7,7 @@
     "presets": "Presets"
   },
   "globalConfig": {
-    "title": "Global Machining Configuration",
+    "title": "Project defaults",
     "operationType": "Operation Type",
     "tool": "Tool",
     "noTool": "No tool",
@@ -64,7 +64,8 @@
     "photoVertical": "Vertical",
     "photoStep": "Sampling step (mm)",
     "photoInvert": "Invert tones (light = deep)",
-    "photoBidirectional": "Zig-zag carving"
+    "photoBidirectional": "Zig-zag carving",
+    "defaultsHint": "Applied to new parts and to parts without their own parameters. Per-part parameters are edited in CAM."
   },
   "laserModes": {
     "cut": "Cut",

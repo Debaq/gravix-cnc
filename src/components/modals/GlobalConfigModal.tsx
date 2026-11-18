@@ -93,7 +93,7 @@ export function GlobalConfigModal() {
       <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t('globalConfig.title')}</DialogTitle>
-          <DialogDescription>{t('globalConfig.operationType')}</DialogDescription>
+          <DialogDescription>{t('globalConfig.defaultsHint')}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
