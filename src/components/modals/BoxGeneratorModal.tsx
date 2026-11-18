@@ -1,3 +1,4 @@
+import { PIXELS_PER_MM } from '@/lib/units'
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/stores/useAppStore'
@@ -70,7 +71,7 @@ export function BoxGeneratorModal() {
   const handleAdd = () => {
     if (!boxResult) return
     // Generate SVG with pixel scale for canvas
-    const PX_PER_MM = 3.78
+    const PX_PER_MM = PIXELS_PER_MM
     const svgString = generateBoxSvg(boxResult.result, boxResult.params, PX_PER_MM)
     const blob = new Blob([svgString], { type: 'image/svg+xml' })
     const file = new File(

@@ -5,6 +5,7 @@ import { useGCodeStore } from '@/stores/useGCodeStore'
 import { isTauri, tauriInvoke } from '@/lib/tauri'
 import { getSharedCanvas, ELEMENT_ID_KEY, NON_INTERACTIVE_KEY } from '@/hooks/useCanvasManager'
 import type { Layer, ProjectData } from '@/lib/types'
+import { PIXELS_PER_MM, rescaleCanvasSnapshot } from '@/lib/units'
 import { useCAMStore, type CAMSnapshot } from '@/stores/useCAMStore'
 import { DEFAULT_PRINT_CUT, type PrintCutSetup } from '@/lib/print-cut'
 
@@ -103,6 +104,7 @@ export function useProject() {
         sheets,
         activeSheetId,
         layers: useCanvasStore.getState().layers,
+        pxPerMm: PIXELS_PER_MM,
         activeLayerId: useCanvasStore.getState().activeLayerId,
         // Setup de CAM (stock, clamps, safe Z, marcadores, orden de ops):
         // sin esto se perdia entero al cerrar el proyecto
@@ -205,6 +207,7 @@ export function useProject() {
       printCut?: PrintCutSetup
       layers?: Layer[]
       activeLayerId?: string
+      pxPerMm?: number
     } | undefined
     setSheets(ext?.sheets ?? [], ext?.activeSheetId)
     useCanvasStore.setState({ printCut: DEFAULT_PRINT_CUT })
@@ -215,7 +218,7 @@ export function useProject() {
     useCanvasStore.getState().restoreLayers(ext?.layers, ext?.activeLayerId)
 
     // La geometria la levanta DesignCanvas cuando ve el snapshot pendiente
-    setPendingCanvasJSON(ext?.canvas ?? null)
+    setPendingCanvasJSON(ext?.canvas ? rescaleCanvasSnapshot(ext.canvas, ext.pxPerMm) : null)
 
     if (data.gcode.generated && data.gcode.code) {
       setGCode(data.gcode.code)

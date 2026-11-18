@@ -1,3 +1,4 @@
+import { PIXELS_PER_MM } from '@/lib/units'
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/stores/useAppStore'
@@ -87,7 +88,7 @@ export function TextToPathModal() {
     // Fit to canvas
     ctx.save()
     // Measure by drawing off-screen — use a simple scale approach
-    const scale = Math.min(canvas.width / (fontSize * 3.78 * Math.max(text.length, 1) * 0.7), canvas.height / (fontSize * 3.78 * 1.4), 1)
+    const scale = Math.min(canvas.width / (fontSize * PIXELS_PER_MM * Math.max(text.length, 1) * 0.7), canvas.height / (fontSize * PIXELS_PER_MM * 1.4), 1)
     const offsetX = 10
     const offsetY = canvas.height / 2
     ctx.translate(offsetX, offsetY)

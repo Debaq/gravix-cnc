@@ -33,6 +33,7 @@ import { linearizeCubicBezier, linearizeQuadraticBezier, arcFrom3Points, catmull
 import { booleanOperation } from '@/lib/boolean-ops'
 import { autoJoinPaths, removeTinySpans, removeDuplicatePaths } from '@/lib/vector-diagnostics'
 import { offsetPolygon } from '@/lib/geometry'
+import { PIXELS_PER_MM, WORK_AREA_PADDING } from '@/lib/units'
 import { parseDxf, dxfToFabricObjects, lastDxfReport } from '@/lib/dxf-parser'
 import {
   GRID_MINOR_COLOR,
@@ -57,10 +58,8 @@ export function setSharedCanvas(canvas: Canvas | null): void {
 // ============================================
 // Constants
 // ============================================
-const PIXELS_PER_MM = 3.78 // ~96 DPI -> 3.78 px/mm
 const GRID_SPACING_MM = 20
 const GRID_MAJOR_EVERY = 5 // linea gruesa cada 5 * 20mm = 100mm
-const WORK_AREA_PADDING = 40 // px padding around work area
 const MIN_ZOOM = 0.1
 const MAX_ZOOM = 20
 const ZOOM_STEP = 1.1

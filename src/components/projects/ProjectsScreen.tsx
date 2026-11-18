@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/stores/useAppStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { canvasSnapshotFromElements } from '@/lib/project-file'
+import { rescaleCanvasSnapshot } from '@/lib/units'
 import { useCAMStore } from '@/stores/useCAMStore'
 import { useGCodeStore } from '@/stores/useGCodeStore'
 import { useLibraryStore } from '@/stores/useLibraryStore'
@@ -275,8 +276,13 @@ export function ProjectsScreen() {
 
         // La geometria la levanta DesignCanvas al montarse. En archivos <= 1.2
         // no hay snapshot, pero si la copia que quedaba colgada de cada elemento.
+        // Los archivos anteriores a 1.7 se guardaron con otra escala px/mm:
+        // se reescalan para que cada objeto conserve su medida en mm.
         setPendingCanvasJSON(
-          data.canvas ?? canvasSnapshotFromElements(data.elements ?? []),
+          rescaleCanvasSnapshot(
+            data.canvas ?? canvasSnapshotFromElements(data.elements ?? []),
+            data.pxPerMm,
+          ),
         )
 
         // Setup de CAM guardado (o defaults limpios si el archivo es viejo)

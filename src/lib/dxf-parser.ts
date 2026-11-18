@@ -4,7 +4,7 @@ import type { Point2D } from './types'
 // Factor de escala DXF (generalmente mm) a Pixeles del canvas
 import { OBJECT_STROKE_COLOR } from '@/lib/canvas-theme'
 
-const PIXELS_PER_MM = 3.78
+import { PIXELS_PER_MM } from './units'
 
 interface DxfEntity {
   type: string

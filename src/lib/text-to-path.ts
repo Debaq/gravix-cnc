@@ -1,4 +1,5 @@
 import opentype, { type Font } from 'opentype.js'
+import { PIXELS_PER_MM } from './units'
 
 export type { Font }
 
@@ -33,7 +34,7 @@ export function textToSvgPath(
   font: Font,
   sizeMm: number,
   letterSpacing = 0,
-  pixelsPerMm = 3.78,
+  pixelsPerMm = PIXELS_PER_MM,
 ): string {
   const sizePx = sizeMm * pixelsPerMm
   const spacingPx = letterSpacing * pixelsPerMm

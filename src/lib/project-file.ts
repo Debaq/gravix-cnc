@@ -6,6 +6,7 @@ import type { CanvasElement, GlobalConfig, Layer, OperationType, WorkArea } from
 import type { Sheet } from '@/stores/useCanvasStore'
 import { useCAMStore, type CAMSnapshot } from '@/stores/useCAMStore'
 import type { PrintCutSetup } from './print-cut'
+import { PIXELS_PER_MM } from './units'
 
 /**
  * Formato del archivo `.gravix`.
@@ -53,9 +54,11 @@ export interface GravixFile {
   origin?: WorkArea['origin']
   layers?: Layer[]
   activeLayerId?: string
+  /** Desde 1.7: escala px/mm con la que se guardo `canvas` (antes 3.78). */
+  pxPerMm?: number
 }
 
-export const GRAVIX_FILE_VERSION = '1.6.0'
+export const GRAVIX_FILE_VERSION = '1.7.0'
 
 /** Arma el contenido del `.gravix` con el estado actual de los stores. */
 export function serializeGravixProject(createdAt?: number): GravixFile {
@@ -96,6 +99,7 @@ export function serializeGravixProject(createdAt?: number): GravixFile {
     origin: workArea.origin,
     layers,
     activeLayerId,
+    pxPerMm: PIXELS_PER_MM,
   }
 }
 
