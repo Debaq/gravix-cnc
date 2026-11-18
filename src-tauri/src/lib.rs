@@ -87,6 +87,7 @@ pub fn run() {
                 server_running: AtomicBool::new(false),
                 server_port: AtomicU16::new(0),
                 server_shutdown: Notify::new(),
+                access_key: uuid::Uuid::new_v4().simple().to_string()[..8].to_uppercase(),
             });
 
             app.manage(shared.serial.clone());

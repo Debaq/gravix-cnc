@@ -11,6 +11,7 @@ pub struct ServerStatus {
     pub running: bool,
     pub port: u16,
     pub ips: Vec<String>,
+    pub access_key: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -27,6 +28,7 @@ pub fn get_server_status(state: State<'_, Arc<AppState>>) -> ServerStatus {
         running: state.server_running.load(Ordering::SeqCst),
         port: state.server_port.load(Ordering::SeqCst),
         ips: web_server::get_local_ips(),
+        access_key: state.access_key.clone(),
     }
 }
 

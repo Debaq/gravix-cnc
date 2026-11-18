@@ -29,6 +29,8 @@ interface ServerStatus {
   running: boolean
   port: number
   ips: string[]
+  /** Clave que tienen que presentar los otros equipos. */
+  access_key: string
 }
 
 export function NetworkServerModal() {
@@ -36,7 +38,7 @@ export function NetworkServerModal() {
   const isOpen = activeModal === 'networkServer'
 
   const [port, setPort] = useState(3333)
-  const [status, setStatus] = useState<ServerStatus>({ running: false, port: 0, ips: [] })
+  const [status, setStatus] = useState<ServerStatus>({ running: false, port: 0, ips: [], access_key: '' })
   const [portAvailable, setPortAvailable] = useState<boolean | null>(null)
   const [firewallTips, setFirewallTips] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
@@ -127,7 +129,8 @@ export function NetworkServerModal() {
   }
 
   const copyUrl = (ip: string) => {
-    const url = `http://${ip}:${status.port}`
+    // La clave viaja en el enlace: quien lo abre entra sin tipearla
+    const url = `http://${ip}:${status.port}/?k=${status.access_key}`
     navigator.clipboard.writeText(url)
     addConsoleLine(`URL copiada: ${url}`)
   }
@@ -230,6 +233,10 @@ export function NetworkServerModal() {
                 <Wifi className="h-4 w-4" />
                 Acceder desde otro equipo
               </label>
+              <p className="text-xs text-muted-foreground">
+                Clave de acceso: <span className="font-mono font-semibold text-foreground">{status.access_key}</span>
+                {' '}— va incluida en el enlace copiado. Cambia cada vez que se abre Gravix.
+              </p>
               <div className="space-y-1">
                 {status.ips.map((ip) => (
                   <div

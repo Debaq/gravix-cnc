@@ -1,3 +1,5 @@
+import { askAccessKey, getAccessKey } from './access-key'
+
 const API_BASE = `${window.location.protocol}//${window.location.host}/api`
 
 interface RouteInfo {
@@ -55,7 +57,15 @@ export async function httpInvoke<T>(
     options.body = JSON.stringify(args)
   }
 
-  const response = await fetch(url, options)
+  const send = () =>
+    fetch(url, { ...options, headers: { ...options.headers, 'X-Gravix-Key': getAccessKey() } })
+
+  let response = await send()
+  // Sin clave valida el servidor responde 401: se pide una vez y se reintenta
+  if (response.status === 401) {
+    const key = await askAccessKey()
+    if (key) response = await send()
+  }
 
   if (!response.ok) {
     const error = await response.text()

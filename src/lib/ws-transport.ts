@@ -1,3 +1,5 @@
+import { getAccessKey } from './access-key'
+
 type EventHandler<T> = (payload: T) => void
 
 const EVENT_TYPE_MAP: Record<string, string> = {
@@ -20,7 +22,7 @@ class WebSocketTransport {
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const url = `${protocol}//${window.location.host}/ws`
+    const url = `${protocol}//${window.location.host}/ws?key=${encodeURIComponent(getAccessKey())}`
 
     this.ws = new WebSocket(url)
 

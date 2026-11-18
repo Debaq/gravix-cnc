@@ -355,6 +355,38 @@ async fn require_local(
     Ok(next.run(request).await)
 }
 
+// --- Middleware: clave de acceso para los equipos de la red ---
+
+/// El propio equipo entra siempre. Cualquier otro tiene que presentar la
+/// clave que muestra Gravix (cabecera `X-Gravix-Key` o `?key=` en el
+/// WebSocket, que no admite cabeceras desde el navegador).
+async fn require_key(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    if addr.ip().is_loopback() {
+        return Ok(next.run(request).await);
+    }
+    let from_header = request
+        .headers()
+        .get("x-gravix-key")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    let from_query = request.uri().query().and_then(|q| {
+        q.split('&')
+            .find_map(|kv| kv.strip_prefix("key="))
+            .map(str::to_string)
+    });
+    let given = from_header.or(from_query).unwrap_or_default();
+    if !given.is_empty() && given.eq_ignore_ascii_case(&state.access_key) {
+        Ok(next.run(request).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
+}
+
 // --- Endpoint de rol ---
 
 async fn role_handler(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> Json<serde_json::Value> {
@@ -414,11 +446,17 @@ fn build_router(state: Arc<AppState>) -> Router {
             "/jobs/{id}/cancel",
             post(cancel_job_handler).layer(middleware::from_fn(require_local)),
         )
+        .layer(middleware::from_fn_with_state(state.clone(), require_key))
+        // `/role` queda afuera de la clave: es lo primero que pide la pagina
+        // para saber si corre en el propio equipo o en uno remoto.
         .route("/role", get(role_handler));
 
     Router::new()
         .nest("/api", api)
-        .route("/ws", get(ws_handler))
+        .route(
+            "/ws",
+            get(ws_handler).layer(middleware::from_fn_with_state(state.clone(), require_key)),
+        )
         .fallback_service(
             ServeDir::new(&dist_dir)
                 .not_found_service(ServeFile::new(dist_dir.join("index.html"))),

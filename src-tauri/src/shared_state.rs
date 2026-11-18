@@ -30,4 +30,7 @@ pub struct AppState {
     pub server_port: AtomicU16,
     /// Señal para detener el servidor
     pub server_shutdown: Notify,
+    /// Clave que deben presentar los equipos de la red (no el propio).
+    /// Se genera en cada arranque.
+    pub access_key: String,
 }
