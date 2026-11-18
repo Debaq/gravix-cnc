@@ -37,7 +37,19 @@ export function textToSvgPath(
 ): string {
   const sizePx = sizeMm * pixelsPerMm
   const spacingPx = letterSpacing * pixelsPerMm
-  const path = font.getPath(text, 0, sizePx, sizePx, { letterSpacing: spacingPx / sizePx })
-  return path.toPathData(2)
+  // `getPath` ignora los saltos de linea: cada renglon se traza por separado
+  // y baja un interlineado (antes todo el texto salia en un solo renglon).
+  const lineHeight = sizePx * 1.2
+  return text
+    .split(/\r?\n/)
+    .map((line, i) =>
+      line.trim() === ''
+        ? ''
+        : font
+            .getPath(line, 0, sizePx + i * lineHeight, sizePx, { letterSpacing: spacingPx / sizePx })
+            .toPathData(2),
+    )
+    .filter(Boolean)
+    .join(' ')
 }
 
