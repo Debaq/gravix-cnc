@@ -35,6 +35,7 @@ mdns-sd = "0.11"
 jsonwebtoken = "9"
 ts-rs = "10"
 tauri-plugin-updater = "2.11.0"
+tauri-plugin-process = "2.3.1"
 nusb = "0.2"
 btleplug = "0.13.2"
 
@@ -42,4 +43,3 @@ btleplug = "0.13.2"
 # llega al DOM. Para apagarlo hay que hablarle al widget directamente.
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0"
-tauri-plugin-process = "2.3.1"
